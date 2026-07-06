@@ -1,0 +1,2 @@
+- [Yzu视频 API response shapes](yzu-video-api-shapes.md) — generated hooks return arrays vs paginated objects; must match when accessing `.data`
+- [Yzu视频 JWT secret](yzu-video-jwt.md) — SESSION_SECRET env var is required at startup (no fallback allowed)

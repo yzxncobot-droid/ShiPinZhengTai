@@ -3,20 +3,33 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Yzu视频 Premium Video Platform API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
-    description: Health operations
+  - name: auth
+  - name: users
+  - name: videos
+  - name: categories
+  - name: subscriptions
+  - name: wallet
+  - name: topups
+  - name: transactions
+  - name: comments
+  - name: settings
+  - name: analytics
+  - name: leaderboard
+  - name: notifications
+  - name: upload
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +37,1078 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ── AUTH ──────────────────────────────────────────────────────────────────
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterInput"
+      responses:
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Validation error
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthorized
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+
+  # ── USERS ─────────────────────────────────────────────────────────────────
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List all users (owner/admin)
+      parameters:
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: role
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserList"
+
+  /users/{id}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get user by id
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: Update user profile
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    delete:
+      operationId: deleteUser
+      tags: [users]
+      summary: Delete user (owner)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+
+  /users/{id}/role:
+    patch:
+      operationId: updateUserRole
+      tags: [users]
+      summary: Change user role (owner)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}/wallet:
+    patch:
+      operationId: updateUserWallet
+      tags: [users]
+      summary: Adjust user wallet balance (owner)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletAdjustInput"
+      responses:
+        "200":
+          description: Updated wallet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+
+  /users/{id}/ban:
+    post:
+      operationId: banUser
+      tags: [users]
+      summary: Ban or unban a user (owner)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BanInput"
+      responses:
+        "200":
+          description: Ban status updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}/grant-subscription:
+    post:
+      operationId: grantUserSubscription
+      tags: [users]
+      summary: Grant subscription to user (owner)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GrantSubscriptionInput"
+      responses:
+        "200":
+          description: Subscription granted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSubscription"
+
+  # ── VIDEOS ────────────────────────────────────────────────────────────────
+  /videos:
+    get:
+      operationId: listVideos
+      tags: [videos]
+      summary: List videos with filters
+      parameters:
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: categoryId
+          schema:
+            type: integer
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [free, premium, all]
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [newest, popular, trending]
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Video list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoList"
+    post:
+      operationId: createVideo
+      tags: [videos]
+      summary: Upload new video (admin/owner)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VideoInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Video"
+
+  /videos/featured:
+    get:
+      operationId: getFeaturedVideos
+      tags: [videos]
+      summary: Get featured/banner videos
+      responses:
+        "200":
+          description: Featured videos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Video"
+
+  /videos/trending:
+    get:
+      operationId: getTrendingVideos
+      tags: [videos]
+      summary: Get trending videos
+      responses:
+        "200":
+          description: Trending videos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Video"
+
+  /videos/{id}:
+    get:
+      operationId: getVideo
+      tags: [videos]
+      summary: Get video details
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Video
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoDetail"
+    patch:
+      operationId: updateVideo
+      tags: [videos]
+      summary: Update video (admin/owner)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VideoUpdate"
+      responses:
+        "200":
+          description: Updated video
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Video"
+    delete:
+      operationId: deleteVideo
+      tags: [videos]
+      summary: Delete video (admin/owner)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+
+  /videos/{id}/like:
+    post:
+      operationId: likeVideo
+      tags: [videos]
+      summary: Like a video
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Like toggled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LikeResult"
+
+  /videos/{id}/view:
+    post:
+      operationId: recordView
+      tags: [videos]
+      summary: Record a video view
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: View recorded
+
+  /videos/{id}/related:
+    get:
+      operationId: getRelatedVideos
+      tags: [videos]
+      summary: Get related videos
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Related videos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Video"
+
+  /videos/{id}/comments:
+    get:
+      operationId: fetchVideoComments
+      tags: [comments]
+      summary: Get comments for a video
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Comments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommentList"
+    post:
+      operationId: addComment
+      tags: [comments]
+      summary: Add a comment
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommentInput"
+      responses:
+        "201":
+          description: Comment added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+
+  /videos/{id}/comments/{commentId}:
+    delete:
+      operationId: deleteComment
+      tags: [comments]
+      summary: Delete a comment
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+        - in: path
+          name: commentId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+
+  # ── CATEGORIES ────────────────────────────────────────────────────────────
+  /categories:
+    get:
+      operationId: listCategories
+      tags: [categories]
+      summary: List all categories
+      responses:
+        "200":
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Category"
+    post:
+      operationId: createCategory
+      tags: [categories]
+      summary: Create category (owner)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CategoryInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+
+  /categories/{id}:
+    patch:
+      operationId: updateCategory
+      tags: [categories]
+      summary: Update category (owner)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CategoryUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+    delete:
+      operationId: deleteCategory
+      tags: [categories]
+      summary: Delete category (owner)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+
+  # ── SUBSCRIPTIONS ─────────────────────────────────────────────────────────
+  /subscriptions:
+    get:
+      operationId: listSubscriptions
+      tags: [subscriptions]
+      summary: List available subscription plans
+      responses:
+        "200":
+          description: Subscription plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Subscription"
+    post:
+      operationId: createSubscription
+      tags: [subscriptions]
+      summary: Create subscription plan (owner)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubscriptionInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subscription"
+
+  /subscriptions/{id}:
+    patch:
+      operationId: updateSubscription
+      tags: [subscriptions]
+      summary: Update subscription plan (owner)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubscriptionUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subscription"
+    delete:
+      operationId: deleteSubscription
+      tags: [subscriptions]
+      summary: Delete subscription plan (owner)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+
+  /subscriptions/{id}/purchase:
+    post:
+      operationId: purchaseSubscription
+      tags: [subscriptions]
+      summary: Purchase subscription using wallet balance
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Purchased
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSubscription"
+
+  /subscriptions/my-active:
+    get:
+      operationId: getMyActiveSubscription
+      tags: [subscriptions]
+      summary: Get current user active subscription
+      responses:
+        "200":
+          description: Active subscription or null
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSubscription"
+
+  # ── WALLET ────────────────────────────────────────────────────────────────
+  /wallet:
+    get:
+      operationId: getWallet
+      tags: [wallet]
+      summary: Get current user's wallet
+      responses:
+        "200":
+          description: Wallet info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+
+  # ── TOPUPS ────────────────────────────────────────────────────────────────
+  /topups:
+    get:
+      operationId: listMyTopups
+      tags: [topups]
+      summary: List current user topup history
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Topup history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopupList"
+    post:
+      operationId: createTopup
+      tags: [topups]
+      summary: Create a topup request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TopupInput"
+      responses:
+        "201":
+          description: Topup created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Topup"
+
+  /topups/all:
+    get:
+      operationId: listAllTopups
+      tags: [topups]
+      summary: List all topups (owner)
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [pending, confirmed, denied]
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: All topups
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopupList"
+
+  /topups/{id}/confirm:
+    patch:
+      operationId: confirmTopup
+      tags: [topups]
+      summary: Confirm a topup (owner)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Confirmed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Topup"
+
+  /topups/{id}/deny:
+    patch:
+      operationId: denyTopup
+      tags: [topups]
+      summary: Deny a topup (owner)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Topup"
+
+  /topups/{id}:
+    delete:
+      operationId: deleteTopup
+      tags: [topups]
+      summary: Delete a topup record (owner)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+
+  # ── TRANSACTIONS ──────────────────────────────────────────────────────────
+  /transactions:
+    get:
+      operationId: listTransactions
+      tags: [transactions]
+      summary: List current user transactions
+      parameters:
+        - in: query
+          name: type
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Transactions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionList"
+
+  # ── WATCH HISTORY ─────────────────────────────────────────────────────────
+  /history:
+    get:
+      operationId: getWatchHistory
+      tags: [videos]
+      summary: Get current user watch history
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Watch history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoList"
+
+  # ── SETTINGS ──────────────────────────────────────────────────────────────
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get site settings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+    patch:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update site settings (owner)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsUpdate"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+
+  # ── ANALYTICS ─────────────────────────────────────────────────────────────
+  /analytics/overview:
+    get:
+      operationId: getAnalyticsOverview
+      tags: [analytics]
+      summary: Get platform overview stats (owner)
+      responses:
+        "200":
+          description: Analytics overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsOverview"
+
+  /analytics/videos:
+    get:
+      operationId: getVideoAnalytics
+      tags: [analytics]
+      summary: Get video analytics (owner)
+      responses:
+        "200":
+          description: Video analytics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VideoStat"
+
+  /analytics/revenue:
+    get:
+      operationId: getRevenueAnalytics
+      tags: [analytics]
+      summary: Get revenue chart data (owner)
+      parameters:
+        - in: query
+          name: period
+          schema:
+            type: string
+            enum: [daily, weekly, monthly]
+      responses:
+        "200":
+          description: Revenue data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RevenuePoint"
+
+  /analytics/admin-stats:
+    get:
+      operationId: getAdminStats
+      tags: [analytics]
+      summary: Get stats for admin's own videos
+      responses:
+        "200":
+          description: Admin stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+
+  # ── LEADERBOARD ───────────────────────────────────────────────────────────
+  /leaderboard/topup:
+    get:
+      operationId: getTopupLeaderboard
+      tags: [leaderboard]
+      summary: Get top up leaderboard
+      parameters:
+        - in: query
+          name: period
+          schema:
+            type: string
+            enum: [daily, weekly, monthly, alltime]
+      responses:
+        "200":
+          description: Leaderboard
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LeaderboardEntry"
+
+  # ── NOTIFICATIONS ─────────────────────────────────────────────────────────
+  /notifications:
+    get:
+      operationId: listNotifications
+      tags: [notifications]
+      summary: Get user notifications
+      responses:
+        "200":
+          description: Notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Notification"
+
+  /notifications/read-all:
+    patch:
+      operationId: markAllNotificationsRead
+      tags: [notifications]
+      summary: Mark all notifications as read
+      responses:
+        "200":
+          description: All marked read
+
+  /notifications/{id}/read:
+    patch:
+      operationId: markNotificationRead
+      tags: [notifications]
+      summary: Mark one notification as read
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Marked read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Notification"
+
+  # ── UPLOAD ────────────────────────────────────────────────────────────────
+  /upload/video:
+    post:
+      operationId: uploadVideo
+      tags: [upload]
+      summary: Upload a video file (multipart/form-data handled natively)
+      responses:
+        "200":
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResult"
+
+  /upload/image:
+    post:
+      operationId: uploadImage
+      tags: [upload]
+      summary: Upload an image (thumbnail, avatar, QRIS, etc)
+      responses:
+        "200":
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResult"
+
+  /upload/payment-proof:
+    post:
+      operationId: uploadPaymentProof
+      tags: [upload]
+      summary: Upload payment proof for topup
+      responses:
+        "200":
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResult"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +1116,687 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    # ── AUTH ────────────────────────────────────────────────────────────────
+    RegisterInput:
+      type: object
+      required: [username, email, password]
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    AuthResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+
+    # ── USER ────────────────────────────────────────────────────────────────
+    User:
+      type: object
+      required: [id, username, email, role, isBanned, createdAt]
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [user, admin, owner]
+        avatar:
+          type: ["string", "null"]
+        isBanned:
+          type: boolean
+        walletBalance:
+          type: number
+        totalTopup:
+          type: number
+        totalSpent:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+        activeSubscription:
+          $ref: "#/components/schemas/UserSubscription"
+
+    UserList:
+      type: object
+      required: [data, total, page, limit]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    UserUpdate:
+      type: object
+      properties:
+        username:
+          type: string
+        avatar:
+          type: string
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+
+    RoleUpdate:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [user, admin, owner]
+
+    WalletAdjustInput:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          type: number
+        reason:
+          type: string
+
+    BanInput:
+      type: object
+      required: [banned]
+      properties:
+        banned:
+          type: boolean
+
+    GrantSubscriptionInput:
+      type: object
+      required: [subscriptionId]
+      properties:
+        subscriptionId:
+          type: integer
+        durationDays:
+          type: integer
+
+    # ── WALLET ──────────────────────────────────────────────────────────────
+    Wallet:
+      type: object
+      required: [userId, balance, totalTopup, totalSpent]
+      properties:
+        userId:
+          type: integer
+        balance:
+          type: number
+        totalTopup:
+          type: number
+        totalSpent:
+          type: number
+
+    # ── VIDEO ───────────────────────────────────────────────────────────────
+    Video:
+      type: object
+      required: [id, title, type, views, likes, createdAt]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        thumbnail:
+          type: ["string", "null"]
+        videoUrl:
+          type: ["string", "null"]
+        type:
+          type: string
+          enum: [free, premium]
+        price:
+          type: ["number", "null"]
+        views:
+          type: integer
+        likes:
+          type: integer
+        downloadable:
+          type: boolean
+        isFeatured:
+          type: boolean
+        categoryId:
+          type: ["integer", "null"]
+        category:
+          $ref: "#/components/schemas/Category"
+        creatorId:
+          type: integer
+        creator:
+          $ref: "#/components/schemas/User"
+        isLiked:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    VideoDetail:
+      type: object
+      required: [id, title, type, views, likes, createdAt, comments]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        thumbnail:
+          type: ["string", "null"]
+        videoUrl:
+          type: ["string", "null"]
+        type:
+          type: string
+          enum: [free, premium]
+        price:
+          type: ["number", "null"]
+        views:
+          type: integer
+        likes:
+          type: integer
+        downloadable:
+          type: boolean
+        isFeatured:
+          type: boolean
+        categoryId:
+          type: ["integer", "null"]
+        category:
+          $ref: "#/components/schemas/Category"
+        creatorId:
+          type: integer
+        creator:
+          $ref: "#/components/schemas/User"
+        isLiked:
+          type: boolean
+        hasAccess:
+          type: boolean
+        comments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Comment"
+        createdAt:
+          type: string
+          format: date-time
+
+    VideoList:
+      type: object
+      required: [data, total, page, limit]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Video"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    VideoInput:
+      type: object
+      required: [title, type, videoUrl]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        thumbnail:
+          type: string
+        videoUrl:
+          type: string
+        type:
+          type: string
+          enum: [free, premium]
+        price:
+          type: number
+        categoryId:
+          type: integer
+        downloadable:
+          type: boolean
+        isFeatured:
+          type: boolean
+        creatorId:
+          type: integer
+
+    VideoUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        thumbnail:
+          type: string
+        videoUrl:
+          type: string
+        type:
+          type: string
+          enum: [free, premium]
+        price:
+          type: number
+        categoryId:
+          type: integer
+        downloadable:
+          type: boolean
+        isFeatured:
+          type: boolean
+
+    LikeResult:
+      type: object
+      required: [liked, totalLikes]
+      properties:
+        liked:
+          type: boolean
+        totalLikes:
+          type: integer
+
+    # ── CATEGORY ────────────────────────────────────────────────────────────
+    Category:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        videoCount:
+          type: integer
+
+    CategoryInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+
+    CategoryUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+
+    # ── SUBSCRIPTION ────────────────────────────────────────────────────────
+    Subscription:
+      type: object
+      required: [id, name, price, durationDays, isActive]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        price:
+          type: number
+        durationDays:
+          type: integer
+        isActive:
+          type: boolean
+
+    SubscriptionInput:
+      type: object
+      required: [name, price, durationDays]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+        durationDays:
+          type: integer
+        isActive:
+          type: boolean
+
+    SubscriptionUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+        durationDays:
+          type: integer
+        isActive:
+          type: boolean
+
+    UserSubscription:
+      type: object
+      required: [id, userId, subscriptionId, startDate, endDate, isActive]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        subscriptionId:
+          type: integer
+        subscription:
+          $ref: "#/components/schemas/Subscription"
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        isActive:
+          type: boolean
+
+    # ── TOPUP ───────────────────────────────────────────────────────────────
+    Topup:
+      type: object
+      required: [id, userId, amount, status, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        user:
+          $ref: "#/components/schemas/User"
+        amount:
+          type: number
+        paymentProof:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [pending, confirmed, denied]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TopupInput:
+      type: object
+      required: [amount, paymentProof]
+      properties:
+        amount:
+          type: number
+        paymentProof:
+          type: string
+
+    TopupList:
+      type: object
+      required: [data, total, page, limit]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Topup"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    # ── TRANSACTION ─────────────────────────────────────────────────────────
+    Transaction:
+      type: object
+      required: [id, userId, type, amount, description, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        type:
+          type: string
+          enum: [topup, subscription, purchase, adjustment]
+        amount:
+          type: number
+        description:
+          type: string
+        referenceId:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    TransactionList:
+      type: object
+      required: [data, total, page, limit]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    # ── COMMENT ─────────────────────────────────────────────────────────────
+    Comment:
+      type: object
+      required: [id, videoId, userId, content, createdAt]
+      properties:
+        id:
+          type: integer
+        videoId:
+          type: integer
+        userId:
+          type: integer
+        user:
+          $ref: "#/components/schemas/User"
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    CommentInput:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+
+    CommentList:
+      type: object
+      required: [data, total, page, limit]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Comment"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    # ── SETTINGS ────────────────────────────────────────────────────────────
+    Settings:
+      type: object
+      properties:
+        siteName:
+          type: string
+        siteDescription:
+          type: string
+        logo:
+          type: ["string", "null"]
+        favicon:
+          type: ["string", "null"]
+        banner:
+          type: ["string", "null"]
+        qrisImage:
+          type: ["string", "null"]
+        whatsappLink:
+          type: ["string", "null"]
+        chatLogo:
+          type: ["string", "null"]
+        faq:
+          type: ["string", "null"]
+        footerText:
+          type: ["string", "null"]
+
+    SettingsUpdate:
+      type: object
+      properties:
+        siteName:
+          type: string
+        siteDescription:
+          type: string
+        logo:
+          type: string
+        favicon:
+          type: string
+        banner:
+          type: string
+        qrisImage:
+          type: string
+        whatsappLink:
+          type: string
+        chatLogo:
+          type: string
+        faq:
+          type: string
+        footerText:
+          type: string
+
+    # ── ANALYTICS ───────────────────────────────────────────────────────────
+    AnalyticsOverview:
+      type: object
+      required: [totalUsers, totalVideos, totalActiveSubscriptions, totalRevenue, totalViews, totalTopupAmount]
+      properties:
+        totalUsers:
+          type: integer
+        totalVideos:
+          type: integer
+        totalActiveSubscriptions:
+          type: integer
+        totalRevenue:
+          type: number
+        totalViews:
+          type: integer
+        totalTopupAmount:
+          type: number
+        newUsersToday:
+          type: integer
+        newVideosToday:
+          type: integer
+
+    VideoStat:
+      type: object
+      required: [id, title, views, likes, type]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        views:
+          type: integer
+        likes:
+          type: integer
+        type:
+          type: string
+        revenue:
+          type: number
+
+    RevenuePoint:
+      type: object
+      required: [date, amount]
+      properties:
+        date:
+          type: string
+        amount:
+          type: number
+
+    AdminStats:
+      type: object
+      required: [totalVideos, totalViews, totalLikes, totalRevenue]
+      properties:
+        totalVideos:
+          type: integer
+        totalViews:
+          type: integer
+        totalLikes:
+          type: integer
+        totalRevenue:
+          type: number
+
+    # ── LEADERBOARD ─────────────────────────────────────────────────────────
+    LeaderboardEntry:
+      type: object
+      required: [rank, userId, username, totalAmount]
+      properties:
+        rank:
+          type: integer
+        userId:
+          type: integer
+        username:
+          type: string
+        avatar:
+          type: ["string", "null"]
+        totalAmount:
+          type: number
+
+    # ── NOTIFICATION ────────────────────────────────────────────────────────
+    Notification:
+      type: object
+      required: [id, userId, title, message, isRead, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        title:
+          type: string
+        message:
+          type: string
+        type:
+          type: string
+        isRead:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    # ── UPLOAD ──────────────────────────────────────────────────────────────
+    UploadResult:
+      type: object
+      required: [url, filename]
+      properties:
+        url:
+          type: string
+        filename:
+          type: string
+        size:
+          type: integer

@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "Yzu视频 - Premium Video Platform"
+version = "1.0.0"
+id = "artifacts/yzu-video"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21561
+
+[services.development]
+run = "pnpm --filter @workspace/yzu-video run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/yzu-video", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/yzu-video/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21561"
+BASE_PATH = "/"
