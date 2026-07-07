@@ -18,12 +18,19 @@ export const videosTable = pgTable("videos", {
   likes: integer("likes").notNull().default(0),
   downloadable: boolean("downloadable").notNull().default(false),
   isFeatured: boolean("is_featured").notNull().default(false),
+  // CMS fields
+  status: text("status").notNull().default("published"), // draft | published | hidden | scheduled
+  tags: text("tags"),           // JSON array string
+  duration: integer("duration"), // seconds
+  scheduledAt: timestamp("scheduled_at"),
   categoryId: integer("category_id").references(() => categoriesTable.id, { onDelete: "set null" }),
   creatorId: integer("creator_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-export const insertVideoSchema = createInsertSchema(videosTable).omit({ id: true, createdAt: true, updatedAt: true, views: true, likes: true });
+export const insertVideoSchema = createInsertSchema(videosTable).omit({
+  id: true, createdAt: true, updatedAt: true, views: true, likes: true,
+});
 export type InsertVideo = z.infer<typeof insertVideoSchema>;
 export type Video = typeof videosTable.$inferSelect;

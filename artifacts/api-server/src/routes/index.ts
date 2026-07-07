@@ -13,6 +13,9 @@ import analyticsRouter from "./analytics";
 import leaderboardRouter from "./leaderboard";
 import notificationsRouter from "./notifications";
 import uploadRouter from "./upload";
+import withdrawalsRouter from "./withdrawals";
+import auditLogsRouter from "./audit-logs";
+import systemRouter from "./system";
 
 const router: IRouter = Router();
 
@@ -30,5 +33,8 @@ router.use(analyticsRouter);
 router.use(leaderboardRouter);
 router.use(notificationsRouter);
 router.use(uploadRouter);
+router.use(withdrawalsRouter);
+router.use(auditLogsRouter);
+router.use(systemRouter);
 
 export default router;

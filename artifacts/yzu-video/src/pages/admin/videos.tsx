@@ -1,160 +1,417 @@
-import { ProtectedRoute } from "@/lib/protected-route";
 import { AdminLayout } from "@/components/layout/AdminLayout";
-import { useListVideos, useDeleteVideo, getListVideosQueryKey } from "@workspace/api-client-react";
+import { ProtectedRoute } from "@/lib/protected-route";
 import { useAuth } from "@/lib/auth";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { adminFetch, fmtRp, fmtDate } from "@/lib/admin-api";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
-import { Play, MoreHorizontal, Pencil, Trash2, Search, Plus } from "lucide-react";
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuTrigger 
-} from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
+import {
+  Search, Plus, Edit, Trash2, Eye, Globe, EyeOff, FileEdit,
+  ChevronLeft, ChevronRight, Video, Star, RefreshCw, CheckSquare,
+} from "lucide-react";
+
+const STATUS_COLORS: Record<string, string> = {
+  published: "bg-green-500/10 text-green-600 border-green-200",
+  draft: "bg-yellow-500/10 text-yellow-600 border-yellow-200",
+  hidden: "bg-gray-500/10 text-gray-600 border-gray-200",
+  scheduled: "bg-blue-500/10 text-blue-600 border-blue-200",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  published: "Dipublikasi",
+  draft: "Draft",
+  hidden: "Disembunyikan",
+  scheduled: "Terjadwal",
+};
 
 export default function AdminVideos() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const [search, setSearch] = useState("");
-  const isOwner = user?.role === 'owner';
-  
-  // Admin sees only their videos, Owner sees all. The API listVideos filters by creatorId for admin automatically via backend logic usually. If not, we just call the endpoint.
-  // Actually, wait, the API might not automatically filter for admins. Let's assume the API listVideos returns all for owner and only own for admin.
-  
-  const { data: videos, isLoading } = useListVideos({ search, limit: 50 });
-  const deleteVideo = useDeleteVideo();
+  const qc = useQueryClient();
+  const isOwner = user?.role === "owner";
 
-  const handleDelete = (id: number) => {
-    if (confirm("Are you sure you want to delete this video? This action cannot be undone.")) {
-      deleteVideo.mutate({ id }, {
-        onSuccess: () => {
-          toast({ title: "Video deleted successfully" });
-          queryClient.invalidateQueries({ queryKey: getListVideosQueryKey() });
-        },
-        onError: (err: any) => {
-          toast({ title: "Error deleting video", description: err.message, variant: "destructive" });
-        }
-      });
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [editVideo, setEditVideo] = useState<any>(null);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [bulkAction, setBulkAction] = useState("");
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["admin-videos", search, typeFilter, statusFilter, page],
+    queryFn: () => adminFetch(`/videos?search=${search}&type=${typeFilter !== "all" ? typeFilter : ""}&page=${page}&limit=15${isOwner ? "" : `&creatorId=${user?.id}`}`),
+    placeholderData: (prev) => prev,
+  });
+
+  const { data: categories } = useQuery({
+    queryKey: ["categories"],
+    queryFn: () => adminFetch("/categories"),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => adminFetch(`/videos/${id}`, { method: "DELETE" }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-videos"] }); toast({ title: "Video dihapus" }); setDeleteId(null); },
+    onError: (e: any) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: any }) =>
+      adminFetch(`/videos/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-videos"] }); toast({ title: "Video diperbarui" }); setEditVideo(null); },
+    onError: (e: any) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
+  });
+
+  const videos = (data as any)?.data ?? [];
+  const total = (data as any)?.total ?? 0;
+  const totalPages = Math.ceil(total / 15);
+
+  const toggleSelect = (id: number) =>
+    setSelected((p) => p.includes(id) ? p.filter((x) => x !== id) : [...p, id]);
+  const selectAll = () =>
+    setSelected(selected.length === videos.length ? [] : videos.map((v: any) => v.id));
+
+  const handleBulkAction = async () => {
+    if (!bulkAction || selected.length === 0) return;
+    const action = bulkAction;
+    setBulkAction("");
+    for (const id of selected) {
+      if (action === "delete") await adminFetch(`/videos/${id}`, { method: "DELETE" }).catch(() => {});
+      else await adminFetch(`/videos/${id}`, { method: "PATCH", body: JSON.stringify({ status: action }) }).catch(() => {});
     }
+    setSelected([]);
+    refetch();
+    toast({ title: `${selected.length} video ${action === "delete" ? "dihapus" : "diperbarui"}` });
   };
 
+  const quickStatus = (id: number, status: string) =>
+    updateMut.mutate({ id, data: { status } });
+
   return (
-    <ProtectedRoute allowedRoles={['admin', 'owner']}>
+    <ProtectedRoute allowedRoles={["admin", "owner"]}>
       <AdminLayout>
-        <div className="p-6 md:p-8">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+        <div className="p-6 space-y-5 max-w-[1600px] mx-auto">
+          {/* Header */}
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-heading font-bold">{isOwner ? 'All Videos' : 'My Videos'}</h1>
-              <p className="text-muted-foreground mt-1">Manage your video content library</p>
+              <h1 className="text-2xl font-bold">Manajemen Video</h1>
+              <p className="text-sm text-muted-foreground">
+                {total} video ditemukan
+              </p>
             </div>
             <Link href="/admin/upload">
-              <Button>
-                <Plus className="mr-2 h-4 w-4" /> Upload Video
-              </Button>
+              <Button className="gap-2"><Plus className="h-4 w-4" />Upload Video</Button>
             </Link>
           </div>
 
-          <div className="bg-card border border-border/50 rounded-2xl shadow-sm overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-border/50 flex gap-4">
-              <div className="relative flex-1 max-w-sm">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Search videos..." 
-                  className="pl-9 bg-background"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
+          {/* Filters */}
+          <div className="flex flex-wrap gap-3 items-center">
+            <div className="relative flex-1 min-w-48">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Cari video..."
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                className="pl-9"
+              />
             </div>
+            <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); setPage(1); }}>
+              <SelectTrigger className="w-32"><SelectValue placeholder="Tipe" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua Tipe</SelectItem>
+                <SelectItem value="free">Gratis</SelectItem>
+                <SelectItem value="premium">Premium</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
+              <SelectTrigger className="w-36"><SelectValue placeholder="Status" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua Status</SelectItem>
+                <SelectItem value="published">Dipublikasi</SelectItem>
+                <SelectItem value="draft">Draft</SelectItem>
+                <SelectItem value="hidden">Disembunyikan</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="ghost" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
+          </div>
 
+          {/* Bulk Actions */}
+          {selected.length > 0 && (
+            <div className="flex items-center gap-3 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+              <CheckSquare className="h-4 w-4 text-primary" />
+              <span className="text-sm font-medium">{selected.length} video dipilih</span>
+              <Select value={bulkAction} onValueChange={setBulkAction}>
+                <SelectTrigger className="w-40 h-8"><SelectValue placeholder="Pilih aksi" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="published">Publish Semua</SelectItem>
+                  <SelectItem value="hidden">Sembunyikan Semua</SelectItem>
+                  <SelectItem value="draft">Set ke Draft</SelectItem>
+                  <SelectItem value="delete">Hapus Semua</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button size="sm" onClick={handleBulkAction} disabled={!bulkAction}>Terapkan</Button>
+              <Button variant="ghost" size="sm" onClick={() => setSelected([])}>Batal</Button>
+            </div>
+          )}
+
+          {/* Table */}
+          <div className="bg-card rounded-xl border overflow-hidden">
             <div className="overflow-x-auto">
-              <Table>
-                <TableHeader className="bg-muted/50">
-                  <TableRow>
-                    <TableHead className="w-[300px]">Video</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Category</TableHead>
-                    {isOwner && <TableHead>Creator</TableHead>}
-                    <TableHead className="text-right">Metrics</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead className="w-[50px]"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {isLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={isOwner ? 7 : 6} className="text-center py-12 text-muted-foreground">Loading videos...</TableCell>
-                    </TableRow>
-                  ) : videos?.data.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={isOwner ? 7 : 6} className="text-center py-12 text-muted-foreground">
-                        No videos found. Upload your first video!
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    videos?.data.map((video) => (
-                      <TableRow key={video.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <div className="relative h-12 w-20 shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center">
-                              {video.thumbnail ? (
-                                <img src={video.thumbnail} alt="" className="object-cover w-full h-full" />
-                              ) : (
-                                <Play className="h-4 w-4 text-muted-foreground/50" />
-                              )}
-                            </div>
-                            <div className="font-medium line-clamp-2" title={video.title}>{video.title}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={video.type === 'premium' ? 'text-amber-500 border-amber-500/30 bg-amber-500/10' : 'text-green-500 border-green-500/30 bg-green-500/10'}>
-                            {video.type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{video.category?.name || '-'}</TableCell>
-                        {isOwner && <TableCell>{video.creator?.username || 'Unknown'}</TableCell>}
-                        <TableCell className="text-right">
-                          <div className="text-sm">{video.views.toLocaleString()} <span className="text-muted-foreground text-xs">views</span></div>
-                          <div className="text-sm">{video.likes.toLocaleString()} <span className="text-muted-foreground text-xs">likes</span></div>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground text-sm">
-                          {format(new Date(video.createdAt), 'MMM dd, yyyy')}
-                        </TableCell>
-                        <TableCell>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <Link href={`/videos/${video.id}`}>
-                                <DropdownMenuItem className="cursor-pointer">
-                                  <Play className="mr-2 h-4 w-4" /> View Page
-                                </DropdownMenuItem>
-                              </Link>
-                              <DropdownMenuItem className="cursor-pointer text-destructive focus:bg-destructive/10" onClick={() => handleDelete(video.id)}>
-                                <Trash2 className="mr-2 h-4 w-4" /> Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/30">
+                    <th className="p-3 w-10">
+                      <Checkbox
+                        checked={selected.length === videos.length && videos.length > 0}
+                        onCheckedChange={selectAll}
+                      />
+                    </th>
+                    <th className="p-3 text-left font-medium text-muted-foreground">Video</th>
+                    <th className="p-3 text-left font-medium text-muted-foreground hidden md:table-cell">Kategori</th>
+                    <th className="p-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Tipe</th>
+                    <th className="p-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Status</th>
+                    <th className="p-3 text-right font-medium text-muted-foreground hidden md:table-cell">Views</th>
+                    <th className="p-3 text-left font-medium text-muted-foreground hidden xl:table-cell">Tanggal</th>
+                    <th className="p-3 text-center font-medium text-muted-foreground">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {isLoading
+                    ? Array(8).fill(0).map((_, i) => (
+                      <tr key={i}>
+                        <td colSpan={8} className="p-3">
+                          <Skeleton className="h-10 w-full" />
+                        </td>
+                      </tr>
                     ))
-                  )}
-                </TableBody>
-              </Table>
+                    : videos.length === 0
+                    ? (
+                      <tr>
+                        <td colSpan={8} className="py-16 text-center text-muted-foreground">
+                          <Video className="h-10 w-10 mx-auto mb-2 opacity-20" />
+                          <p>Tidak ada video ditemukan</p>
+                        </td>
+                      </tr>
+                    )
+                    : videos.map((v: any) => (
+                      <tr key={v.id} className="hover:bg-muted/20 transition-colors">
+                        <td className="p-3">
+                          <Checkbox checked={selected.includes(v.id)} onCheckedChange={() => toggleSelect(v.id)} />
+                        </td>
+                        <td className="p-3">
+                          <div className="flex items-center gap-3">
+                            {v.thumbnail ? (
+                              <img src={v.thumbnail} className="h-10 w-16 object-cover rounded shrink-0" alt="" />
+                            ) : (
+                              <div className="h-10 w-16 bg-muted rounded flex items-center justify-center shrink-0">
+                                <Video className="h-4 w-4 text-muted-foreground" />
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="font-medium truncate max-w-48">{v.title}</p>
+                              <p className="text-xs text-muted-foreground">{v.creator?.username ?? "Unknown"}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-3 hidden md:table-cell text-muted-foreground">
+                          {v.category?.name ?? "—"}
+                        </td>
+                        <td className="p-3 hidden lg:table-cell">
+                          <Badge variant={v.type === "premium" ? "default" : "secondary"} className="gap-1">
+                            {v.type === "premium" && <Star className="h-3 w-3" />}
+                            {v.type === "premium" ? "Premium" : "Gratis"}
+                          </Badge>
+                          {v.type === "premium" && v.price && (
+                            <p className="text-xs text-muted-foreground mt-0.5">{fmtRp(v.price)}</p>
+                          )}
+                        </td>
+                        <td className="p-3 hidden lg:table-cell">
+                          <Badge className={`border text-xs ${STATUS_COLORS[v.status] ?? STATUS_COLORS.draft}`}>
+                            {STATUS_LABELS[v.status] ?? v.status}
+                          </Badge>
+                        </td>
+                        <td className="p-3 hidden md:table-cell text-right text-muted-foreground">
+                          {(v.views ?? 0).toLocaleString("id-ID")}
+                        </td>
+                        <td className="p-3 hidden xl:table-cell text-muted-foreground text-xs">
+                          {fmtDate(v.createdAt)}
+                        </td>
+                        <td className="p-3">
+                          <div className="flex items-center justify-center gap-1">
+                            {v.status === "published" ? (
+                              <Button variant="ghost" size="icon" className="h-7 w-7" title="Sembunyikan"
+                                onClick={() => quickStatus(v.id, "hidden")}>
+                                <EyeOff className="h-3.5 w-3.5" />
+                              </Button>
+                            ) : (
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-green-600" title="Publish"
+                                onClick={() => quickStatus(v.id, "published")}>
+                                <Globe className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit"
+                              onClick={() => setEditVideo(v)}>
+                              <Edit className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" title="Hapus"
+                              onClick={() => setDeleteId(v.id)}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  }
+                </tbody>
+              </table>
             </div>
           </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                Halaman {page} dari {totalPages} ({total} total)
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Edit Dialog */}
+        {editVideo && (
+          <Dialog open={!!editVideo} onOpenChange={() => setEditVideo(null)}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader><DialogTitle>Edit Video</DialogTitle></DialogHeader>
+              <div className="space-y-4 py-2">
+                <div>
+                  <label className="text-sm font-medium">Judul</label>
+                  <Input
+                    className="mt-1"
+                    defaultValue={editVideo.title}
+                    onChange={(e) => setEditVideo((p: any) => ({ ...p, title: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Deskripsi</label>
+                  <textarea
+                    className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm min-h-[80px] resize-none"
+                    defaultValue={editVideo.description ?? ""}
+                    onChange={(e) => setEditVideo((p: any) => ({ ...p, description: e.target.value }))}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium">Tipe</label>
+                    <Select value={editVideo.type} onValueChange={(v) => setEditVideo((p: any) => ({ ...p, type: v }))}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="free">Gratis</SelectItem>
+                        <SelectItem value="premium">Premium</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Status</label>
+                    <Select value={editVideo.status ?? "published"} onValueChange={(v) => setEditVideo((p: any) => ({ ...p, status: v }))}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="published">Dipublikasi</SelectItem>
+                        <SelectItem value="draft">Draft</SelectItem>
+                        <SelectItem value="hidden">Disembunyikan</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                {editVideo.type === "premium" && (
+                  <div>
+                    <label className="text-sm font-medium">Harga (Rp)</label>
+                    <Input
+                      type="number"
+                      className="mt-1"
+                      defaultValue={editVideo.price ?? ""}
+                      onChange={(e) => setEditVideo((p: any) => ({ ...p, price: parseFloat(e.target.value) || null }))}
+                    />
+                  </div>
+                )}
+                <div>
+                  <label className="text-sm font-medium">Kategori</label>
+                  <Select
+                    value={String(editVideo.categoryId ?? "")}
+                    onValueChange={(v) => setEditVideo((p: any) => ({ ...p, categoryId: parseInt(v) || null }))}
+                  >
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih kategori" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Tanpa Kategori</SelectItem>
+                      {Array.isArray(categories) && categories.map((c: any) => (
+                        <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="featured"
+                    checked={!!editVideo.isFeatured}
+                    onChange={(e) => setEditVideo((p: any) => ({ ...p, isFeatured: e.target.checked }))}
+                  />
+                  <label htmlFor="featured" className="text-sm">Tampilkan sebagai Featured</label>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setEditVideo(null)}>Batal</Button>
+                <Button
+                  onClick={() => updateMut.mutate({ id: editVideo.id, data: editVideo })}
+                  disabled={updateMut.isPending}
+                >
+                  {updateMut.isPending ? "Menyimpan..." : "Simpan Perubahan"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {/* Delete Confirm */}
+        <AlertDialog open={deleteId !== null} onOpenChange={() => setDeleteId(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Hapus Video?</AlertDialogTitle>
+              <AlertDialogDescription>Video akan dihapus permanen dan tidak bisa dikembalikan.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Batal</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => deleteId && deleteMut.mutate(deleteId)}
+              >
+                Ya, Hapus
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </AdminLayout>
     </ProtectedRoute>
   );

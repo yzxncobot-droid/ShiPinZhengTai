@@ -106,7 +106,7 @@ export default function DebugUploadPage() {
   );
 
   return (
-    <ProtectedRoute requiredRole="admin">
+    <ProtectedRoute allowedRoles={["admin", "owner"]}>
       <AppLayout>
         <div className="container mx-auto px-4 md:px-6 py-10 max-w-3xl space-y-8">
 
