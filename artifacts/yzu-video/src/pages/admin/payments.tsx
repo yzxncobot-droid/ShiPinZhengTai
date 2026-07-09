@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Search, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Eye, CreditCard, RefreshCw, Clock, Copy } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Eye, CreditCard, RefreshCw, Clock, Copy, ZoomIn, ZoomOut, Download, Maximize2, ImageOff } from "lucide-react";
 
 const STATUS_CONFIG: Record<string, { label: string; class: string }> = {
   pending: { label: "Menunggu", class: "bg-yellow-500/10 text-yellow-600 border-yellow-200" },
@@ -26,7 +26,9 @@ export default function AdminPayments() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
-  const [viewProof, setViewProof] = useState<string | null>(null);
+  const [viewPayment, setViewPayment] = useState<any | null>(null);
+  const [imageZoom, setImageZoom] = useState(1);
+  const [imageFailed, setImageFailed] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{ id: number; action: "confirm" | "deny"; user: string; amount: number } | null>(null);
 
   const { data, isLoading, refetch } = useQuery({
