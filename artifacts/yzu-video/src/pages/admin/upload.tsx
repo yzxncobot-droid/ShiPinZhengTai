@@ -73,9 +73,9 @@ export default function AdminUploadVideo() {
   const handleFileUpload = async (file: File, type: 'video' | 'image') => {
     const isVideo = type === 'video';
     const setUploading = isVideo ? setIsUploadingVideo : setIsUploadingThumb;
-    const endpoint = isVideo ? '/api/upload/video' : '/api/upload/image';
+    const endpoint = isVideo ? '/api/upload/video' : '/api/upload/thumbnail';
     const fieldName = isVideo ? 'videoUrl' : 'thumbnail';
-    const formKey = isVideo ? 'video' : 'image';
+    const formKey = isVideo ? 'video' : 'thumbnail';
 
     setUploading(true);
     setUploadProgress(0);
@@ -96,10 +96,12 @@ export default function AdminUploadVideo() {
         });
 
         xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve(JSON.parse(xhr.responseText));
+          let parsed: any = null;
+          try { parsed = JSON.parse(xhr.responseText); } catch { /* non-JSON response */ }
+          if (xhr.status >= 200 && xhr.status < 300 && parsed?.success !== false) {
+            resolve(parsed);
           } else {
-            reject(new Error(xhr.responseText || 'Upload failed'));
+            reject(new Error(parsed?.message || 'Upload gagal'));
           }
         });
 

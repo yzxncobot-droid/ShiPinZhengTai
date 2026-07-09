@@ -12,6 +12,9 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
 
 export const PAYMENT_BUCKET = "payments";
 
+/** Bucket used for video content: videos, thumbnails, and misc site images. */
+export const MEDIA_BUCKET = "yzx";
+
 /** Build a public URL for a Supabase Storage object */
 export function getPublicUrl(bucket: string, path: string): string {
   return `${supabaseUrl}/storage/v1/object/public/${bucket}/${path}`;

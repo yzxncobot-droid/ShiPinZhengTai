@@ -27,7 +27,7 @@ router.get("/topups", authenticate, async (req, res) => {
 router.post("/topups", authenticate, async (req, res) => {
   const userId = req.user!.userId;
   const { amount, paymentProof } = req.body;
-  if (!amount || amount <= 0) { res.status(400).json({ error: "Invalid amount" }); return; }
+  if (!amount || amount < 1000) { res.status(400).json({ error: "Minimum top-up adalah Rp 1.000" }); return; }
   const [topup] = await db.insert(topupsTable).values({ userId, amount, paymentProof, status: "pending" }).returning();
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
   res.status(201).json({ ...topup, user });

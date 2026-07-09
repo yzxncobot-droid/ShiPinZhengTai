@@ -22,12 +22,12 @@ import { useState, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Link, useLocation } from "wouter";
 
-const PRESET_AMOUNTS = [5000, 10000, 15000, 20000, 25000, 50000, 100000];
+const PRESET_AMOUNTS = [1000, 5000, 10000, 15000, 20000, 25000, 50000, 100000];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 
 const topupSchema = z.object({
-  amount: z.coerce.number().min(5000, { message: "Minimum top-up adalah Rp 5.000" }),
+  amount: z.coerce.number().min(1000, { message: "Minimum top-up adalah Rp 1.000" }),
   paymentProof: z.string().min(1, { message: "Bukti transfer wajib diupload" }),
 });
 
@@ -53,7 +53,7 @@ export default function TopupPage() {
 
   const form = useForm<z.infer<typeof topupSchema>>({
     resolver: zodResolver(topupSchema),
-    defaultValues: { amount: 10000, paymentProof: "" },
+    defaultValues: { amount: 1000, paymentProof: "" },
   });
 
   const amount = form.watch("amount");

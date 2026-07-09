@@ -1,7 +1,6 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
-import path from "path";
 import router from "./routes";
 import { logger } from "./lib/logger";
 
@@ -31,9 +30,5 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
-
-// Serve uploaded files
-const uploadsPath = path.join(process.cwd(), "uploads");
-app.use("/api/uploads", express.static(uploadsPath));
 
 export default app;

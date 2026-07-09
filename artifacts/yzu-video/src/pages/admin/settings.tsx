@@ -41,13 +41,13 @@ export default function AdminSettings() {
   const handleImageUpload = async (file: File, field: string, setLoading: (v: boolean) => void) => {
     setLoading(true);
     const fd = new FormData();
-    fd.append("file", file);
+    fd.append("image", file);
     try {
       const res = await fetch("/api/upload/image", {
         method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Upload gagal");
+      if (!res.ok || data.success === false) throw new Error(data.message || "Upload gagal");
       set(field, data.url);
       toast({ title: "Gambar berhasil diupload" });
     } catch (e: any) {
