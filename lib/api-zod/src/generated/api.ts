@@ -720,6 +720,7 @@ export const GetVideoResponse = zod.object({
 }).optional(),
   "isLiked": zod.boolean().optional(),
   "hasAccess": zod.boolean().optional(),
+  "hasPurchased": zod.boolean().optional(),
   "comments": zod.array(zod.object({
   "id": zod.number(),
   "videoId": zod.number(),
@@ -839,6 +840,73 @@ export const DeleteVideoParams = zod.object({
 })
 
 export const DeleteVideoResponse = zod.unknown()
+
+
+/**
+ * @summary Buy a single premium video with wallet balance
+ */
+export const PurchaseVideoParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const PurchaseVideoResponse = zod.object({
+  "id": zod.number(),
+  "userId": zod.number(),
+  "videoId": zod.number(),
+  "price": zod.number(),
+  "createdAt": zod.coerce.date(),
+  "video": zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "thumbnail": zod.string().nullish(),
+  "videoUrl": zod.string().nullish(),
+  "type": zod.enum(['free', 'premium']),
+  "price": zod.number().nullish(),
+  "views": zod.number(),
+  "likes": zod.number(),
+  "downloadable": zod.boolean().optional(),
+  "isFeatured": zod.boolean().optional(),
+  "categoryId": zod.number().nullish(),
+  "category": zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "videoCount": zod.number().optional()
+}).optional(),
+  "creatorId": zod.number().optional(),
+  "creator": zod.object({
+  "id": zod.number(),
+  "username": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['user', 'admin', 'owner']),
+  "avatar": zod.string().nullish(),
+  "isBanned": zod.boolean(),
+  "walletBalance": zod.number().optional(),
+  "totalTopup": zod.number().optional(),
+  "totalSpent": zod.number().optional(),
+  "createdAt": zod.coerce.date(),
+  "activeSubscription": zod.object({
+  "id": zod.number(),
+  "userId": zod.number(),
+  "subscriptionId": zod.number(),
+  "subscription": zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "price": zod.number(),
+  "durationDays": zod.number(),
+  "isActive": zod.boolean()
+}).optional(),
+  "startDate": zod.coerce.date(),
+  "endDate": zod.coerce.date(),
+  "isActive": zod.boolean()
+}).optional()
+}).optional(),
+  "isLiked": zod.boolean().optional(),
+  "createdAt": zod.coerce.date()
+})
+})
 
 
 /**

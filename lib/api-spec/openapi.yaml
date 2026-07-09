@@ -434,6 +434,25 @@ paths:
         "200":
           description: Deleted
 
+  /videos/{id}/purchase:
+    post:
+      operationId: purchaseVideo
+      tags: [videos]
+      summary: Buy a single premium video with wallet balance
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Purchased
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoPurchaseResult"
+
   /videos/{id}/like:
     post:
       operationId: likeVideo
@@ -1296,6 +1315,24 @@ components:
           type: string
           format: date-time
 
+    VideoPurchaseResult:
+      type: object
+      required: [id, userId, videoId, price, createdAt, video]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        videoId:
+          type: integer
+        price:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+        video:
+          $ref: "#/components/schemas/Video"
+
     VideoDetail:
       type: object
       required: [id, title, type, views, likes, createdAt, comments]
@@ -1334,6 +1371,8 @@ components:
         isLiked:
           type: boolean
         hasAccess:
+          type: boolean
+        hasPurchased:
           type: boolean
         comments:
           type: array

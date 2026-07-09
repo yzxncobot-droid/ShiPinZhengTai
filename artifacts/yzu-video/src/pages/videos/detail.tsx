@@ -3,7 +3,8 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { useGetVideo, useGetRelatedVideos, useFetchVideoComments, useLikeVideo, useRecordView, useAddComment, getGetVideoQueryKey } from "@workspace/api-client-react";
 import { useRoute } from "wouter";
 import { formatDistanceToNow } from "date-fns";
-import { Eye, ThumbsUp, Share2, Download, MessageSquare, AlertCircle, Loader2, PlayCircle } from "lucide-react";
+import { Eye, ThumbsUp, Share2, Download, MessageSquare, AlertCircle, Loader2 } from "lucide-react";
+import { PremiumLockScreen } from "@/components/video/PremiumLockScreen";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -118,25 +119,10 @@ export default function VideoDetailPage() {
           <div className="lg:col-span-2 space-y-6">
             
             {/* Player Container */}
-            <div className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden border border-border/50 shadow-lg">
-              {isLocked ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-card/95 backdrop-blur-sm">
-                  <div className="h-16 w-16 rounded-full bg-amber-500/20 flex items-center justify-center mb-6">
-                    <PlayCircle className="h-8 w-8 text-amber-500" />
-                  </div>
-                  <h2 className="text-2xl font-heading font-bold mb-2">Premium Content</h2>
-                  <p className="text-muted-foreground mb-8 max-w-md">
-                    This video is exclusive to premium members. Upgrade your account or purchase this video to watch.
-                  </p>
-                  <div className="flex gap-4">
-                    <Link href="/subscriptions">
-                      <Button size="lg" className="rounded-full shadow-lg shadow-primary/20">
-                        View Premium Plans
-                      </Button>
-                    </Link>
-                  </div>
-                </div>
-              ) : (
+            {isLocked ? (
+              <PremiumLockScreen video={video} />
+            ) : (
+              <div className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden border border-border/50 shadow-lg">
                 <video 
                   controls 
                   autoPlay 
@@ -144,8 +130,8 @@ export default function VideoDetailPage() {
                   className="w-full h-full object-contain"
                   src={video.videoUrl || ''}
                 />
-              )}
-            </div>
+              </div>
+            )}
 
             {/* Video Info */}
             <div>

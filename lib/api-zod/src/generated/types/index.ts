@@ -63,6 +63,7 @@ export * from './videoDetailType';
 export * from './videoInput';
 export * from './videoInputType';
 export * from './videoList';
+export * from './videoPurchaseResult';
 export * from './videoStat';
 export * from './videoType';
 export * from './videoUpdate';

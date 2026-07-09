@@ -159,6 +159,15 @@ export interface Video {
   createdAt: string;
 }
 
+export interface VideoPurchaseResult {
+  id: number;
+  userId: number;
+  videoId: number;
+  price: number;
+  createdAt: string;
+  video: Video;
+}
+
 export type VideoDetailType = typeof VideoDetailType[keyof typeof VideoDetailType];
 
 
@@ -199,6 +208,7 @@ export interface VideoDetail {
   creator?: User;
   isLiked?: boolean;
   hasAccess?: boolean;
+  hasPurchased?: boolean;
   comments: Comment[];
   createdAt: string;
 }

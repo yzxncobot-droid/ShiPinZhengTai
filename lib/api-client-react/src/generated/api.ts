@@ -65,6 +65,7 @@ import type {
   VideoDetail,
   VideoInput,
   VideoList,
+  VideoPurchaseResult,
   VideoStat,
   VideoUpdate,
   Wallet,
@@ -1572,6 +1573,76 @@ export const useDeleteVideo = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteVideoMutationOptions(options));
+    }
+
+export const getPurchaseVideoUrl = (id: number,) => {
+
+
+
+
+  return `/api/videos/${id}/purchase`
+}
+
+/**
+ * @summary Buy a single premium video with wallet balance
+ */
+export const purchaseVideo = async (id: number, options?: RequestInit): Promise<VideoPurchaseResult> => {
+
+  return customFetch<VideoPurchaseResult>(getPurchaseVideoUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getPurchaseVideoMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof purchaseVideo>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof purchaseVideo>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['purchaseVideo'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof purchaseVideo>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  purchaseVideo(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PurchaseVideoMutationResult = NonNullable<Awaited<ReturnType<typeof purchaseVideo>>>
+
+    export type PurchaseVideoMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Buy a single premium video with wallet balance
+ */
+export const usePurchaseVideo = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof purchaseVideo>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof purchaseVideo>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getPurchaseVideoMutationOptions(options));
     }
 
 export const getLikeVideoUrl = (id: number,) => {

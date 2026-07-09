@@ -33,6 +33,7 @@ export interface VideoDetail {
   creator?: User;
   isLiked?: boolean;
   hasAccess?: boolean;
+  hasPurchased?: boolean;
   comments: Comment[];
   createdAt: Date;
 }

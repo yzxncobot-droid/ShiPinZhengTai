@@ -3,9 +3,11 @@ import { db } from "@workspace/db";
 import {
   videosTable, usersTable, categoriesTable, likesTable, viewsTable,
   commentsTable, userSubscriptionsTable, subscriptionsTable,
+  videoPurchasesTable, transactionsTable, notificationsTable,
 } from "@workspace/db";
 import { eq, and, desc, asc, ilike, gte, or, sql, count } from "drizzle-orm";
 import { authenticate, optionalAuth, requireRole } from "../middlewares/auth";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -35,7 +37,13 @@ async function checkAccess(userId: number | undefined, video: any): Promise<bool
     .from(userSubscriptionsTable)
     .where(and(eq(userSubscriptionsTable.userId, userId), eq(userSubscriptionsTable.isActive, true), gte(userSubscriptionsTable.endDate, now)))
     .limit(1);
-  return !!sub;
+  if (sub) return true;
+  const [purchase] = await db
+    .select({ id: videoPurchasesTable.id })
+    .from(videoPurchasesTable)
+    .where(and(eq(videoPurchasesTable.userId, userId), eq(videoPurchasesTable.videoId, video.id)))
+    .limit(1);
+  return !!purchase;
 }
 
 // GET /videos
@@ -103,6 +111,15 @@ router.get("/videos/:id", optionalAuth, async (req, res) => {
   const [video] = await db.select().from(videosTable).where(eq(videosTable.id, id)).limit(1);
   if (!video) { res.status(404).json({ error: "Not found" }); return; }
   const hasAccess = await checkAccess(req.user?.userId, video);
+  let hasPurchased = false;
+  if (req.user?.userId) {
+    const [purchase] = await db
+      .select({ id: videoPurchasesTable.id })
+      .from(videoPurchasesTable)
+      .where(and(eq(videoPurchasesTable.userId, req.user.userId), eq(videoPurchasesTable.videoId, id)))
+      .limit(1);
+    hasPurchased = !!purchase;
+  }
   const comments = await db
     .select({
       id: commentsTable.id, videoId: commentsTable.videoId, userId: commentsTable.userId,
@@ -115,7 +132,79 @@ router.get("/videos/:id", optionalAuth, async (req, res) => {
     .orderBy(desc(commentsTable.createdAt))
     .limit(50);
   const formatted = await formatVideo(video, req.user?.userId);
-  res.json({ ...formatted, hasAccess, comments });
+  res.json({ ...formatted, hasAccess, hasPurchased, comments });
+});
+
+// POST /videos/:id/purchase — buy a single premium video with wallet balance
+router.post("/videos/:id/purchase", authenticate, async (req, res) => {
+  const videoId = parseInt(req.params.id);
+  const userId = req.user!.userId;
+
+  const [video] = await db.select().from(videosTable).where(eq(videosTable.id, videoId)).limit(1);
+  if (!video) { res.status(404).json({ error: "Video not found" }); return; }
+  if (video.type !== "premium" || !video.price) {
+    res.status(400).json({ error: "This video is not available for individual purchase" }); return;
+  }
+
+  const alreadyHasAccess = await checkAccess(userId, video);
+  if (alreadyHasAccess) { res.status(400).json({ error: "You already have access to this video" }); return; }
+
+  const price = video.price;
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      // Atomic, conditional deduction: only succeeds if balance is still sufficient
+      // at the moment of the update, avoiding races between the earlier read and now.
+      const [debited] = await tx
+        .update(usersTable)
+        .set({
+          walletBalance: sql`${usersTable.walletBalance} - ${price}`,
+          totalSpent: sql`${usersTable.totalSpent} + ${price}`,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(usersTable.id, userId), gte(usersTable.walletBalance, price)))
+        .returning({ id: usersTable.id });
+
+      if (!debited) {
+        return { error: "INSUFFICIENT_BALANCE" as const };
+      }
+
+      // Unique(userId, videoId) constraint guards against double purchase on races;
+      // if it fires, the whole transaction (including the debit above) rolls back.
+      const [purchase] = await tx.insert(videoPurchasesTable).values({
+        userId, videoId, price,
+      }).returning();
+
+      await tx.insert(transactionsTable).values({
+        userId, type: "purchase", amount: -price,
+        description: `Purchased video: ${video.title}`,
+        referenceId: purchase.id,
+      });
+
+      await tx.insert(notificationsTable).values({
+        userId, title: "Video Purchased",
+        message: `You now own "${video.title}" forever.`,
+        type: "purchase",
+      });
+
+      return { purchase };
+    });
+
+    if ("error" in result) {
+      res.status(400).json({ error: "Insufficient wallet balance" }); return;
+    }
+
+    res.json({ ...result.purchase, video: await formatVideo(video, userId) });
+  } catch (err: any) {
+    // Unique constraint violation (userId, videoId) — already purchased concurrently.
+    // Drizzle wraps the underlying pg error in `.cause`, so check both places.
+    const pgCode = err?.code ?? err?.cause?.code;
+    if (pgCode === "23505") {
+      res.status(400).json({ error: "You already have access to this video" }); return;
+    }
+    logger.error({ err, userId, videoId }, "Video purchase failed");
+    res.status(500).json({ error: "Purchase failed" });
+  }
 });
 
 // PATCH /videos/:id
