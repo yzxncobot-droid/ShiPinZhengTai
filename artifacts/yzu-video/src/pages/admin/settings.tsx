@@ -106,7 +106,7 @@ export default function AdminSettings() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Deskripsi</Label>
-                  <Textarea value={form.description ?? ""} onChange={(e) => set("description", e.target.value)} rows={2} placeholder="Platform streaming video premium Indonesia" />
+                  <Textarea value={form.siteDescription ?? ""} onChange={(e) => set("siteDescription", e.target.value)} rows={2} placeholder="Platform streaming video premium Indonesia" />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Logo URL</Label>
@@ -152,6 +152,7 @@ export default function AdminSettings() {
               <Section icon={MessageCircle} title="Kontak & Media Sosial" desc="Link dukungan dan akun media sosial">
                 <div className="grid grid-cols-2 gap-4">
                   <Field label="WhatsApp" field="whatsappLink" placeholder="https://wa.me/62..." />
+                  {/* Telegram intentionally listed right after WhatsApp: these two power the "Hubungi Kami" footer section */}
                   <Field label="Telegram" field="telegramLink" placeholder="https://t.me/..." />
                   <Field label="Discord" field="discordLink" placeholder="https://discord.gg/..." />
                   <Field label="Instagram" field="instagramLink" placeholder="https://instagram.com/..." />

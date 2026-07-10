@@ -1687,8 +1687,10 @@ components:
       properties:
         siteName:
           type: string
+        tagline:
+          type: ["string", "null"]
         siteDescription:
-          type: string
+          type: ["string", "null"]
         logo:
           type: ["string", "null"]
         favicon:
@@ -1699,11 +1701,29 @@ components:
           type: ["string", "null"]
         whatsappLink:
           type: ["string", "null"]
+        telegramLink:
+          type: ["string", "null"]
+        discordLink:
+          type: ["string", "null"]
+        instagramLink:
+          type: ["string", "null"]
+        facebookLink:
+          type: ["string", "null"]
+        youtubeLink:
+          type: ["string", "null"]
+        tiktokLink:
+          type: ["string", "null"]
         chatLogo:
           type: ["string", "null"]
         faq:
           type: ["string", "null"]
         footerText:
+          type: ["string", "null"]
+        metaTitle:
+          type: ["string", "null"]
+        googleAnalyticsId:
+          type: ["string", "null"]
+        googleSearchConsoleId:
           type: ["string", "null"]
 
     SettingsUpdate:
@@ -1711,6 +1731,8 @@ components:
       properties:
         siteName:
           type: string
+        tagline:
+          type: string
         siteDescription:
           type: string
         logo:
@@ -1723,11 +1745,29 @@ components:
           type: string
         whatsappLink:
           type: string
+        telegramLink:
+          type: string
+        discordLink:
+          type: string
+        instagramLink:
+          type: string
+        facebookLink:
+          type: string
+        youtubeLink:
+          type: string
+        tiktokLink:
+          type: string
         chatLogo:
           type: string
         faq:
           type: string
         footerText:
+          type: string
+        metaTitle:
+          type: string
+        googleAnalyticsId:
+          type: string
+        googleSearchConsoleId:
           type: string
 
     # ── ANALYTICS ───────────────────────────────────────────────────────────

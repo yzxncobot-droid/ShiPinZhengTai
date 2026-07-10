@@ -366,7 +366,10 @@ export interface CommentList {
 
 export interface Settings {
   siteName?: string;
-  siteDescription?: string;
+  /** @nullable */
+  tagline?: string | null;
+  /** @nullable */
+  siteDescription?: string | null;
   /** @nullable */
   logo?: string | null;
   /** @nullable */
@@ -378,24 +381,52 @@ export interface Settings {
   /** @nullable */
   whatsappLink?: string | null;
   /** @nullable */
+  telegramLink?: string | null;
+  /** @nullable */
+  discordLink?: string | null;
+  /** @nullable */
+  instagramLink?: string | null;
+  /** @nullable */
+  facebookLink?: string | null;
+  /** @nullable */
+  youtubeLink?: string | null;
+  /** @nullable */
+  tiktokLink?: string | null;
+  /** @nullable */
   chatLogo?: string | null;
   /** @nullable */
   faq?: string | null;
   /** @nullable */
   footerText?: string | null;
+  /** @nullable */
+  metaTitle?: string | null;
+  /** @nullable */
+  googleAnalyticsId?: string | null;
+  /** @nullable */
+  googleSearchConsoleId?: string | null;
 }
 
 export interface SettingsUpdate {
   siteName?: string;
+  tagline?: string;
   siteDescription?: string;
   logo?: string;
   favicon?: string;
   banner?: string;
   qrisImage?: string;
   whatsappLink?: string;
+  telegramLink?: string;
+  discordLink?: string;
+  instagramLink?: string;
+  facebookLink?: string;
+  youtubeLink?: string;
+  tiktokLink?: string;
   chatLogo?: string;
   faq?: string;
   footerText?: string;
+  metaTitle?: string;
+  googleAnalyticsId?: string;
+  googleSearchConsoleId?: string;
 }
 
 export interface AnalyticsOverview {

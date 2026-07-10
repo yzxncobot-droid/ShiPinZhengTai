@@ -8,13 +8,23 @@
 
 export interface SettingsUpdate {
   siteName?: string;
+  tagline?: string;
   siteDescription?: string;
   logo?: string;
   favicon?: string;
   banner?: string;
   qrisImage?: string;
   whatsappLink?: string;
+  telegramLink?: string;
+  discordLink?: string;
+  instagramLink?: string;
+  facebookLink?: string;
+  youtubeLink?: string;
+  tiktokLink?: string;
   chatLogo?: string;
   faq?: string;
   footerText?: string;
+  metaTitle?: string;
+  googleAnalyticsId?: string;
+  googleSearchConsoleId?: string;
 }

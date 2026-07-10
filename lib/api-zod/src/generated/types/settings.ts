@@ -8,7 +8,10 @@
 
 export interface Settings {
   siteName?: string;
-  siteDescription?: string;
+  /** @nullable */
+  tagline?: string | null;
+  /** @nullable */
+  siteDescription?: string | null;
   /** @nullable */
   logo?: string | null;
   /** @nullable */
@@ -20,9 +23,27 @@ export interface Settings {
   /** @nullable */
   whatsappLink?: string | null;
   /** @nullable */
+  telegramLink?: string | null;
+  /** @nullable */
+  discordLink?: string | null;
+  /** @nullable */
+  instagramLink?: string | null;
+  /** @nullable */
+  facebookLink?: string | null;
+  /** @nullable */
+  youtubeLink?: string | null;
+  /** @nullable */
+  tiktokLink?: string | null;
+  /** @nullable */
   chatLogo?: string | null;
   /** @nullable */
   faq?: string | null;
   /** @nullable */
   footerText?: string | null;
+  /** @nullable */
+  metaTitle?: string | null;
+  /** @nullable */
+  googleAnalyticsId?: string | null;
+  /** @nullable */
+  googleSearchConsoleId?: string | null;
 }

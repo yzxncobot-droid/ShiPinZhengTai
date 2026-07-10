@@ -17,26 +17,25 @@ router.get("/settings", async (_req, res) => {
   res.json(s);
 });
 
+const SETTINGS_FIELDS = [
+  "siteName", "tagline", "siteDescription", "logo", "favicon", "banner", "qrisImage",
+  "whatsappLink", "telegramLink", "discordLink", "instagramLink", "facebookLink",
+  "youtubeLink", "tiktokLink", "chatLogo", "faq", "footerText",
+  "metaTitle", "googleAnalyticsId", "googleSearchConsoleId",
+] as const;
+
 router.patch("/settings", authenticate, requireRole("owner"), async (req, res) => {
-  const { siteName, siteDescription, logo, favicon, banner, qrisImage, whatsappLink, chatLogo, faq, footerText } = req.body;
+  const body: Record<string, any> = {};
+  for (const field of SETTINGS_FIELDS) {
+    if (req.body[field] !== undefined) body[field] = req.body[field];
+  }
   const [existing] = await db.select().from(settingsTable).limit(1);
   if (!existing) {
-    const [created] = await db.insert(settingsTable).values({ siteName, siteDescription, logo, favicon, banner, qrisImage, whatsappLink, chatLogo, faq, footerText }).returning();
+    const [created] = await db.insert(settingsTable).values(body).returning();
     res.json(created);
     return;
   }
-  const [updated] = await db.update(settingsTable).set({
-    siteName: siteName ?? existing.siteName,
-    siteDescription: siteDescription ?? existing.siteDescription,
-    logo: logo ?? existing.logo,
-    favicon: favicon ?? existing.favicon,
-    banner: banner ?? existing.banner,
-    qrisImage: qrisImage ?? existing.qrisImage,
-    whatsappLink: whatsappLink ?? existing.whatsappLink,
-    chatLogo: chatLogo ?? existing.chatLogo,
-    faq: faq ?? existing.faq,
-    footerText: footerText ?? existing.footerText,
-  }).where(eq(settingsTable.id, existing.id)).returning();
+  const [updated] = await db.update(settingsTable).set(body).where(eq(settingsTable.id, existing.id)).returning();
   res.json(updated);
 });
 

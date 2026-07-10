@@ -1,5 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { useGetSettings } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { 
   DropdownMenu, 
@@ -9,7 +10,8 @@ import {
   DropdownMenuSeparator, 
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
-import { PlaySquare, Search, User, Wallet, Bell, History, Crown, LayoutDashboard, LogOut, Menu } from "lucide-react";
+import { PlaySquare, Search, User, Wallet, Bell, History, Crown, LayoutDashboard, LogOut, Menu, MessageCircle, Send, Globe2 } from "lucide-react";
+import { SiInstagram, SiTiktok, SiFacebook, SiYoutube, SiDiscord } from "react-icons/si";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -169,23 +171,39 @@ export function Navbar() {
   );
 }
 
+const SOCIAL_LINKS = [
+  { key: "instagramLink" as const, label: "Instagram", Icon: SiInstagram, hover: "hover:bg-[#E4405F] hover:text-white" },
+  { key: "tiktokLink" as const, label: "TikTok", Icon: SiTiktok, hover: "hover:bg-black hover:text-white" },
+  { key: "facebookLink" as const, label: "Facebook", Icon: SiFacebook, hover: "hover:bg-[#1877F2] hover:text-white" },
+  { key: "youtubeLink" as const, label: "YouTube", Icon: SiYoutube, hover: "hover:bg-[#FF0000] hover:text-white" },
+  { key: "discordLink" as const, label: "Discord", Icon: SiDiscord, hover: "hover:bg-[#5865F2] hover:text-white" },
+];
+
 export function Footer() {
+  const { data: settings } = useGetSettings();
+  const siteName = settings?.siteName || "Yzu视频";
+  const socials = SOCIAL_LINKS.filter((s) => !!(settings as any)?.[s.key]);
+  const hasContact = !!settings?.whatsappLink || !!settings?.telegramLink;
+
   return (
     <footer className="border-t py-12 md:py-16">
       <div className="container mx-auto px-4 md:px-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-          <div className="space-y-4 md:col-span-2">
+          <div className="space-y-4 md:col-span-1">
             <div className="flex items-center gap-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
                 <PlaySquare className="h-5 w-5 text-primary-foreground" />
               </div>
-              <span className="font-heading font-bold text-xl tracking-tight">Yzu<span className="text-primary">视频</span></span>
+              <span className="font-heading font-bold text-xl tracking-tight">
+                {siteName.replace(/视频$/, "")}
+                {siteName.includes("视频") && <span className="text-primary">视频</span>}
+              </span>
             </div>
             <p className="text-muted-foreground text-sm max-w-sm">
-              The premium video streaming platform. Discover, watch, and support your favorite creators in a high-quality, immersive environment.
+              {settings?.footerText || "The premium video streaming platform. Discover, watch, and support your favorite creators in a high-quality, immersive environment."}
             </p>
           </div>
-          
+
           <div className="space-y-4">
             <h4 className="font-heading font-semibold">Links</h4>
             <ul className="space-y-2 text-sm text-muted-foreground">
@@ -195,21 +213,63 @@ export function Footer() {
               <li><Link href="/search" className="hover:text-primary transition-colors">Search</Link></li>
             </ul>
           </div>
-          
+
+          {/* Hubungi Kami — sourced from Settings, hidden entirely when nothing is configured */}
           <div className="space-y-4">
-            <h4 className="font-heading font-semibold">Legal</h4>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-              <li><a href="#" className="hover:text-primary transition-colors">Terms of Service</a></li>
-              <li><a href="#" className="hover:text-primary transition-colors">Privacy Policy</a></li>
-              <li><a href="#" className="hover:text-primary transition-colors">Contact Us</a></li>
-            </ul>
+            <h4 className="font-heading font-semibold">Hubungi Kami</h4>
+            {hasContact ? (
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                {settings?.whatsappLink && (
+                  <li>
+                    <a href={settings.whatsappLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:text-primary transition-colors">
+                      <MessageCircle className="h-4 w-4" /> WhatsApp
+                    </a>
+                  </li>
+                )}
+                {settings?.telegramLink && (
+                  <li>
+                    <a href={settings.telegramLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:text-primary transition-colors">
+                      <Send className="h-4 w-4" /> Telegram
+                    </a>
+                  </li>
+                )}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground/60">Belum ada kontak dikonfigurasi</p>
+            )}
+          </div>
+
+          {/* Media Sosial — sourced from Settings, hidden entirely when nothing is configured */}
+          <div className="space-y-4">
+            <h4 className="font-heading font-semibold">Media Sosial</h4>
+            {socials.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {socials.map(({ key, label, Icon, hover }) => (
+                  <a
+                    key={key}
+                    href={(settings as any)[key]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={label}
+                    title={label}
+                    className={`flex h-9 w-9 items-center justify-center rounded-full border border-border/50 bg-card text-muted-foreground transition-colors ${hover}`}
+                  >
+                    <Icon className="h-4 w-4" />
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground/60">Belum ada media sosial</p>
+            )}
           </div>
         </div>
-        
+
         <div className="mt-12 pt-8 border-t text-center text-sm text-muted-foreground flex flex-col md:flex-row justify-between items-center">
-          <p>© {new Date().getFullYear()} Yzu视频. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} {siteName}. All rights reserved.</p>
           <div className="mt-4 md:mt-0 flex gap-4">
-            <span className="text-primary font-medium tracking-wider text-xs uppercase">Premium Streaming</span>
+            <span className="text-primary font-medium tracking-wider text-xs uppercase flex items-center gap-1">
+              <Globe2 className="h-3.5 w-3.5" /> Premium Streaming
+            </span>
           </div>
         </div>
       </div>

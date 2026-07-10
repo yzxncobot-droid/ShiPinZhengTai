@@ -1636,15 +1636,25 @@ export const GetWatchHistoryResponse = zod.object({
  */
 export const GetSettingsResponse = zod.object({
   "siteName": zod.string().optional(),
-  "siteDescription": zod.string().optional(),
+  "tagline": zod.string().nullish(),
+  "siteDescription": zod.string().nullish(),
   "logo": zod.string().nullish(),
   "favicon": zod.string().nullish(),
   "banner": zod.string().nullish(),
   "qrisImage": zod.string().nullish(),
   "whatsappLink": zod.string().nullish(),
+  "telegramLink": zod.string().nullish(),
+  "discordLink": zod.string().nullish(),
+  "instagramLink": zod.string().nullish(),
+  "facebookLink": zod.string().nullish(),
+  "youtubeLink": zod.string().nullish(),
+  "tiktokLink": zod.string().nullish(),
   "chatLogo": zod.string().nullish(),
   "faq": zod.string().nullish(),
-  "footerText": zod.string().nullish()
+  "footerText": zod.string().nullish(),
+  "metaTitle": zod.string().nullish(),
+  "googleAnalyticsId": zod.string().nullish(),
+  "googleSearchConsoleId": zod.string().nullish()
 })
 
 
@@ -1653,28 +1663,48 @@ export const GetSettingsResponse = zod.object({
  */
 export const UpdateSettingsBody = zod.object({
   "siteName": zod.string().optional(),
+  "tagline": zod.string().optional(),
   "siteDescription": zod.string().optional(),
   "logo": zod.string().optional(),
   "favicon": zod.string().optional(),
   "banner": zod.string().optional(),
   "qrisImage": zod.string().optional(),
   "whatsappLink": zod.string().optional(),
+  "telegramLink": zod.string().optional(),
+  "discordLink": zod.string().optional(),
+  "instagramLink": zod.string().optional(),
+  "facebookLink": zod.string().optional(),
+  "youtubeLink": zod.string().optional(),
+  "tiktokLink": zod.string().optional(),
   "chatLogo": zod.string().optional(),
   "faq": zod.string().optional(),
-  "footerText": zod.string().optional()
+  "footerText": zod.string().optional(),
+  "metaTitle": zod.string().optional(),
+  "googleAnalyticsId": zod.string().optional(),
+  "googleSearchConsoleId": zod.string().optional()
 })
 
 export const UpdateSettingsResponse = zod.object({
   "siteName": zod.string().optional(),
-  "siteDescription": zod.string().optional(),
+  "tagline": zod.string().nullish(),
+  "siteDescription": zod.string().nullish(),
   "logo": zod.string().nullish(),
   "favicon": zod.string().nullish(),
   "banner": zod.string().nullish(),
   "qrisImage": zod.string().nullish(),
   "whatsappLink": zod.string().nullish(),
+  "telegramLink": zod.string().nullish(),
+  "discordLink": zod.string().nullish(),
+  "instagramLink": zod.string().nullish(),
+  "facebookLink": zod.string().nullish(),
+  "youtubeLink": zod.string().nullish(),
+  "tiktokLink": zod.string().nullish(),
   "chatLogo": zod.string().nullish(),
   "faq": zod.string().nullish(),
-  "footerText": zod.string().nullish()
+  "footerText": zod.string().nullish(),
+  "metaTitle": zod.string().nullish(),
+  "googleAnalyticsId": zod.string().nullish(),
+  "googleSearchConsoleId": zod.string().nullish()
 })
 
 
