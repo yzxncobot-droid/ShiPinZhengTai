@@ -140,7 +140,7 @@ export default function AdminPayments() {
                         </td>
                         <td className="p-3 hidden md:table-cell">
                           {p.paymentProof ? (
-                            <Button variant="ghost" size="sm" className="gap-1 h-7 text-xs" onClick={() => setViewProof(p.paymentProof)}>
+                            <Button variant="ghost" size="sm" className="gap-1 h-7 text-xs" onClick={() => { setViewPayment(p); setImageZoom(1); setImageFailed(false); }}>
                               <Eye className="h-3 w-3" />Lihat
                             </Button>
                           ) : <span className="text-muted-foreground text-xs">—</span>}
@@ -182,10 +182,70 @@ export default function AdminPayments() {
         </div>
 
         {/* Proof Image Dialog */}
-        <Dialog open={!!viewProof} onOpenChange={() => setViewProof(null)}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader><DialogTitle>Bukti Pembayaran</DialogTitle></DialogHeader>
-            {viewProof && <img src={viewProof} alt="Bukti" className="w-full rounded-lg" />}
+        <Dialog open={!!viewPayment} onOpenChange={() => setViewPayment(null)}>
+          <DialogContent className="max-w-xl">
+            <DialogHeader><DialogTitle>Bukti Pembayaran #{viewPayment?.id}</DialogTitle></DialogHeader>
+            {viewPayment && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3 text-sm bg-muted/30 rounded-lg p-3">
+                  <div><p className="text-muted-foreground text-xs">Pengguna</p><p className="font-medium">{viewPayment.user?.username ?? "—"}</p></div>
+                  <div><p className="text-muted-foreground text-xs">Email</p><p className="font-medium truncate">{viewPayment.user?.email ?? "—"}</p></div>
+                  <div><p className="text-muted-foreground text-xs">Nominal</p><p className="font-bold text-green-600">{fmtRp(viewPayment.amount)}</p></div>
+                  <div><p className="text-muted-foreground text-xs">Waktu</p><p className="font-medium">{fmtDateTime(viewPayment.createdAt)}</p></div>
+                  <div className="col-span-2">
+                    <Badge className={`border text-xs ${STATUS_CONFIG[viewPayment.status]?.class ?? ""}`}>
+                      {STATUS_CONFIG[viewPayment.status]?.label ?? viewPayment.status}
+                    </Badge>
+                  </div>
+                </div>
+
+                <div className="relative bg-black/5 rounded-lg overflow-hidden flex items-center justify-center min-h-[240px]">
+                  {viewPayment.paymentProof && !imageFailed ? (
+                    <div className="overflow-auto max-h-[420px] w-full flex items-center justify-center p-2">
+                      <img
+                        src={viewPayment.paymentProof}
+                        alt="Bukti transfer"
+                        style={{ transform: `scale(${imageZoom})`, transition: "transform 0.15s ease" }}
+                        className="max-w-full rounded-md"
+                        onError={() => setImageFailed(true)}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground">
+                      <ImageOff className="h-10 w-10 opacity-40" />
+                      <p className="text-sm font-medium">Gagal memuat bukti transfer</p>
+                      <p className="text-xs">Gambar tidak ditemukan atau URL tidak valid.</p>
+                    </div>
+                  )}
+                </div>
+
+                {viewPayment.paymentProof && !imageFailed && (
+                  <div className="flex items-center justify-center gap-2">
+                    <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setImageZoom((z) => Math.max(0.5, z - 0.25))}><ZoomOut className="h-4 w-4" /></Button>
+                    <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setImageZoom((z) => Math.min(3, z + 0.25))}><ZoomIn className="h-4 w-4" /></Button>
+                    <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={() => window.open(viewPayment.paymentProof, "_blank")}>
+                      <Maximize2 className="h-3.5 w-3.5" />Layar Penuh
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" asChild>
+                      <a href={viewPayment.paymentProof} download target="_blank" rel="noreferrer">
+                        <Download className="h-3.5 w-3.5" />Unduh
+                      </a>
+                    </Button>
+                  </div>
+                )}
+
+                {viewPayment.status === "pending" && (
+                  <div className="flex gap-2 pt-2 border-t">
+                    <Button className="flex-1 gap-1 bg-green-600 hover:bg-green-700" onClick={() => { setConfirmAction({ id: viewPayment.id, action: "confirm", user: viewPayment.user?.username, amount: viewPayment.amount }); setViewPayment(null); }}>
+                      <CheckCircle2 className="h-4 w-4" />Konfirmasi
+                    </Button>
+                    <Button variant="destructive" className="flex-1 gap-1" onClick={() => { setConfirmAction({ id: viewPayment.id, action: "deny", user: viewPayment.user?.username, amount: viewPayment.amount }); setViewPayment(null); }}>
+                      <XCircle className="h-4 w-4" />Tolak
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
           </DialogContent>
         </Dialog>
 
