@@ -19,7 +19,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
 
   // When token exists, fetch the user profile
-  const { data: me, isLoading: isMeLoading } = useGetMe({
+  const { data: me, isLoading: isMeLoading, isError: isMeError } = useGetMe({
     query: {
       enabled: !!token,
       retry: false,
@@ -32,8 +32,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [me]);
 
-  // If token is invalid and we get an error, we should logout
-  // (In a real app, you might check for a 401 specifically)
+  // If the token is invalid/expired, `/api/auth/me` fails: clear the stale
+  // token so we don't get stuck in a "token present, user null" limbo that
+  // ProtectedRoute would otherwise have to treat as unauthorized forever.
+  useEffect(() => {
+    if (isMeError && token) {
+      localStorage.removeItem(TOKEN_KEY);
+      setToken(null);
+      setUser(null);
+    }
+  }, [isMeError, token]);
 
   const login = (newToken: string, newUser: User) => {
     localStorage.setItem(TOKEN_KEY, newToken);

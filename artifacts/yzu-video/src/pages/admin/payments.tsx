@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Search, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Eye, CreditCard, RefreshCw, Clock, Copy, ZoomIn, ZoomOut, Download, Maximize2, ImageOff } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Eye, CreditCard, RefreshCw, Clock, Copy, ZoomIn, ZoomOut, Download, Maximize2, ImageOff, AlertTriangle } from "lucide-react";
 
 const STATUS_CONFIG: Record<string, { label: string; class: string }> = {
   pending: { label: "Menunggu", class: "bg-yellow-500/10 text-yellow-600 border-yellow-200" },
@@ -31,10 +31,11 @@ export default function AdminPayments() {
   const [imageFailed, setImageFailed] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{ id: number; action: "confirm" | "deny"; user: string; amount: number } | null>(null);
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch, isRefetching } = useQuery({
     queryKey: ["admin-payments", statusFilter, page],
     queryFn: () => adminFetch(`/topups/all?${statusFilter !== "all" ? `status=${statusFilter}&` : ""}page=${page}&limit=15`),
     placeholderData: (prev) => prev,
+    retry: 1,
   });
 
   const confirmMut = useMutation({
@@ -49,7 +50,8 @@ export default function AdminPayments() {
     onError: (e: any) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
   });
 
-  const payments = (data as any)?.data ?? [];
+  const rawPayments = (data as any)?.data;
+  const payments = Array.isArray(rawPayments) ? rawPayments : [];
   const total = (data as any)?.total ?? 0;
   const totalPages = Math.ceil(total / 15);
   const pending = payments.filter((p: any) => p.status === "pending").length;
@@ -110,6 +112,19 @@ export default function AdminPayments() {
                 <tbody className="divide-y">
                   {isLoading
                     ? Array(6).fill(0).map((_, i) => <tr key={i}><td colSpan={7} className="p-3"><Skeleton className="h-10 w-full" /></td></tr>)
+                    : isError
+                    ? (
+                      <tr><td colSpan={7} className="py-16 text-center">
+                        <div className="flex flex-col items-center gap-2">
+                          <AlertTriangle className="h-8 w-8 text-destructive opacity-70" />
+                          <p className="font-medium">Data pembayaran gagal dimuat</p>
+                          <p className="text-xs text-muted-foreground max-w-sm">{(error as any)?.message ?? "Terjadi kesalahan saat menghubungi server."}</p>
+                          <Button size="sm" variant="outline" className="mt-1 gap-1.5" onClick={() => refetch()} disabled={isRefetching}>
+                            <RefreshCw className={`h-3.5 w-3.5 ${isRefetching ? "animate-spin" : ""}`} />Coba Lagi
+                          </Button>
+                        </div>
+                      </td></tr>
+                    )
                     : payments.length === 0
                     ? (
                       <tr><td colSpan={7} className="py-16 text-center text-muted-foreground">
