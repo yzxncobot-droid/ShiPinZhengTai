@@ -1,3 +1,4 @@
 - [Yzu视频 API response shapes](yzu-video-api-shapes.md) — generated hooks return arrays vs paginated objects; must match when accessing `.data`
 - [Yzu视频 JWT secret](yzu-video-jwt.md) — SESSION_SECRET env var is required at startup (no fallback allowed)
 - [Admin panel white-screen guards](admin-white-screen-guards.md) — ProtectedRoute/query-error patterns that caused blank admin pages on mobile
+- [Re-import artifact workflow gap](reimport-artifact-workflow-gap.md) — GitHub re-imports of pnpm-workspace projects keep artifact.toml files but the workflow registry is empty; createArtifact can't adopt existing dirs.

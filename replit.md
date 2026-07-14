@@ -4,13 +4,13 @@ A premium video platform (browse, upload, subscribe/pay-per-view, leaderboard) w
 
 ## Run & Operate
 
-- Workflows (already configured, start automatically): `artifacts/api-server: API Server`, `artifacts/yzu-video: web`, `artifacts/mockup-sandbox: Component Preview Server`
-- `pnpm --filter @workspace/api-server run dev` — run the API server
-- `pnpm --filter @workspace/yzu-video run dev` — run the web app
+- Workflows: `API Server` (port 8080) and `Web` (port 21561, `PORT`/`BASE_PATH` set inline in the workflow command). After a fresh GitHub re-import, the artifact registry (`.replit-artifact/artifact.toml` per artifact) is not auto-registered as a workflow, so these were configured manually with `configureWorkflow` rather than via `createArtifact`. The `mockup-sandbox` artifact exists on disk but has no workflow configured (not needed to run the app; set one up if you want canvas mockups).
+- `pnpm --filter @workspace/api-server run dev` — run the API server (needs `PORT` set)
+- `pnpm --filter @workspace/yzu-video run dev` — run the web app (needs `PORT` and `BASE_PATH` set)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only) — required once after schema changes, tables were empty on import until this was run
+- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only) — required once after schema changes; ran this after the re-import since tables were empty
 
 ## Required integrations / secrets
 
@@ -46,7 +46,8 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- After a fresh clone/re-import, run `pnpm --filter @workspace/db run push` once before starting the API server — the DB schema exists but tables start empty (no seed data), so the site loads with no videos/categories until real content is uploaded.
+- The API server's `dev` script requires `PORT` to be set explicitly (`PORT=8080 pnpm --filter @workspace/api-server run dev`); it throws on startup otherwise.
 
 ## Pointers
 
