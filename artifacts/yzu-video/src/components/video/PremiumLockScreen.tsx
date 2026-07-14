@@ -1,15 +1,8 @@
 import { useState } from "react";
-import { Link, useLocation } from "wouter";
-import { Crown, Gift, Star, Rocket, Sparkles, Wallet, Loader2, PartyPopper } from "lucide-react";
+import { useLocation } from "wouter";
+import { Crown, Star, Unlock, MonitorPlay, Sparkles, ShoppingCart, Cloud, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { usePurchaseVideo, getGetVideoQueryKey } from "@workspace/api-client-react";
@@ -19,9 +12,8 @@ interface PremiumLockScreenProps {
   video: {
     id: number;
     title: string;
+    description?: string | null;
     price?: number | null;
-    creator?: { username?: string | null } | null;
-    category?: { name?: string | null } | null;
   };
 }
 
@@ -32,7 +24,6 @@ export function PremiumLockScreen({ video }: PremiumLockScreenProps) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const [modalOpen, setModalOpen] = useState(false);
 
   const purchaseMutation = usePurchaseVideo();
   const price = video.price ?? 0;
@@ -43,25 +34,25 @@ export function PremiumLockScreen({ video }: PremiumLockScreenProps) {
     setLocation("/subscriptions");
   };
 
-  const handleOpenModal = () => {
+  const handlePurchase = () => {
     if (!user) {
       setLocation("/login");
       return;
     }
-    setModalOpen(true);
-  };
-
-  const handleConfirmPurchase = () => {
     if (!canAfford) {
-      setModalOpen(false);
+      toast({
+        title: "Saldo Tidak Cukup",
+        description: "Silakan isi saldo wallet kamu terlebih dahulu.",
+        variant: "destructive"
+      });
       setLocation("/topup");
       return;
     }
+
     purchaseMutation.mutate(
       { id: video.id },
       {
         onSuccess: () => {
-          setModalOpen(false);
           toast({
             title: "🎉 Yeay! Video berhasil dibeli!",
             description: "Video ini sudah jadi milikmu selamanya.",
@@ -79,193 +70,87 @@ export function PremiumLockScreen({ video }: PremiumLockScreenProps) {
     );
   };
 
-  const benefits = [
-    { icon: Star, text: "Akses semua video premium", color: "text-yellow-500", bg: "bg-yellow-100" },
-    { icon: Gift, text: "Update video terbaru", color: "text-orange-500", bg: "bg-orange-100" },
-    { icon: Rocket, text: "Streaming tanpa batas", color: "text-sky-500", bg: "bg-sky-100" },
-    { icon: Crown, text: "Prioritas member premium", color: "text-purple-500", bg: "bg-purple-100" },
-  ];
-
   return (
-    <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-sky-100 via-purple-50 to-yellow-50 p-4 sm:p-8">
-      {/* Decorative floating blobs */}
-      <div className="pointer-events-none absolute -top-10 -left-10 h-40 w-40 rounded-full bg-yellow-300/40 blur-2xl" />
-      <div className="pointer-events-none absolute -bottom-10 -right-10 h-48 w-48 rounded-full bg-purple-300/40 blur-2xl" />
-      <div className="pointer-events-none absolute top-1/3 right-4 h-20 w-20 rounded-full bg-orange-300/30 blur-xl" />
-
-      <div className="relative mx-auto max-w-lg text-center">
-        {/* Header illustration */}
-        <div className="mb-4 flex justify-center">
-          <div className="relative">
-            <div className="absolute inset-0 animate-pulse rounded-full bg-yellow-300/60 blur-lg" />
-            <div
-              className="relative flex h-24 w-24 items-center justify-center rounded-3xl bg-gradient-to-br from-purple-400 via-sky-400 to-yellow-300 shadow-xl"
-              style={{ animation: "float-crown 3s ease-in-out infinite" }}
-            >
-              <Crown className="h-12 w-12 text-white drop-shadow" fill="white" fillOpacity={0.25} />
-            </div>
-            <Sparkles className="absolute -top-2 -right-2 h-6 w-6 text-yellow-400" />
-            <Sparkles className="absolute -bottom-1 -left-2 h-4 w-4 text-purple-400" />
-          </div>
+    <div className="relative overflow-hidden rounded-3xl bg-white shadow-md mx-4 mt-2 border border-slate-100">
+      
+      {/* Top Gradient Panel */}
+      <div className="bg-gradient-to-b from-[#1e1b4b] to-[#312e81] p-8 relative overflow-hidden text-center text-white flex flex-col items-center justify-center">
+        <Cloud className="absolute top-4 left-6 h-12 w-12 text-white/10 fill-white/10" />
+        <Cloud className="absolute bottom-4 right-4 h-16 w-16 text-white/10 fill-white/10" />
+        <Star className="absolute top-10 right-8 h-6 w-6 text-yellow-300 fill-yellow-300 transform rotate-12" />
+        <Star className="absolute bottom-8 left-8 h-4 w-4 text-purple-300 fill-purple-300 transform -rotate-12" />
+        
+        <div className="relative mx-auto w-24 h-24 mb-4">
+          <div className="absolute inset-0 bg-yellow-400/20 blur-xl rounded-full" />
+          <svg className="w-full h-full drop-shadow-2xl" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2C9.23858 2 7 4.23858 7 7V10H6C4.89543 10 4 10.8954 4 12V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V12C20 10.8954 19.1046 10 18 10H17V7C17 4.23858 14.7614 2 12 2ZM9 7C9 5.34315 10.3431 4 12 4C13.6569 4 15 5.34315 15 7V10H9V7ZM12 14C12.8284 14 13.5 14.6716 13.5 15.5C13.5 16.0354 13.2201 16.5053 12.8 16.7725V18C12.8 18.4418 12.4418 18.8 12 18.8C11.5582 18.8 11.2 18.4418 11.2 18V16.7725C10.7799 16.5053 10.5 16.0354 10.5 15.5C10.5 14.6716 11.1716 14 12 14Z" fill="#FBBF24"/>
+          </svg>
         </div>
-
-        <div className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-white/80 px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-purple-600 shadow-sm">
-          <Crown className="h-3.5 w-3.5" /> Premium Club
-        </div>
-
-        <h1 className="mt-3 text-2xl font-heading font-extrabold text-slate-800 sm:text-3xl">
-          Video Premium Terkunci 🔒
-        </h1>
-        <p className="mx-auto mt-2 max-w-md text-sm text-slate-600 sm:text-base">
-          Video ini hanya bisa ditonton oleh member premium atau dibeli secara satuan.
-        </p>
-
-        {/* Video meta info */}
-        <div className="mt-6 grid grid-cols-1 gap-3 rounded-2xl bg-white/70 p-4 text-left shadow-sm backdrop-blur sm:grid-cols-3">
-          <div>
-            <p className="text-[11px] font-semibold uppercase text-slate-400">Harga Video</p>
-            <p className="text-sm font-bold text-slate-800">{price ? formatRupiah(price) : "-"}</p>
-          </div>
-          <div>
-            <p className="text-[11px] font-semibold uppercase text-slate-400">Uploader</p>
-            <p className="truncate text-sm font-bold text-slate-800">{video.creator?.username || "Yzu Creator"}</p>
-          </div>
-          <div>
-            <p className="text-[11px] font-semibold uppercase text-slate-400">Kategori</p>
-            <p className="truncate text-sm font-bold text-slate-800">{video.category?.name || "Umum"}</p>
-          </div>
-        </div>
-
-        {/* Benefits */}
-        <div className="mt-6 grid grid-cols-2 gap-2.5 sm:gap-3">
-          {benefits.map((b, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-2 rounded-2xl bg-white/80 p-3 text-left shadow-sm transition-transform hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${b.bg}`}>
-                <b.icon className={`h-4 w-4 ${b.color}`} />
-              </div>
-              <span className="text-xs font-semibold text-slate-700 sm:text-sm">{b.text}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Purchase options */}
-        <div className="mt-7 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {/* Subscription card */}
-          <div className="group relative flex flex-col rounded-3xl bg-gradient-to-br from-purple-500 to-sky-500 p-5 text-left text-white shadow-lg shadow-purple-300/50 transition-transform hover:scale-[1.03]">
-            <div className="absolute -top-3 right-4 rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-purple-600 shadow">
-              PALING HEMAT
-            </div>
-            <div className="flex items-center gap-2 text-sm font-bold">
-              <Crown className="h-5 w-5" /> Subscription Premium
-            </div>
-            <p className="mt-3 text-2xl font-extrabold leading-none">Rp 25.000</p>
-            <p className="text-xs text-white/80">/ bulan</p>
-            <ul className="mt-3 space-y-1.5 text-xs text-white/90">
-              <li className="flex items-center gap-1.5"><Star className="h-3 w-3 shrink-0" /> Semua video premium terbuka</li>
-              <li className="flex items-center gap-1.5"><Star className="h-3 w-3 shrink-0" /> Akses penuh selama aktif</li>
-              <li className="flex items-center gap-1.5"><Star className="h-3 w-3 shrink-0" /> Lebih hemat</li>
-            </ul>
-            <Button
-              onClick={handleBuySubscription}
-              className="mt-4 h-11 w-full rounded-xl bg-white font-bold text-purple-600 shadow-md hover:bg-white/90"
-            >
-              Beli Subscription
-            </Button>
-          </div>
-
-          {/* One-time purchase card */}
-          <div className="group relative flex flex-col rounded-3xl bg-gradient-to-br from-orange-400 to-yellow-400 p-5 text-left text-white shadow-lg shadow-orange-300/50 transition-transform hover:scale-[1.03]">
-            <div className="flex items-center gap-2 text-sm font-bold">
-              <Gift className="h-5 w-5" /> Beli Video Ini
-            </div>
-            <p className="mt-3 text-2xl font-extrabold leading-none">{price ? formatRupiah(price) : "-"}</p>
-            <p className="text-xs text-white/80">sekali bayar</p>
-            <p className="mt-3 text-xs text-white/90">
-              Bayar sekali dan video ini menjadi milikmu selamanya.
-            </p>
-            <Button
-              onClick={handleOpenModal}
-              disabled={!video.price}
-              className="mt-4 h-11 w-full rounded-xl bg-white font-bold text-orange-500 shadow-md hover:bg-white/90"
-            >
-              Beli Video
-            </Button>
-          </div>
-        </div>
+        
+        <Badge className="bg-gradient-to-r from-yellow-400 to-orange-400 text-yellow-900 border-none font-extrabold px-3 py-1 uppercase tracking-wider text-[10px] mb-3">
+          Produk Premium
+        </Badge>
+        
+        <h2 className="text-xl md:text-2xl font-extrabold font-heading mb-2 leading-tight">Video ini hanya untuk member premium</h2>
+        <p className="text-[11px] md:text-sm font-medium text-indigo-200 px-4">Dapatkan akses penuh untuk menonton video ini dan semua konten premium lainnya.</p>
       </div>
 
-      {/* Purchase confirmation modal */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-sm rounded-3xl border-none bg-gradient-to-br from-sky-50 via-white to-yellow-50 p-6">
-          <DialogHeader>
-            <div className="mx-auto mb-1 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-400 to-yellow-400 shadow-md">
-              <PartyPopper className="h-7 w-7 text-white" />
-            </div>
-            <DialogTitle className="text-center text-lg font-heading font-extrabold text-slate-800">
-              Konfirmasi Pembelian
-            </DialogTitle>
-            <DialogDescription className="text-center text-sm text-slate-500">
-              Yuk cek dulu detailnya sebelum membeli!
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3 rounded-2xl bg-white/80 p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase text-slate-400">Nama Video</span>
-              <span className="max-w-[60%] truncate text-sm font-bold text-slate-800">{video.title}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase text-slate-400">Harga Video</span>
-              <span className="text-sm font-bold text-orange-500">{formatRupiah(price)}</span>
-            </div>
-            <div className="h-px bg-slate-100" />
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-xs font-semibold uppercase text-slate-400">
-                <Wallet className="h-3.5 w-3.5" /> Saldo Wallet
-              </span>
-              <span className={`text-sm font-bold ${canAfford ? "text-emerald-500" : "text-red-500"}`}>
-                {formatRupiah(walletBalance)}
-              </span>
-            </div>
+      {/* Body Panel */}
+      <div className="p-5 bg-white">
+        <div className="flex flex-wrap gap-2 mb-3">
+          <Badge className="bg-yellow-50 text-yellow-700 hover:bg-yellow-100 border-none font-extrabold text-[10px]">Premium Content</Badge>
+          <Badge className="bg-green-50 text-green-700 hover:bg-green-100 border-none font-extrabold text-[10px]">Aman & Terpercaya</Badge>
+        </div>
+        
+        <h3 className="font-heading font-extrabold text-lg text-slate-800 mb-1 leading-snug">{video.title}</h3>
+        <p className="text-[11px] font-medium text-slate-500 mb-5 line-clamp-2">{video.description || "Video eksklusif berkualitas tinggi."}</p>
+        
+        <div className="flex items-end justify-between bg-slate-50 p-4 rounded-2xl mb-5 border border-slate-100">
+          <div>
+            <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Harga Satuan</p>
+            <p className="text-2xl font-extrabold text-purple-600">{price ? formatRupiah(price) : "-"}</p>
           </div>
+        </div>
 
-          {!canAfford && (
-            <p className="text-center text-xs font-semibold text-red-500">
-              Saldo kamu belum cukup nih, isi saldo dulu yuk! 💰
-            </p>
-          )}
+        <div className="grid grid-cols-3 gap-2 mb-6">
+          <div className="flex flex-col items-center text-center gap-1.5">
+            <div className="bg-blue-50 p-2.5 rounded-full"><Unlock className="h-5 w-5 text-blue-500" /></div>
+            <span className="text-[10px] font-extrabold text-slate-600 leading-tight">Akses<br/>Penuh</span>
+          </div>
+          <div className="flex flex-col items-center text-center gap-1.5">
+            <div className="bg-purple-50 p-2.5 rounded-full"><MonitorPlay className="h-5 w-5 text-purple-500" /></div>
+            <span className="text-[10px] font-extrabold text-slate-600 leading-tight">Kualitas<br/>Terbaik</span>
+          </div>
+          <div className="flex flex-col items-center text-center gap-1.5">
+            <div className="bg-orange-50 p-2.5 rounded-full"><Sparkles className="h-5 w-5 text-orange-500" /></div>
+            <span className="text-[10px] font-extrabold text-slate-600 leading-tight">Konten<br/>Eksklusif</span>
+          </div>
+        </div>
 
-          <DialogFooter>
-            <Button
-              onClick={handleConfirmPurchase}
-              disabled={purchaseMutation.isPending}
-              className={`h-12 w-full rounded-xl text-base font-bold text-white shadow-md ${
-                canAfford
-                  ? "bg-gradient-to-r from-purple-500 to-sky-500 hover:opacity-90"
-                  : "bg-gradient-to-r from-orange-400 to-yellow-400 hover:opacity-90"
-              }`}
-            >
-              {purchaseMutation.isPending ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : canAfford ? (
-                "Bayar Sekarang"
-              ) : (
-                "Isi Saldo"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <style>{`
-        @keyframes float-crown {
-          0%, 100% { transform: translateY(0px) rotate(-2deg); }
-          50% { transform: translateY(-8px) rotate(2deg); }
-        }
-      `}</style>
+        <div className="grid grid-cols-2 gap-3">
+          <Button 
+            className="h-auto py-3 px-2 flex-col gap-1 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-500 text-white shadow-md shadow-orange-500/30 border-none" 
+            onClick={handlePurchase}
+            disabled={purchaseMutation.isPending || !price}
+          >
+            {purchaseMutation.isPending ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <>
+                <span className="font-extrabold text-[13px] flex items-center gap-1"><ShoppingCart className="h-4 w-4" /> Beli</span>
+                <span className="text-[9px] font-bold opacity-90 leading-tight text-center px-1">Beli video ini sekali tonton</span>
+              </>
+            )}
+          </Button>
+          <Button 
+            className="h-auto py-3 px-2 flex-col gap-1 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-md shadow-purple-500/30 border-none" 
+            onClick={handleBuySubscription}
+          >
+            <span className="font-extrabold text-[13px] flex items-center gap-1"><Crown className="h-4 w-4" /> Subscription</span>
+            <span className="text-[9px] font-bold opacity-90 leading-tight text-center px-1">Akses semua video premium</span>
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

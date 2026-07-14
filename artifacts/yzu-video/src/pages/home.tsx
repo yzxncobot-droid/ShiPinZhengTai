@@ -2,13 +2,13 @@ import { useGetFeaturedVideos, useListVideos, useListCategories, getListVideosQu
 import { AppLayout } from "@/components/layout/AppLayout";
 import { VideoCard, VideoCardSkeleton } from "@/components/video/VideoCard";
 import { Button } from "@/components/ui/button";
-import { Play, Crown, Flame, Clock, Ticket, Video, Sparkles, Rocket, Star, PartyPopper } from "lucide-react";
+import { Play, Flame, Clock, Ticket, Sparkles, Rocket, Star, Music, Gamepad2, Heart, Smile, Cloud } from "lucide-react";
 import { Link } from "wouter";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 
-const CATEGORY_EMOJI = ["🎈", "🚀", "🦄", "🎨", "🧩", "🎮", "🌈", "⭐"];
+const CATEGORY_ICONS = [Star, Rocket, Sparkles, Music, Gamepad2, Heart, Smile, Cloud];
 
 export default function Home() {
   const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null);
@@ -36,56 +36,46 @@ export default function Home() {
 
   return (
     <AppLayout>
-      {/* Hero Section — "Fun Premium Kids Club" theme: candy gradient wash behind the featured video */}
-      <section className="relative w-full h-[70vh] md:h-[80vh] min-h-[520px] overflow-hidden border-b border-border/50 bg-gradient-to-br from-purple-600 via-fuchsia-500 to-sky-500">
-        {/* Floating decorative shapes for a playful, toy-like feel */}
-        <div className="absolute -top-10 -left-10 h-40 w-40 rounded-full bg-yellow-300/30 blur-2xl" />
-        <div className="absolute bottom-0 right-10 h-56 w-56 rounded-full bg-orange-400/30 blur-3xl" />
-        <Star className="absolute top-10 right-[20%] h-6 w-6 text-yellow-200/70 float-crown" />
-        <Sparkles className="absolute bottom-24 left-[15%] h-8 w-8 text-white/60 float-crown" />
+      {/* Hero Section */}
+      <section className="relative w-full h-[60vh] md:h-[70vh] min-h-[480px] overflow-hidden bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 rounded-b-[40px] shadow-xl">
+        {/* Decorative elements */}
+        <div className="absolute top-10 left-10 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
+        <div className="absolute bottom-10 right-10 w-48 h-48 bg-pink-500/20 rounded-full blur-3xl" />
+        <Star className="absolute top-16 right-[15%] h-12 w-12 text-yellow-300 fill-yellow-300 drop-shadow-md transform rotate-12" />
+        <Rocket className="absolute bottom-20 left-[10%] h-16 w-16 text-white drop-shadow-lg transform -rotate-12" />
+        <Cloud className="absolute top-1/3 left-[20%] h-10 w-10 text-white/40 fill-white/40" />
 
         {heroVideo ? (
           <>
-            <div className="absolute inset-0">
+            <div className="absolute inset-0 z-0">
               <img
                 src={heroVideo.thumbnail || ''}
                 alt={heroVideo.title}
-                className="w-full h-full object-cover opacity-40 mix-blend-overlay"
+                className="w-full h-full object-cover opacity-30 mix-blend-overlay"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent" />
-              <div className="absolute inset-0 bg-gradient-to-r from-purple-900/70 via-transparent to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-indigo-900/90 via-indigo-900/40 to-transparent" />
             </div>
 
-            <div className="relative h-full container mx-auto px-4 md:px-6 flex flex-col justify-center">
-              <div className="max-w-2xl space-y-6">
+            <div className="relative z-10 h-full container mx-auto px-6 flex flex-col justify-end pb-16 md:pb-24">
+              <div className="max-w-2xl space-y-4">
                 <div className="flex gap-2">
-                  <Badge className="bg-white text-purple-600 border-none font-bold px-3 py-1 rounded-full shadow-md">
-                    <PartyPopper className="mr-1 h-3.5 w-3.5" /> Featured
+                  <Badge className="bg-gradient-to-r from-orange-400 to-pink-500 text-white border-none font-extrabold px-3 py-1 rounded-full shadow-lg">
+                    POPULAR 🔥
                   </Badge>
-                  {heroVideo.type === 'premium' && (
-                    <Badge variant="secondary" className="bg-gradient-to-r from-orange-400 to-yellow-400 text-white border-none font-bold px-3 py-1 rounded-full shadow-md">
-                      <Crown className="mr-1 h-3.5 w-3.5" /> Premium Kids Club
-                    </Badge>
-                  )}
                 </div>
 
-                <h1 className="text-4xl md:text-6xl font-heading font-extrabold tracking-tight text-white leading-tight drop-shadow-sm">
+                <h1 className="text-3xl md:text-5xl font-heading font-extrabold tracking-tight text-white leading-tight drop-shadow-md line-clamp-2">
                   {heroVideo.title}
                 </h1>
 
-                <p className="text-lg text-white/85 line-clamp-3 max-w-xl">
+                <p className="text-sm md:text-base text-white/90 line-clamp-2 font-medium max-w-lg">
                   {heroVideo.description}
                 </p>
 
-                <div className="flex flex-wrap gap-4 pt-4">
+                <div className="pt-2">
                   <Link href={`/videos/${heroVideo.id}`}>
-                    <Button size="lg" className="h-12 px-8 text-base font-bold rounded-full bg-white text-purple-600 hover:bg-white/90 shadow-lg shadow-black/20">
-                      <Play className="mr-2 h-5 w-5 fill-current" /> Tonton Sekarang
-                    </Button>
-                  </Link>
-                  <Link href={`/videos/${heroVideo.id}`}>
-                    <Button variant="outline" size="lg" className="h-12 px-8 text-base rounded-full bg-white/10 backdrop-blur border-white/30 text-white hover:bg-white/20">
-                      Info Lengkap
+                    <Button size="lg" className="h-12 px-8 font-extrabold rounded-full bg-white text-purple-700 hover:bg-slate-100 shadow-xl shadow-black/10 transform transition-transform hover:scale-105">
+                      <Play className="mr-2 h-5 w-5 fill-purple-700" /> Tonton Sekarang
                     </Button>
                   </Link>
                 </div>
@@ -94,110 +84,87 @@ export default function Home() {
           </>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-16 h-16 rounded-full bg-white/20 animate-pulse" />
+            <div className="w-12 h-12 rounded-full border-4 border-white border-t-transparent animate-spin" />
           </div>
         )}
       </section>
 
       {/* Main Content */}
-      <div className="container mx-auto px-4 md:px-6 py-12 space-y-16">
-
-        {/* Trending Section */}
+      <div className="container mx-auto px-4 py-8 space-y-12">
+        
+        {/* Categories / Produk Video */}
         <section>
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-heading font-bold flex items-center gap-2">
-              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-yellow-400 shadow-sm">
-                <Flame className="h-5 w-5 text-white" />
-              </span>
-              Lagi Rame Ditonton
+          <div className="flex items-center justify-between mb-4 px-2">
+            <h2 className="text-xl font-heading font-extrabold text-slate-800">
+              Produk Video 🎬
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {isLoadingTrending 
-              ? Array(4).fill(0).map((_, i) => <VideoCardSkeleton key={i} />)
-              : trendingVideos?.data.slice(0, 4).map(video => (
-                  <VideoCard key={video.id} video={video} />
-                ))}
-          </div>
-        </section>
-
-        {/* Categories / Filter Section */}
-        <section>
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-heading font-bold flex items-center gap-2">
-              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-sky-500 shadow-sm">
-                <Ticket className="h-5 w-5 text-white" />
-              </span>
-              Jelajahi
-            </h2>
-          </div>
-
-          <ScrollArea className="w-full whitespace-nowrap pb-4 mb-2">
-            <div className="flex w-max space-x-2 p-1">
+          <ScrollArea className="w-full whitespace-nowrap pb-4">
+            <div className="flex w-max space-x-2 px-2">
               <Button
                 variant={activeCategoryId === null ? "default" : "outline"}
-                className={`rounded-full ${activeCategoryId === null ? 'bg-gradient-to-r from-purple-500 to-sky-500 text-white border-none shadow-md shadow-purple-500/30' : 'bg-card'}`}
+                className={`rounded-full h-10 px-6 font-extrabold transition-all ${
+                  activeCategoryId === null 
+                    ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white border-none shadow-md shadow-purple-500/30' 
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-purple-600'
+                }`}
                 onClick={() => setActiveCategoryId(null)}
               >
-                🎬 Semua Video
+                Semua
               </Button>
-              {categories?.map((cat, i) => (
-                <Button
-                  key={cat.id}
-                  variant={activeCategoryId === cat.id ? "default" : "outline"}
-                  className={`rounded-full ${activeCategoryId === cat.id ? 'bg-gradient-to-r from-purple-500 to-sky-500 text-white border-none shadow-md shadow-purple-500/30' : 'bg-card'}`}
-                  onClick={() => setActiveCategoryId(cat.id)}
-                >
-                  {cat.icon || CATEGORY_EMOJI[i % CATEGORY_EMOJI.length]} {cat.name}
-                </Button>
-              ))}
+              {categories?.map((cat, i) => {
+                const Icon = CATEGORY_ICONS[i % CATEGORY_ICONS.length];
+                return (
+                  <Button
+                    key={cat.id}
+                    variant={activeCategoryId === cat.id ? "default" : "outline"}
+                    className={`rounded-full h-10 px-5 font-extrabold transition-all ${
+                      activeCategoryId === cat.id 
+                        ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white border-none shadow-md shadow-purple-500/30' 
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-purple-600'
+                    }`}
+                    onClick={() => setActiveCategoryId(cat.id)}
+                  >
+                    <Icon className="mr-2 h-4 w-4" /> {cat.name}
+                  </Button>
+                );
+              })}
             </div>
             <ScrollBar orientation="horizontal" className="hidden" />
           </ScrollArea>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4 md:gap-6 px-1">
             {isLoadingFiltered 
-              ? Array(8).fill(0).map((_, i) => <VideoCardSkeleton key={i} />)
+              ? Array(10).fill(0).map((_, i) => <VideoCardSkeleton key={i} />)
               : filteredVideos?.data.map(video => (
                   <VideoCard key={video.id} video={video} />
                 ))}
           </div>
 
           {filteredVideos?.data.length === 0 && (
-            <div className="py-20 text-center flex flex-col items-center">
-              <div className="h-20 w-20 rounded-full bg-gradient-to-br from-purple-500/10 to-sky-500/10 flex items-center justify-center mb-4">
-                <Rocket className="h-9 w-9 text-purple-400" />
+            <div className="py-16 text-center flex flex-col items-center bg-white rounded-3xl border border-slate-100 mx-2 mt-4 shadow-sm">
+              <div className="h-16 w-16 bg-purple-100 rounded-full flex items-center justify-center mb-3">
+                <Rocket className="h-8 w-8 text-purple-500" />
               </div>
-              <h3 className="text-xl font-heading font-medium text-muted-foreground">Belum ada video di sini</h3>
-              <p className="text-sm text-muted-foreground mt-2">Coba pilih kategori lain, ya!</p>
-            </div>
-          )}
-
-          {filteredVideos && filteredVideos.data.length > 0 && (
-            <div className="mt-10 flex justify-center">
-              <Button variant="outline" size="lg" className="w-full sm:w-auto px-12 rounded-full border-border/50 bg-card hover:bg-muted">
-                Muat Lebih Banyak
-              </Button>
+              <h3 className="text-lg font-heading font-extrabold text-slate-800">Belum ada video nih</h3>
+              <p className="text-sm font-medium text-slate-500 mt-1">Coba kategori lain yuk!</p>
             </div>
           )}
         </section>
 
-        {/* New Releases */}
-        <section>
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-heading font-bold flex items-center gap-2">
-              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-sky-400 shadow-sm">
-                <Clock className="h-5 w-5 text-white" />
-              </span>
-              Baru Rilis
+        {/* Trending Section */}
+        <section className="px-2">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-heading font-extrabold text-slate-800 flex items-center gap-2">
+              Lagi Rame Ditonton <Flame className="h-5 w-5 text-orange-500 fill-orange-500" />
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {isLoadingNewest 
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4 md:gap-6">
+            {isLoadingTrending 
               ? Array(4).fill(0).map((_, i) => <VideoCardSkeleton key={i} />)
-              : newestVideos?.data.slice(0, 4).map(video => (
+              : trendingVideos?.data.slice(0, 5).map(video => (
                   <VideoCard key={video.id} video={video} />
                 ))}
           </div>

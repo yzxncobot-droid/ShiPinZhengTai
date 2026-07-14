@@ -3,7 +3,7 @@ import { ProtectedRoute } from "@/lib/protected-route";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { useListSubscriptions, usePurchaseSubscription } from "@workspace/api-client-react";
-import { Crown, Check, Loader2 } from "lucide-react";
+import { Crown, Check, Loader2, Sparkles, Star } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 
@@ -23,8 +23,8 @@ export default function Subscriptions() {
     
     if ((user.walletBalance || 0) < price) {
       toast({
-        title: "Insufficient Balance",
-        description: "Please top up your wallet to purchase this plan.",
+        title: "Saldo Tidak Cukup",
+        description: "Silakan isi saldo wallet kamu untuk membeli paket ini.",
         variant: "destructive",
       });
       setLocation('/topup');
@@ -34,15 +34,14 @@ export default function Subscriptions() {
     purchaseMutation.mutate({ id }, {
       onSuccess: () => {
         toast({
-          title: "Subscription Activated!",
-          description: "You now have access to premium content.",
+          title: "🎉 Berhasil!",
+          description: "Akses premium kamu sudah aktif.",
         });
-        // We'd ideally invalidate user query here or it will update on next fetch
       },
       onError: (err: any) => {
         toast({
-          title: "Purchase Failed",
-          description: err.message || "An error occurred.",
+          title: "Gagal",
+          description: err.message || "Terjadi kesalahan.",
           variant: "destructive",
         });
       }
@@ -51,90 +50,98 @@ export default function Subscriptions() {
 
   return (
     <AppLayout>
-      <div className="container mx-auto px-4 md:px-6 py-16 md:py-24">
-        <div className="text-center max-w-3xl mx-auto mb-16 space-y-4">
-          <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10 mb-2">
-            <Crown className="h-6 w-6 text-amber-500" />
+      <div className="container mx-auto px-4 py-12 md:py-16">
+        <div className="text-center max-w-2xl mx-auto mb-12 relative">
+          <Star className="absolute -top-4 left-4 h-8 w-8 text-yellow-400 fill-yellow-400 transform -rotate-12 opacity-80" />
+          <Sparkles className="absolute top-4 right-4 h-6 w-6 text-purple-400 opacity-80" />
+          
+          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-300 to-orange-500 shadow-lg shadow-orange-500/20 mb-4 transform rotate-3">
+            <Crown className="h-8 w-8 text-white" />
           </div>
-          <h1 className="text-4xl md:text-5xl font-heading font-bold tracking-tight">
-            Upgrade to Premium
+          <h1 className="text-3xl md:text-5xl font-heading font-extrabold tracking-tight text-slate-800 mb-3">
+            Upgrade ke Premium! 🚀
           </h1>
-          <p className="text-lg text-muted-foreground">
-            Unlock exclusive content, remove ads, and support your favorite creators. Choose the plan that fits your needs.
+          <p className="text-sm md:text-base font-medium text-slate-500">
+            Tonton semua video eksklusif, tanpa iklan, dan dukung kreator favorit kamu. Pilih paket yang paling pas untukmu.
           </p>
         </div>
 
         {isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="h-[450px] rounded-2xl bg-card border border-border/50 animate-pulse" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 max-w-5xl mx-auto">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="h-80 rounded-3xl bg-white border border-slate-100 animate-pulse shadow-sm" />
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 max-w-6xl mx-auto">
             {subscriptions?.map((plan, index) => {
-              const isPopular = index === 1; // Highlight middle plan ideally
+              const isPopular = index === 1; // Assuming second plan is popular
               
               return (
                 <div 
                   key={plan.id}
-                  className={`relative flex flex-col rounded-3xl p-8 border ${
+                  className={`relative flex flex-col rounded-3xl p-6 transition-all duration-300 ${
                     isPopular 
-                      ? 'bg-card border-primary shadow-2xl shadow-primary/10' 
-                      : 'bg-card/50 border-border/50'
+                      ? 'bg-gradient-to-b from-purple-600 to-indigo-700 text-white shadow-xl shadow-purple-500/20 transform scale-105 z-10 border-none' 
+                      : 'bg-white border border-slate-100 shadow-sm hover:shadow-md'
                   }`}
                 >
                   {isPopular && (
-                    <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-                      <span className="bg-primary text-primary-foreground text-xs font-bold uppercase tracking-wider py-1 px-3 rounded-full">
-                        Most Popular
-                      </span>
+                    <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 w-max">
+                      <div className="bg-gradient-to-r from-orange-400 to-yellow-400 text-white text-[10px] font-extrabold uppercase tracking-widest py-1 px-4 rounded-full shadow-md">
+                        Paling Laris 🔥
+                      </div>
                     </div>
                   )}
                   
-                  <div className="mb-6">
-                    <h3 className="text-2xl font-heading font-bold">{plan.name}</h3>
-                    <p className="text-muted-foreground mt-2 min-h-[40px] text-sm">
+                  <div className="mb-4">
+                    <h3 className={`text-xl font-heading font-extrabold ${isPopular ? 'text-white' : 'text-slate-800'}`}>{plan.name}</h3>
+                    <p className={`text-xs mt-1 font-medium min-h-[32px] ${isPopular ? 'text-indigo-100' : 'text-slate-500'}`}>
                       {plan.description}
                     </p>
                   </div>
                   
-                  <div className="mb-8">
-                    <span className="text-4xl font-bold tracking-tight">Rp {plan.price.toLocaleString()}</span>
-                    <span className="text-muted-foreground ml-2">/ {plan.durationDays} days</span>
+                  <div className="mb-6 pb-6 border-b border-opacity-20 border-current">
+                    <span className="text-3xl font-extrabold tracking-tight">Rp {plan.price.toLocaleString()}</span>
+                    <span className={`text-[10px] font-bold ml-1 uppercase tracking-wide ${isPopular ? 'text-indigo-200' : 'text-slate-400'}`}>/ {plan.durationDays} hr</span>
                   </div>
                   
-                  <ul className="flex-1 space-y-4 mb-8">
-                    <li className="flex items-center gap-3">
-                      <Check className="h-5 w-5 text-primary" />
-                      <span>Access to all Premium videos</span>
+                  <ul className="flex-1 space-y-3 mb-6">
+                    <li className="flex items-start gap-2.5">
+                      <div className={`mt-0.5 rounded-full p-0.5 ${isPopular ? 'bg-indigo-500' : 'bg-green-100'}`}>
+                        <Check className={`h-3 w-3 ${isPopular ? 'text-white' : 'text-green-600'}`} strokeWidth={3} />
+                      </div>
+                      <span className={`text-xs font-bold leading-tight ${isPopular ? 'text-indigo-50' : 'text-slate-600'}`}>Akses ke semua video Premium</span>
                     </li>
-                    <li className="flex items-center gap-3">
-                      <Check className="h-5 w-5 text-primary" />
-                      <span>Ad-free viewing experience</span>
-                    </li>
-                    <li className="flex items-center gap-3">
-                      <Check className="h-5 w-5 text-primary" />
-                      <span>High quality 1080p streaming</span>
+                    <li className="flex items-start gap-2.5">
+                      <div className={`mt-0.5 rounded-full p-0.5 ${isPopular ? 'bg-indigo-500' : 'bg-green-100'}`}>
+                        <Check className={`h-3 w-3 ${isPopular ? 'text-white' : 'text-green-600'}`} strokeWidth={3} />
+                      </div>
+                      <span className={`text-xs font-bold leading-tight ${isPopular ? 'text-indigo-50' : 'text-slate-600'}`}>Nonton tanpa iklan</span>
                     </li>
                     {plan.durationDays >= 30 && (
-                      <li className="flex items-center gap-3">
-                        <Check className="h-5 w-5 text-primary" />
-                        <span>Download for offline viewing</span>
+                      <li className="flex items-start gap-2.5">
+                        <div className={`mt-0.5 rounded-full p-0.5 ${isPopular ? 'bg-indigo-500' : 'bg-green-100'}`}>
+                          <Check className={`h-3 w-3 ${isPopular ? 'text-white' : 'text-green-600'}`} strokeWidth={3} />
+                        </div>
+                        <span className={`text-xs font-bold leading-tight ${isPopular ? 'text-indigo-50' : 'text-slate-600'}`}>Kualitas 1080p HD</span>
                       </li>
                     )}
                   </ul>
                   
                   <Button 
-                    className={`w-full h-12 rounded-xl text-base font-semibold ${isPopular ? '' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'}`}
-                    variant={isPopular ? 'default' : 'secondary'}
+                    className={`w-full h-12 rounded-xl text-sm font-extrabold border-none shadow-sm ${
+                      isPopular 
+                        ? 'bg-white text-purple-700 hover:bg-slate-50' 
+                        : 'bg-purple-50 text-purple-600 hover:bg-purple-100'
+                    }`}
                     onClick={() => handlePurchase(plan.id, plan.price)}
                     disabled={purchaseMutation.isPending}
                   >
                     {purchaseMutation.isPending && purchaseMutation.variables?.id === plan.id ? (
-                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
-                      'Purchase Plan'
+                      'Pilih Paket'
                     )}
                   </Button>
                 </div>

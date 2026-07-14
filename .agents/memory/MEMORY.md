@@ -2,3 +2,5 @@
 - [Yzu视频 JWT secret](yzu-video-jwt.md) — SESSION_SECRET env var is required at startup (no fallback allowed)
 - [Admin panel white-screen guards](admin-white-screen-guards.md) — ProtectedRoute/query-error patterns that caused blank admin pages on mobile
 - [Re-import artifact workflow gap](reimport-artifact-workflow-gap.md) — GitHub re-imports of pnpm-workspace projects keep artifact.toml files but the workflow registry is empty; createArtifact can't adopt existing dirs.
+- [Verifying unregistered artifacts](verifying-unregistered-artifacts.md) — appPreview screenshots need a registered artifact; use externalUrl + REPLIT_DEV_DOMAIN as a fallback, but it can't set a mobile viewport.
+- [Demo-seeding empty dev DBs](demo-seeding-empty-dev-db.md) — an empty DB makes real UI look broken (infinite spinners, blank sections); idempotent SQL seed scripts run via `pnpm --filter <pkg> exec node` are the reliable way to populate it.
