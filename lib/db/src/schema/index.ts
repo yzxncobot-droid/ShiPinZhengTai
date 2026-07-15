@@ -13,3 +13,6 @@ export * from "./withdrawals";
 export * from "./audit-logs";
 export * from "./video-purchases";
 export * from "./bundles";
+export * from "./wallets";
+export * from "./referrals";
+export * from "./payment-proofs";
