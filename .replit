@@ -58,3 +58,15 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+ENABLE_BUNDLES = "true"
+ENABLE_MANUAL_QRIS = "true"
+ENABLE_REFERRALS = "true"
+ENABLE_SUBSCRIPTIONS = "true"
+ENABLE_WALLET = "true"
+SUPABASE_PAYMENTS_BUCKET = "yzx"
+SUPABASE_THUMBNAILS_BUCKET = "yzx"
+SUPABASE_VIDEOS_BUCKET = "yzx"

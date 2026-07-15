@@ -1,9 +1,10 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = process.env.SESSION_SECRET;
+// Prefer JWT_SECRET if set; fall back to SESSION_SECRET for backward compat.
+const JWT_SECRET = process.env.JWT_SECRET ?? process.env.SESSION_SECRET;
 if (!JWT_SECRET) {
-  throw new Error("SESSION_SECRET environment variable is required");
+  throw new Error("JWT_SECRET (or SESSION_SECRET) environment variable is required");
 }
 
 export interface JwtPayload {

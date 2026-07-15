@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl) throw new Error("SUPABASE_URL environment variable is required");
@@ -11,20 +11,21 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
 });
 
 /**
- * Single consolidated media bucket.
- * Sub-folders:
- *  - videos/     → uploaded video files
- *  - thumnails/  → video thumbnails (typo preserved from bucket naming)
- *  - images/     → generic site images (avatars, logos, banners, QRIS)
- *  - payments/   → payment proof screenshots
+ * All media lives in the single "yzx" bucket (default) unless overridden via
+ * per-folder bucket env vars.  Sub-folders within the bucket:
+ *   videos/      → uploaded video files
+ *   thumnails/   → video thumbnails (typo preserved from bucket naming)
+ *   images/      → avatars, logos, banners, QRIS
+ *   payments/    → payment proof screenshots
+ *
+ * If SUPABASE_VIDEOS_BUCKET / SUPABASE_THUMBNAILS_BUCKET / SUPABASE_PAYMENTS_BUCKET
+ * are set to different bucket names, those are used instead.
  */
-export const MEDIA_BUCKET = "yzx";
+export const MEDIA_BUCKET = process.env.SUPABASE_VIDEOS_BUCKET ?? "yzx";
+export const THUMBNAILS_BUCKET = process.env.SUPABASE_THUMBNAILS_BUCKET ?? MEDIA_BUCKET;
+export const PAYMENTS_BUCKET_NAME = process.env.SUPABASE_PAYMENTS_BUCKET ?? MEDIA_BUCKET;
 
-/**
- * @deprecated alias kept for call-sites that haven't been updated yet.
- * Points to the consolidated MEDIA_BUCKET so uploads still land in the
- * right place while old references are gradually cleaned up.
- */
+/** @deprecated alias kept for call-sites still referencing PAYMENT_BUCKET */
 export const PAYMENT_BUCKET = MEDIA_BUCKET;
 
 /** Sub-folder within MEDIA_BUCKET where payment proofs are stored. */
@@ -72,3 +73,15 @@ export async function uploadWithRetry(
 
   throw lastError ?? new Error("Upload failed after retries");
 }
+
+/**
+ * Feature flags — read from env, default to enabled.
+ * Use these at runtime to guard feature-specific routes.
+ */
+export const features = {
+  wallet:        process.env.ENABLE_WALLET        !== "false",
+  subscriptions: process.env.ENABLE_SUBSCRIPTIONS !== "false",
+  bundles:       process.env.ENABLE_BUNDLES        !== "false",
+  referrals:     process.env.ENABLE_REFERRALS      !== "false",
+  manualQris:    process.env.ENABLE_MANUAL_QRIS    !== "false",
+} as const;
