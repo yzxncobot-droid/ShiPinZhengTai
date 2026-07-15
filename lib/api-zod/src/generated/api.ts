@@ -472,6 +472,7 @@ export const ListVideosResponse = zod.object({
 }).optional()
 }).optional(),
   "isLiked": zod.boolean().optional(),
+  "bundleExclusive": zod.boolean().optional(),
   "createdAt": zod.coerce.date()
 })),
   "total": zod.number(),
@@ -545,6 +546,7 @@ export const CreateVideoResponse = zod.object({
 }).optional()
 }).optional(),
   "isLiked": zod.boolean().optional(),
+  "bundleExclusive": zod.boolean().optional(),
   "createdAt": zod.coerce.date()
 })
 
@@ -601,6 +603,7 @@ export const GetFeaturedVideosResponseItem = zod.object({
 }).optional()
 }).optional(),
   "isLiked": zod.boolean().optional(),
+  "bundleExclusive": zod.boolean().optional(),
   "createdAt": zod.coerce.date()
 })
 export const GetFeaturedVideosResponse = zod.array(GetFeaturedVideosResponseItem)
@@ -658,6 +661,7 @@ export const GetTrendingVideosResponseItem = zod.object({
 }).optional()
 }).optional(),
   "isLiked": zod.boolean().optional(),
+  "bundleExclusive": zod.boolean().optional(),
   "createdAt": zod.coerce.date()
 })
 export const GetTrendingVideosResponse = zod.array(GetTrendingVideosResponseItem)
@@ -721,6 +725,11 @@ export const GetVideoResponse = zod.object({
   "isLiked": zod.boolean().optional(),
   "hasAccess": zod.boolean().optional(),
   "hasPurchased": zod.boolean().optional(),
+  "bundleExclusive": zod.boolean().optional(),
+  "bundles": zod.array(zod.object({
+  "id": zod.number(),
+  "title": zod.string()
+})).optional(),
   "comments": zod.array(zod.object({
   "id": zod.number(),
   "videoId": zod.number(),
@@ -828,6 +837,7 @@ export const UpdateVideoResponse = zod.object({
 }).optional()
 }).optional(),
   "isLiked": zod.boolean().optional(),
+  "bundleExclusive": zod.boolean().optional(),
   "createdAt": zod.coerce.date()
 })
 
@@ -904,6 +914,7 @@ export const PurchaseVideoResponse = zod.object({
 }).optional()
 }).optional(),
   "isLiked": zod.boolean().optional(),
+  "bundleExclusive": zod.boolean().optional(),
   "createdAt": zod.coerce.date()
 })
 })
@@ -988,6 +999,7 @@ export const GetRelatedVideosResponseItem = zod.object({
 }).optional()
 }).optional(),
   "isLiked": zod.boolean().optional(),
+  "bundleExclusive": zod.boolean().optional(),
   "createdAt": zod.coerce.date()
 })
 export const GetRelatedVideosResponse = zod.array(GetRelatedVideosResponseItem)
@@ -1272,6 +1284,188 @@ export const GetMyActiveSubscriptionResponse = zod.object({
   "startDate": zod.coerce.date(),
   "endDate": zod.coerce.date(),
   "isActive": zod.boolean()
+})
+
+
+/**
+ * @summary List video bundles (purchase-only packs of 1-10 videos)
+ */
+export const ListBundlesResponseItem = zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "thumbnail": zod.string().nullish(),
+  "price": zod.number(),
+  "originalPrice": zod.number().nullish(),
+  "badge": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "videoCount": zod.number(),
+  "discountPercent": zod.number(),
+  "hasPurchased": zod.boolean(),
+  "createdAt": zod.coerce.date()
+})
+export const ListBundlesResponse = zod.array(ListBundlesResponseItem)
+
+
+/**
+ * @summary Create a bundle (owner)
+ */
+export const createBundleBodyVideoIdsMax = 10;
+
+
+
+export const CreateBundleBody = zod.object({
+  "title": zod.string(),
+  "description": zod.string().optional(),
+  "thumbnail": zod.string().optional(),
+  "price": zod.number(),
+  "originalPrice": zod.number().optional(),
+  "badge": zod.string().optional(),
+  "isActive": zod.boolean().optional(),
+  "sortOrder": zod.number().optional(),
+  "videoIds": zod.array(zod.number()).min(1).max(createBundleBodyVideoIdsMax)
+})
+
+export const CreateBundleResponse = zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "thumbnail": zod.string().nullish(),
+  "price": zod.number(),
+  "originalPrice": zod.number().nullish(),
+  "badge": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "videoCount": zod.number(),
+  "discountPercent": zod.number(),
+  "hasPurchased": zod.boolean(),
+  "videos": zod.array(zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "thumbnail": zod.string().nullish()
+})),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Get bundle detail including its videos
+ */
+export const GetBundleParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetBundleResponse = zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "thumbnail": zod.string().nullish(),
+  "price": zod.number(),
+  "originalPrice": zod.number().nullish(),
+  "badge": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "videoCount": zod.number(),
+  "discountPercent": zod.number(),
+  "hasPurchased": zod.boolean(),
+  "videos": zod.array(zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "thumbnail": zod.string().nullish()
+})),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Update a bundle (owner)
+ */
+export const UpdateBundleParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const updateBundleBodyVideoIdsMax = 10;
+
+
+
+export const UpdateBundleBody = zod.object({
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "thumbnail": zod.string().optional(),
+  "price": zod.number().optional(),
+  "originalPrice": zod.number().optional(),
+  "badge": zod.string().optional(),
+  "isActive": zod.boolean().optional(),
+  "sortOrder": zod.number().optional(),
+  "videoIds": zod.array(zod.number()).min(1).max(updateBundleBodyVideoIdsMax).optional()
+})
+
+export const UpdateBundleResponse = zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "thumbnail": zod.string().nullish(),
+  "price": zod.number(),
+  "originalPrice": zod.number().nullish(),
+  "badge": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "videoCount": zod.number(),
+  "discountPercent": zod.number(),
+  "hasPurchased": zod.boolean(),
+  "videos": zod.array(zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "thumbnail": zod.string().nullish()
+})),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Delete a bundle (owner)
+ */
+export const DeleteBundleParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const DeleteBundleResponse = zod.unknown()
+
+
+/**
+ * @summary Purchase a bundle using wallet balance (grants permanent access to its videos)
+ */
+export const PurchaseBundleParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const PurchaseBundleResponse = zod.object({
+  "id": zod.number(),
+  "userId": zod.number(),
+  "bundleId": zod.number(),
+  "price": zod.number(),
+  "createdAt": zod.coerce.date(),
+  "bundle": zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "thumbnail": zod.string().nullish(),
+  "price": zod.number(),
+  "originalPrice": zod.number().nullish(),
+  "badge": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "videoCount": zod.number(),
+  "discountPercent": zod.number(),
+  "hasPurchased": zod.boolean(),
+  "videos": zod.array(zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "thumbnail": zod.string().nullish()
+})),
+  "createdAt": zod.coerce.date()
+})
 })
 
 
@@ -1623,6 +1817,7 @@ export const GetWatchHistoryResponse = zod.object({
 }).optional()
 }).optional(),
   "isLiked": zod.boolean().optional(),
+  "bundleExclusive": zod.boolean().optional(),
   "createdAt": zod.coerce.date()
 })),
   "total": zod.number(),

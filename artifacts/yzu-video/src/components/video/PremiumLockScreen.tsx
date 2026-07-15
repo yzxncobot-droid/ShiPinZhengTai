@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Crown, Star, Unlock, MonitorPlay, Sparkles, ShoppingCart, Cloud, Loader2 } from "lucide-react";
+import { Crown, Star, Unlock, MonitorPlay, Sparkles, ShoppingCart, Cloud, Loader2, Gift } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth";
@@ -14,6 +14,8 @@ interface PremiumLockScreenProps {
     title: string;
     description?: string | null;
     price?: number | null;
+    bundleExclusive?: boolean;
+    bundles?: { id: number; title: string }[];
   };
 }
 
@@ -32,6 +34,11 @@ export function PremiumLockScreen({ video }: PremiumLockScreenProps) {
 
   const handleBuySubscription = () => {
     setLocation("/subscriptions");
+  };
+
+  const bundleTarget = video.bundles && video.bundles.length > 0 ? `/bundles?highlight=${video.bundles[0].id}` : "/bundles";
+  const handleGoToBundle = () => {
+    setLocation(bundleTarget);
   };
 
   const handlePurchase = () => {
@@ -128,27 +135,41 @@ export function PremiumLockScreen({ video }: PremiumLockScreenProps) {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Button 
-            className="h-auto py-3 px-2 flex-col gap-1 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-500 text-white shadow-md shadow-orange-500/30 border-none" 
-            onClick={handlePurchase}
-            disabled={purchaseMutation.isPending || !price}
-          >
-            {purchaseMutation.isPending ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <>
-                <span className="font-extrabold text-[13px] flex items-center gap-1"><ShoppingCart className="h-4 w-4" /> Beli</span>
-                <span className="text-[9px] font-bold opacity-90 leading-tight text-center px-1">Beli video ini sekali tonton</span>
-              </>
-            )}
-          </Button>
-          <Button 
-            className="h-auto py-3 px-2 flex-col gap-1 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-md shadow-purple-500/30 border-none" 
-            onClick={handleBuySubscription}
-          >
-            <span className="font-extrabold text-[13px] flex items-center gap-1"><Crown className="h-4 w-4" /> Subscription</span>
-            <span className="text-[9px] font-bold opacity-90 leading-tight text-center px-1">Akses semua video premium</span>
-          </Button>
+          {video.bundleExclusive ? (
+            <>
+              <Button 
+                className="h-auto py-3 px-2 flex-col gap-1 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-500 text-white shadow-md shadow-pink-500/30 border-none col-span-2" 
+                onClick={handleGoToBundle}
+              >
+                <span className="font-extrabold text-[13px] flex items-center gap-1"><Gift className="h-4 w-4" /> Lihat Bundle</span>
+                <span className="text-[9px] font-bold opacity-90 leading-tight text-center px-1">Video ini hanya bisa dibuka dengan membeli bundle-nya</span>
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button 
+                className="h-auto py-3 px-2 flex-col gap-1 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-500 text-white shadow-md shadow-orange-500/30 border-none" 
+                onClick={handlePurchase}
+                disabled={purchaseMutation.isPending || !price}
+              >
+                {purchaseMutation.isPending ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <>
+                    <span className="font-extrabold text-[13px] flex items-center gap-1"><ShoppingCart className="h-4 w-4" /> Beli</span>
+                    <span className="text-[9px] font-bold opacity-90 leading-tight text-center px-1">Beli video ini sekali tonton</span>
+                  </>
+                )}
+              </Button>
+              <Button 
+                className="h-auto py-3 px-2 flex-col gap-1 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-md shadow-purple-500/30 border-none" 
+                onClick={handleBuySubscription}
+              >
+                <span className="font-extrabold text-[13px] flex items-center gap-1"><Crown className="h-4 w-4" /> Subscription</span>
+                <span className="text-[9px] font-bold opacity-90 leading-tight text-center px-1">Akses semua video premium</span>
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </div>

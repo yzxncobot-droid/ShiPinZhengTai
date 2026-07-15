@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
-import { Home, Compass, Crown, Wallet, Smile } from "lucide-react";
+import { Home, Gift, Crown, Wallet, Smile } from "lucide-react";
 
 export function BottomNav() {
   const [location] = useLocation();
@@ -8,7 +8,7 @@ export function BottomNav() {
 
   const navItems = [
     { href: "/", icon: Home, label: "Home", activeColor: "text-purple-600" },
-    { href: "/search", icon: Compass, label: "Explore", activeColor: "text-purple-600" },
+    { href: "/bundles", icon: Gift, label: "Bundles", activeColor: "text-pink-500" },
     { href: "/subscriptions", icon: Crown, label: "Premium", activeColor: "text-amber-500" },
     { href: "/topup", icon: Wallet, label: "Top Up", activeColor: "text-orange-500" },
     { href: user ? "/profile" : "/login", icon: Smile, label: "Profile", activeColor: "text-blue-500" },
@@ -22,7 +22,7 @@ export function BottomNav() {
       <nav className="flex justify-around items-center h-[68px] px-2">
         {navItems.map((item) => {
           const isActive = location === item.href || 
-                           (item.href === "/search" && location.startsWith("/search")) || 
+                           (item.href === "/bundles" && location.startsWith("/bundles")) || 
                            (item.href === "/subscriptions" && location.startsWith("/subscriptions"));
                            
           return (

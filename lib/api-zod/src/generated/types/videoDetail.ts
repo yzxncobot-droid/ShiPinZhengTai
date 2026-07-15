@@ -5,6 +5,7 @@
  * Yzu视频 Premium Video Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { BundleRef } from './bundleRef';
 import type { Category } from './category';
 import type { Comment } from './comment';
 import type { User } from './user';
@@ -34,6 +35,8 @@ export interface VideoDetail {
   isLiked?: boolean;
   hasAccess?: boolean;
   hasPurchased?: boolean;
+  bundleExclusive?: boolean;
+  bundles?: BundleRef[];
   comments: Comment[];
   createdAt: Date;
 }

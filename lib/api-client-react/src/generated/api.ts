@@ -24,6 +24,11 @@ import type {
   AnalyticsOverview,
   AuthResponse,
   BanInput,
+  Bundle,
+  BundleDetail,
+  BundleInput,
+  BundlePurchaseResult,
+  BundleUpdate,
   Category,
   CategoryInput,
   CategoryUpdate,
@@ -2804,6 +2809,441 @@ export function useGetMyActiveSubscription<TData = Awaited<ReturnType<typeof get
 
 
 
+
+export const getListBundlesUrl = () => {
+
+
+
+
+  return `/api/bundles`
+}
+
+/**
+ * @summary List video bundles (purchase-only packs of 1-10 videos)
+ */
+export const listBundles = async ( options?: RequestInit): Promise<Bundle[]> => {
+
+  return customFetch<Bundle[]>(getListBundlesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListBundlesQueryKey = () => {
+    return [
+    `/api/bundles`
+    ] as const;
+    }
+
+
+export const getListBundlesQueryOptions = <TData = Awaited<ReturnType<typeof listBundles>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBundles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListBundlesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBundles>>> = ({ signal }) => listBundles({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBundles>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListBundlesQueryResult = NonNullable<Awaited<ReturnType<typeof listBundles>>>
+export type ListBundlesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List video bundles (purchase-only packs of 1-10 videos)
+ */
+
+export function useListBundles<TData = Awaited<ReturnType<typeof listBundles>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBundles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListBundlesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateBundleUrl = () => {
+
+
+
+
+  return `/api/bundles`
+}
+
+/**
+ * @summary Create a bundle (owner)
+ */
+export const createBundle = async (bundleInput: BundleInput, options?: RequestInit): Promise<BundleDetail> => {
+
+  return customFetch<BundleDetail>(getCreateBundleUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(bundleInput)
+  }
+);}
+
+
+
+
+export const getCreateBundleMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBundle>>, TError,{data: BodyType<BundleInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createBundle>>, TError,{data: BodyType<BundleInput>}, TContext> => {
+
+const mutationKey = ['createBundle'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBundle>>, {data: BodyType<BundleInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createBundle(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateBundleMutationResult = NonNullable<Awaited<ReturnType<typeof createBundle>>>
+    export type CreateBundleMutationBody = BodyType<BundleInput>
+    export type CreateBundleMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Create a bundle (owner)
+ */
+export const useCreateBundle = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBundle>>, TError,{data: BodyType<BundleInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createBundle>>,
+        TError,
+        {data: BodyType<BundleInput>},
+        TContext
+      > => {
+      return useMutation(getCreateBundleMutationOptions(options));
+    }
+
+export const getGetBundleUrl = (id: number,) => {
+
+
+
+
+  return `/api/bundles/${id}`
+}
+
+/**
+ * @summary Get bundle detail including its videos
+ */
+export const getBundle = async (id: number, options?: RequestInit): Promise<BundleDetail> => {
+
+  return customFetch<BundleDetail>(getGetBundleUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBundleQueryKey = (id: number,) => {
+    return [
+    `/api/bundles/${id}`
+    ] as const;
+    }
+
+
+export const getGetBundleQueryOptions = <TData = Awaited<ReturnType<typeof getBundle>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBundle>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBundleQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBundle>>> = ({ signal }) => getBundle(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBundle>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBundleQueryResult = NonNullable<Awaited<ReturnType<typeof getBundle>>>
+export type GetBundleQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get bundle detail including its videos
+ */
+
+export function useGetBundle<TData = Awaited<ReturnType<typeof getBundle>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBundle>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBundleQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateBundleUrl = (id: number,) => {
+
+
+
+
+  return `/api/bundles/${id}`
+}
+
+/**
+ * @summary Update a bundle (owner)
+ */
+export const updateBundle = async (id: number,
+    bundleUpdate: BundleUpdate, options?: RequestInit): Promise<BundleDetail> => {
+
+  return customFetch<BundleDetail>(getUpdateBundleUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(bundleUpdate)
+  }
+);}
+
+
+
+
+export const getUpdateBundleMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBundle>>, TError,{id: number;data: BodyType<BundleUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateBundle>>, TError,{id: number;data: BodyType<BundleUpdate>}, TContext> => {
+
+const mutationKey = ['updateBundle'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateBundle>>, {id: number;data: BodyType<BundleUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateBundle(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateBundleMutationResult = NonNullable<Awaited<ReturnType<typeof updateBundle>>>
+    export type UpdateBundleMutationBody = BodyType<BundleUpdate>
+    export type UpdateBundleMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update a bundle (owner)
+ */
+export const useUpdateBundle = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBundle>>, TError,{id: number;data: BodyType<BundleUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateBundle>>,
+        TError,
+        {id: number;data: BodyType<BundleUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateBundleMutationOptions(options));
+    }
+
+export const getDeleteBundleUrl = (id: number,) => {
+
+
+
+
+  return `/api/bundles/${id}`
+}
+
+/**
+ * @summary Delete a bundle (owner)
+ */
+export const deleteBundle = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteBundleUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteBundleMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBundle>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteBundle>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteBundle'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteBundle>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteBundle(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteBundleMutationResult = NonNullable<Awaited<ReturnType<typeof deleteBundle>>>
+
+    export type DeleteBundleMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Delete a bundle (owner)
+ */
+export const useDeleteBundle = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBundle>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteBundle>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteBundleMutationOptions(options));
+    }
+
+export const getPurchaseBundleUrl = (id: number,) => {
+
+
+
+
+  return `/api/bundles/${id}/purchase`
+}
+
+/**
+ * @summary Purchase a bundle using wallet balance (grants permanent access to its videos)
+ */
+export const purchaseBundle = async (id: number, options?: RequestInit): Promise<BundlePurchaseResult> => {
+
+  return customFetch<BundlePurchaseResult>(getPurchaseBundleUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getPurchaseBundleMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof purchaseBundle>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof purchaseBundle>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['purchaseBundle'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof purchaseBundle>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  purchaseBundle(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PurchaseBundleMutationResult = NonNullable<Awaited<ReturnType<typeof purchaseBundle>>>
+
+    export type PurchaseBundleMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Purchase a bundle using wallet balance (grants permanent access to its videos)
+ */
+export const usePurchaseBundle = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof purchaseBundle>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof purchaseBundle>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getPurchaseBundleMutationOptions(options));
+    }
 
 export const getGetWalletUrl = () => {
 

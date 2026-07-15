@@ -17,7 +17,7 @@ import {
   LayoutDashboard, Video, FolderOpen, Users, CreditCard, Wallet,
   ArrowUpFromLine, TrendingUp, Star, BarChart3, FileBarChart, Bell,
   Settings, ShieldCheck, Server, Upload, LogOut, Home, ChevronLeft,
-  ChevronRight, Menu, PlaySquare, Search, User as UserIcon, X,
+  ChevronRight, Menu, PlaySquare, Search, User as UserIcon, X, Gift,
 } from "lucide-react";
 
 // ── Navigation Config ──────────────────────────────────────────────────────────
@@ -46,6 +46,7 @@ const useNavGroups = (pendingPayments: number = 0, unreadNotifs: number = 0): Na
       { label: "Videos", href: "/admin/videos", icon: Video },
       { label: "Kategori", href: "/admin/categories", icon: FolderOpen },
       { label: "Upload Video", href: "/admin/upload", icon: Upload },
+      { label: "Bundles", href: "/admin/bundles", icon: Gift },
     ],
   },
   {
@@ -89,6 +90,7 @@ const PATH_LABELS: Record<string, string> = {
   "/admin/videos": "Videos",
   "/admin/categories": "Kategori",
   "/admin/upload": "Upload Video",
+  "/admin/bundles": "Bundles",
   "/admin/users": "Users",
   "/admin/payments": "Pembayaran",
   "/admin/wallet": "Wallet",

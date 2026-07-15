@@ -744,6 +744,113 @@ paths:
               schema:
                 $ref: "#/components/schemas/UserSubscription"
 
+  # ── BUNDLES ───────────────────────────────────────────────────────────────
+  /bundles:
+    get:
+      operationId: listBundles
+      tags: [bundles]
+      summary: List video bundles (purchase-only packs of 1-10 videos)
+      responses:
+        "200":
+          description: Bundle list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Bundle"
+    post:
+      operationId: createBundle
+      tags: [bundles]
+      summary: Create a bundle (owner)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BundleInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BundleDetail"
+
+  /bundles/{id}:
+    get:
+      operationId: getBundle
+      tags: [bundles]
+      summary: Get bundle detail including its videos
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Bundle detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BundleDetail"
+    patch:
+      operationId: updateBundle
+      tags: [bundles]
+      summary: Update a bundle (owner)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BundleUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BundleDetail"
+    delete:
+      operationId: deleteBundle
+      tags: [bundles]
+      summary: Delete a bundle (owner)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+
+  /bundles/{id}/purchase:
+    post:
+      operationId: purchaseBundle
+      tags: [bundles]
+      summary: Purchase a bundle using wallet balance (grants permanent access to its videos)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Purchased
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BundlePurchaseResult"
+
   # ── WALLET ────────────────────────────────────────────────────────────────
   /wallet:
     get:
@@ -1311,6 +1418,8 @@ components:
           $ref: "#/components/schemas/User"
         isLiked:
           type: boolean
+        bundleExclusive:
+          type: boolean
         createdAt:
           type: string
           format: date-time
@@ -1374,6 +1483,12 @@ components:
           type: boolean
         hasPurchased:
           type: boolean
+        bundleExclusive:
+          type: boolean
+        bundles:
+          type: array
+          items:
+            $ref: "#/components/schemas/BundleRef"
         comments:
           type: array
           items:
@@ -1445,6 +1560,166 @@ components:
           type: boolean
         isFeatured:
           type: boolean
+
+    # ── BUNDLE ──────────────────────────────────────────────────────────────
+    BundleRef:
+      type: object
+      required: [id, title]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+
+    BundleVideoItem:
+      type: object
+      required: [id, title]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        thumbnail:
+          type: ["string", "null"]
+
+    Bundle:
+      type: object
+      required: [id, title, price, isActive, sortOrder, videoCount, discountPercent, hasPurchased, createdAt]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        thumbnail:
+          type: ["string", "null"]
+        price:
+          type: number
+        originalPrice:
+          type: ["number", "null"]
+        badge:
+          type: ["string", "null"]
+        isActive:
+          type: boolean
+        sortOrder:
+          type: integer
+        videoCount:
+          type: integer
+        discountPercent:
+          type: integer
+        hasPurchased:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    BundleDetail:
+      type: object
+      required: [id, title, price, isActive, sortOrder, videoCount, discountPercent, hasPurchased, videos, createdAt]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        thumbnail:
+          type: ["string", "null"]
+        price:
+          type: number
+        originalPrice:
+          type: ["number", "null"]
+        badge:
+          type: ["string", "null"]
+        isActive:
+          type: boolean
+        sortOrder:
+          type: integer
+        videoCount:
+          type: integer
+        discountPercent:
+          type: integer
+        hasPurchased:
+          type: boolean
+        videos:
+          type: array
+          items:
+            $ref: "#/components/schemas/BundleVideoItem"
+        createdAt:
+          type: string
+          format: date-time
+
+    BundleInput:
+      type: object
+      required: [title, price, videoIds]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        thumbnail:
+          type: string
+        price:
+          type: number
+        originalPrice:
+          type: number
+        badge:
+          type: string
+        isActive:
+          type: boolean
+        sortOrder:
+          type: integer
+        videoIds:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: integer
+
+    BundleUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        thumbnail:
+          type: string
+        price:
+          type: number
+        originalPrice:
+          type: number
+        badge:
+          type: string
+        isActive:
+          type: boolean
+        sortOrder:
+          type: integer
+        videoIds:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: integer
+
+    BundlePurchaseResult:
+      type: object
+      required: [id, userId, bundleId, price, createdAt, bundle]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        bundleId:
+          type: integer
+        price:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+        bundle:
+          $ref: "#/components/schemas/BundleDetail"
 
     LikeResult:
       type: object

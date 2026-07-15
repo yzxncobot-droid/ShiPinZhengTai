@@ -53,6 +53,9 @@ export function Navbar() {
             <Link href="/" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location === '/' ? 'text-purple-600' : 'text-slate-500'}`}>
               Home
             </Link>
+            <Link href="/bundles" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location.startsWith('/bundles') ? 'text-purple-600' : 'text-slate-500'}`}>
+              Bundles
+            </Link>
             <Link href="/subscriptions" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location === '/subscriptions' ? 'text-purple-600' : 'text-slate-500'}`}>
               Premium
             </Link>

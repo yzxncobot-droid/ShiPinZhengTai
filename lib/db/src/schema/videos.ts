@@ -18,6 +18,10 @@ export const videosTable = pgTable("videos", {
   likes: integer("likes").notNull().default(0),
   downloadable: boolean("downloadable").notNull().default(false),
   isFeatured: boolean("is_featured").notNull().default(false),
+  // When true, this video is exclusive to one or more bundles: it can only be
+  // unlocked by purchasing the video directly (if priced) or buying a bundle
+  // that contains it. Subscriptions never grant access to it.
+  bundleExclusive: boolean("bundle_exclusive").notNull().default(false),
   // CMS fields
   status: text("status").notNull().default("published"), // draft | published | hidden | scheduled
   tags: text("tags"),           // JSON array string

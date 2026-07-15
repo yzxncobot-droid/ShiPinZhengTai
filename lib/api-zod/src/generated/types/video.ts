@@ -31,5 +31,6 @@ export interface Video {
   creatorId?: number;
   creator?: User;
   isLiked?: boolean;
+  bundleExclusive?: boolean;
   createdAt: Date;
 }

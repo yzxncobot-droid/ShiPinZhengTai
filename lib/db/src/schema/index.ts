@@ -12,3 +12,4 @@ export * from "./notifications";
 export * from "./withdrawals";
 export * from "./audit-logs";
 export * from "./video-purchases";
+export * from "./bundles";

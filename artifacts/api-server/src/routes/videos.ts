@@ -4,6 +4,7 @@ import {
   videosTable, usersTable, categoriesTable, likesTable, viewsTable,
   commentsTable, userSubscriptionsTable, subscriptionsTable,
   videoPurchasesTable, transactionsTable, notificationsTable,
+  bundlesTable, bundleVideosTable, bundlePurchasesTable,
 } from "@workspace/db";
 import { eq, and, desc, asc, ilike, gte, or, sql, count } from "drizzle-orm";
 import { authenticate, optionalAuth, requireRole } from "../middlewares/auth";
@@ -31,19 +32,38 @@ async function formatVideo(v: any, userId?: number) {
 async function checkAccess(userId: number | undefined, video: any): Promise<boolean> {
   if (video.type === "free") return true;
   if (!userId) return false;
-  const now = new Date();
-  const [sub] = await db
-    .select()
-    .from(userSubscriptionsTable)
-    .where(and(eq(userSubscriptionsTable.userId, userId), eq(userSubscriptionsTable.isActive, true), gte(userSubscriptionsTable.endDate, now)))
-    .limit(1);
-  if (sub) return true;
+
+  // Bundle-exclusive videos are never unlocked by a subscription — the only
+  // ways in are a direct purchase (if individually priced) or owning a
+  // bundle that contains this video.
+  if (!video.bundleExclusive) {
+    const now = new Date();
+    const [sub] = await db
+      .select()
+      .from(userSubscriptionsTable)
+      .where(and(eq(userSubscriptionsTable.userId, userId), eq(userSubscriptionsTable.isActive, true), gte(userSubscriptionsTable.endDate, now)))
+      .limit(1);
+    if (sub) return true;
+  }
+
   const [purchase] = await db
     .select({ id: videoPurchasesTable.id })
     .from(videoPurchasesTable)
     .where(and(eq(videoPurchasesTable.userId, userId), eq(videoPurchasesTable.videoId, video.id)))
     .limit(1);
-  return !!purchase;
+  if (purchase) return true;
+
+  if (video.bundleExclusive) {
+    const [bundlePurchase] = await db
+      .select({ id: bundlePurchasesTable.id })
+      .from(bundlePurchasesTable)
+      .innerJoin(bundleVideosTable, eq(bundleVideosTable.bundleId, bundlePurchasesTable.bundleId))
+      .where(and(eq(bundlePurchasesTable.userId, userId), eq(bundleVideosTable.videoId, video.id)))
+      .limit(1);
+    if (bundlePurchase) return true;
+  }
+
+  return false;
 }
 
 // GET /videos
@@ -131,8 +151,16 @@ router.get("/videos/:id", optionalAuth, async (req, res) => {
     .where(eq(commentsTable.videoId, id))
     .orderBy(desc(commentsTable.createdAt))
     .limit(50);
+  let bundles: { id: number; title: string }[] = [];
+  if (video.bundleExclusive) {
+    bundles = await db
+      .select({ id: bundlesTable.id, title: bundlesTable.title })
+      .from(bundleVideosTable)
+      .innerJoin(bundlesTable, eq(bundlesTable.id, bundleVideosTable.bundleId))
+      .where(eq(bundleVideosTable.videoId, id));
+  }
   const formatted = await formatVideo(video, req.user?.userId);
-  res.json({ ...formatted, hasAccess, hasPurchased, comments });
+  res.json({ ...formatted, hasAccess, hasPurchased, bundles, comments });
 });
 
 // POST /videos/:id/purchase — buy a single premium video with wallet balance

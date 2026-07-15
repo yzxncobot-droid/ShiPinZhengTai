@@ -18,6 +18,7 @@ import LeaderboardPage from "@/pages/leaderboard";
 import ProfilePage from "@/pages/profile";
 import NotificationsPage from "@/pages/notifications";
 import SearchPage from "@/pages/search";
+import BundlesPage from "@/pages/bundles";
 import VideoDetailPage from "@/pages/videos/detail";
 import DebugUploadPage from "@/pages/debug-upload";
 
@@ -26,6 +27,7 @@ import AdminDashboard from "@/pages/admin/dashboard";
 import AdminVideos from "@/pages/admin/videos";
 import AdminUploadVideo from "@/pages/admin/upload";
 import AdminCategories from "@/pages/admin/categories";
+import AdminBundles from "@/pages/admin/bundles";
 import AdminUsers from "@/pages/admin/users";
 import AdminPayments from "@/pages/admin/payments";
 import AdminSubscriptions from "@/pages/admin/subscriptions";
@@ -61,6 +63,7 @@ function AppRouter() {
       <Route path="/notifications" component={NotificationsPage} />
       <Route path="/leaderboard" component={LeaderboardPage} />
       <Route path="/search" component={SearchPage} />
+      <Route path="/bundles" component={BundlesPage} />
       <Route path="/videos/:id" component={VideoDetailPage} />
       <Route path="/debug-upload" component={DebugUploadPage} />
 
@@ -69,6 +72,7 @@ function AppRouter() {
       <Route path="/admin/videos" component={AdminVideos} />
       <Route path="/admin/upload" component={AdminUploadVideo} />
       <Route path="/admin/categories" component={AdminCategories} />
+      <Route path="/admin/bundles" component={AdminBundles} />
       <Route path="/admin/users" component={AdminUsers} />
       <Route path="/admin/payments" component={AdminPayments} />
       <Route path="/admin/subscriptions" component={AdminSubscriptions} />

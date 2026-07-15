@@ -156,6 +156,7 @@ export interface Video {
   creatorId?: number;
   creator?: User;
   isLiked?: boolean;
+  bundleExclusive?: boolean;
   createdAt: string;
 }
 
@@ -175,6 +176,11 @@ export const VideoDetailType = {
   free: 'free',
   premium: 'premium',
 } as const;
+
+export interface BundleRef {
+  id: number;
+  title: string;
+}
 
 export interface Comment {
   id: number;
@@ -209,6 +215,8 @@ export interface VideoDetail {
   isLiked?: boolean;
   hasAccess?: boolean;
   hasPurchased?: boolean;
+  bundleExclusive?: boolean;
+  bundles?: BundleRef[];
   comments: Comment[];
   createdAt: string;
 }
@@ -259,6 +267,95 @@ export interface VideoUpdate {
   categoryId?: number;
   downloadable?: boolean;
   isFeatured?: boolean;
+}
+
+export interface BundleVideoItem {
+  id: number;
+  title: string;
+  /** @nullable */
+  thumbnail?: string | null;
+}
+
+export interface Bundle {
+  id: number;
+  title: string;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  thumbnail?: string | null;
+  price: number;
+  /** @nullable */
+  originalPrice?: number | null;
+  /** @nullable */
+  badge?: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  videoCount: number;
+  discountPercent: number;
+  hasPurchased: boolean;
+  createdAt: string;
+}
+
+export interface BundleDetail {
+  id: number;
+  title: string;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  thumbnail?: string | null;
+  price: number;
+  /** @nullable */
+  originalPrice?: number | null;
+  /** @nullable */
+  badge?: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  videoCount: number;
+  discountPercent: number;
+  hasPurchased: boolean;
+  videos: BundleVideoItem[];
+  createdAt: string;
+}
+
+export interface BundleInput {
+  title: string;
+  description?: string;
+  thumbnail?: string;
+  price: number;
+  originalPrice?: number;
+  badge?: string;
+  isActive?: boolean;
+  sortOrder?: number;
+  /**
+     * @minItems 1
+     * @maxItems 10
+     */
+  videoIds: number[];
+}
+
+export interface BundleUpdate {
+  title?: string;
+  description?: string;
+  thumbnail?: string;
+  price?: number;
+  originalPrice?: number;
+  badge?: string;
+  isActive?: boolean;
+  sortOrder?: number;
+  /**
+     * @minItems 1
+     * @maxItems 10
+     */
+  videoIds?: number[];
+}
+
+export interface BundlePurchaseResult {
+  id: number;
+  userId: number;
+  bundleId: number;
+  price: number;
+  createdAt: string;
+  bundle: BundleDetail;
 }
 
 export interface LikeResult {
