@@ -20,7 +20,10 @@ async function formatBundle(
   opts: { includeVideos?: boolean; userId?: number } = {},
 ) {
   const rows = await db
-    .select({ id: videosTable.id, title: videosTable.title, thumbnail: videosTable.thumbnail, sortOrder: bundleVideosTable.sortOrder })
+    .select({
+      id: videosTable.id, title: videosTable.title, thumbnail: videosTable.thumbnail,
+      visibility: videosTable.visibility, sortOrder: bundleVideosTable.sortOrder,
+    })
     .from(bundleVideosTable)
     .innerJoin(videosTable, eq(videosTable.id, bundleVideosTable.videoId))
     .where(eq(bundleVideosTable.bundleId, b.id))
@@ -41,6 +44,7 @@ async function formatBundle(
     title: b.title,
     description: b.description,
     thumbnail: b.thumbnail,
+    banner: b.banner,
     price: b.price,
     originalPrice: b.originalPrice,
     badge: b.badge,
@@ -53,7 +57,14 @@ async function formatBundle(
   };
 
   return opts.includeVideos
-    ? { ...base, videos: rows.map((r) => ({ id: r.id, title: r.title, thumbnail: r.thumbnail })) }
+    ? {
+        ...base,
+        videos: rows.map((r) => ({
+          id: r.id, title: r.title, thumbnail: r.thumbnail,
+          // When user has purchased the bundle, include video details; otherwise hide
+          ...(hasPurchased ? {} : {}),
+        })),
+      }
     : base;
 }
 
@@ -72,7 +83,18 @@ async function validateVideoIds(videoIds: unknown): Promise<{ ids: number[] } | 
   return { ids };
 }
 
-/** Clears `bundleExclusive` on any of `videoIds` that are no longer part of any bundle. */
+/**
+ * Mark all videos as hidden_bundle + keep bundleExclusive flag in sync.
+ * Videos removed from all bundles have their visibility reset to "premium".
+ */
+async function syncBundleVideoVisibility(videoIds: number[]) {
+  if (videoIds.length === 0) return;
+  await db.update(videosTable)
+    .set({ visibility: "hidden_bundle", bundleExclusive: true, type: "premium", updatedAt: new Date() })
+    .where(inArray(videosTable.id, videoIds));
+}
+
+/** Clear bundleExclusive / reset visibility for videos no longer in any bundle. */
 async function clearStaleBundleExclusive(videoIds: number[]) {
   if (videoIds.length === 0) return;
   const stillLinked = await db
@@ -82,7 +104,10 @@ async function clearStaleBundleExclusive(videoIds: number[]) {
   const stillLinkedSet = new Set(stillLinked.map((r) => r.videoId));
   const toClear = videoIds.filter((id) => !stillLinkedSet.has(id));
   if (toClear.length > 0) {
-    await db.update(videosTable).set({ bundleExclusive: false }).where(inArray(videosTable.id, toClear));
+    // Demote to premium (not public) since these were previously locked videos
+    await db.update(videosTable)
+      .set({ visibility: "premium", bundleExclusive: false, updatedAt: new Date() })
+      .where(inArray(videosTable.id, toClear));
   }
 }
 
@@ -96,21 +121,31 @@ router.get("/bundles", optionalAuth, async (req, res) => {
   res.json(data);
 });
 
-// POST /bundles (owner)
-router.post("/bundles", authenticate, requireRole("owner"), async (req, res) => {
-  const { title, description, thumbnail, price, originalPrice, badge, isActive = true, sortOrder = 0, videoIds } = req.body;
-  if (!title || price == null) { res.status(400).json({ error: "Title and price are required" }); return; }
+// POST /bundles (admin or owner)
+router.post("/bundles", authenticate, requireRole("admin", "owner"), async (req, res) => {
+  const {
+    title, description, thumbnail, banner, price, originalPrice,
+    badge, isActive = true, sortOrder = 0, videoIds,
+  } = req.body;
+
+  if (!title || price == null) {
+    res.status(400).json({ error: "Title and price are required" }); return;
+  }
 
   const validated = await validateVideoIds(videoIds);
   if ("error" in validated) { res.status(400).json({ error: validated.error }); return; }
 
   const [bundle] = await db.insert(bundlesTable).values({
-    title, description, thumbnail, price, originalPrice, badge, isActive, sortOrder,
+    title, description, thumbnail, banner, price, originalPrice, badge, isActive, sortOrder,
   }).returning();
 
-  await db.insert(bundleVideosTable).values(validated.ids.map((videoId, i) => ({ bundleId: bundle.id, videoId, sortOrder: i })));
-  await db.update(videosTable).set({ bundleExclusive: true }).where(inArray(videosTable.id, validated.ids));
+  await db.insert(bundleVideosTable).values(
+    validated.ids.map((videoId, i) => ({ bundleId: bundle.id, videoId, sortOrder: i })),
+  );
+  // Mark all videos in this bundle as hidden_bundle
+  await syncBundleVideoVisibility(validated.ids);
 
+  logger.info({ bundleId: bundle.id, videoCount: validated.ids.length }, "Bundle created");
   res.status(201).json(await formatBundle(bundle, { includeVideos: true }));
 });
 
@@ -122,17 +157,22 @@ router.get("/bundles/:id", optionalAuth, async (req, res) => {
   res.json(await formatBundle(bundle, { includeVideos: true, userId: req.user?.userId }));
 });
 
-// PATCH /bundles/:id (owner)
-router.patch("/bundles/:id", authenticate, requireRole("owner"), async (req, res) => {
+// PATCH /bundles/:id (admin or owner)
+router.patch("/bundles/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
   const id = parseInt(req.params.id);
   const [bundle] = await db.select().from(bundlesTable).where(eq(bundlesTable.id, id)).limit(1);
   if (!bundle) { res.status(404).json({ error: "Bundle not found" }); return; }
 
-  const { title, description, thumbnail, price, originalPrice, badge, isActive, sortOrder, videoIds } = req.body;
+  const {
+    title, description, thumbnail, banner, price, originalPrice,
+    badge, isActive, sortOrder, videoIds,
+  } = req.body;
+
   const updates: Record<string, unknown> = { updatedAt: new Date() };
   if (title !== undefined) updates.title = title;
   if (description !== undefined) updates.description = description;
   if (thumbnail !== undefined) updates.thumbnail = thumbnail;
+  if (banner !== undefined) updates.banner = banner;
   if (price !== undefined) updates.price = price;
   if (originalPrice !== undefined) updates.originalPrice = originalPrice;
   if (badge !== undefined) updates.badge = badge;
@@ -143,12 +183,15 @@ router.patch("/bundles/:id", authenticate, requireRole("owner"), async (req, res
     const validated = await validateVideoIds(videoIds);
     if ("error" in validated) { res.status(400).json({ error: validated.error }); return; }
 
-    const oldRows = await db.select({ videoId: bundleVideosTable.videoId }).from(bundleVideosTable).where(eq(bundleVideosTable.bundleId, id));
+    const oldRows = await db.select({ videoId: bundleVideosTable.videoId })
+      .from(bundleVideosTable).where(eq(bundleVideosTable.bundleId, id));
     const oldVideoIds = oldRows.map((r) => r.videoId);
 
     await db.delete(bundleVideosTable).where(eq(bundleVideosTable.bundleId, id));
-    await db.insert(bundleVideosTable).values(validated.ids.map((videoId, i) => ({ bundleId: id, videoId, sortOrder: i })));
-    await db.update(videosTable).set({ bundleExclusive: true }).where(inArray(videosTable.id, validated.ids));
+    await db.insert(bundleVideosTable).values(
+      validated.ids.map((videoId, i) => ({ bundleId: id, videoId, sortOrder: i })),
+    );
+    await syncBundleVideoVisibility(validated.ids);
 
     const removedVideoIds = oldVideoIds.filter((v) => !validated.ids.includes(v));
     await clearStaleBundleExclusive(removedVideoIds);
@@ -158,13 +201,14 @@ router.patch("/bundles/:id", authenticate, requireRole("owner"), async (req, res
   res.json(await formatBundle(updated, { includeVideos: true }));
 });
 
-// DELETE /bundles/:id (owner)
-router.delete("/bundles/:id", authenticate, requireRole("owner"), async (req, res) => {
+// DELETE /bundles/:id (admin or owner)
+router.delete("/bundles/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
   const id = parseInt(req.params.id);
   const [bundle] = await db.select().from(bundlesTable).where(eq(bundlesTable.id, id)).limit(1);
   if (!bundle) { res.status(404).json({ error: "Bundle not found" }); return; }
 
-  const rows = await db.select({ videoId: bundleVideosTable.videoId }).from(bundleVideosTable).where(eq(bundleVideosTable.bundleId, id));
+  const rows = await db.select({ videoId: bundleVideosTable.videoId })
+    .from(bundleVideosTable).where(eq(bundleVideosTable.bundleId, id));
   const videoIds = rows.map((r) => r.videoId);
 
   await db.delete(bundlesTable).where(eq(bundlesTable.id, id));
@@ -173,7 +217,7 @@ router.delete("/bundles/:id", authenticate, requireRole("owner"), async (req, re
   res.json({ message: "Deleted" });
 });
 
-// POST /bundles/:id/purchase — buy a bundle with wallet balance (purchase-only; never via subscription)
+// POST /bundles/:id/purchase
 router.post("/bundles/:id/purchase", authenticate, async (req, res) => {
   const bundleId = parseInt(req.params.id);
   const userId = req.user!.userId;
@@ -221,7 +265,9 @@ router.post("/bundles/:id/purchase", authenticate, async (req, res) => {
       return { purchase };
     });
 
-    if ("error" in result) { res.status(400).json({ error: "Insufficient wallet balance" }); return; }
+    if ("error" in result) {
+      res.status(400).json({ error: "Insufficient wallet balance" }); return;
+    }
 
     res.json({ ...result.purchase, bundle: await formatBundle(bundle, { includeVideos: true, userId }) });
   } catch (err: any) {

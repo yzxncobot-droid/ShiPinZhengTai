@@ -102,7 +102,10 @@ export default function VideoDetailPage() {
     );
   }
 
-  const isLocked = video.type === 'premium' && !video.hasAccess;
+  // Use the authoritative visibility field; fall back to legacy type for old cached data
+  const isLocked = (video.visibility
+    ? video.visibility !== "public"
+    : video.type === "premium") && !video.hasAccess;
 
   return (
     <AppLayout>

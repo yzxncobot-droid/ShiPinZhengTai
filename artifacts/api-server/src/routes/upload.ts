@@ -2,26 +2,25 @@ import { Router, Request, Response, NextFunction } from "express";
 import multer from "multer";
 import path from "path";
 import { authenticate } from "../middlewares/auth";
-import { supabase, PAYMENT_BUCKET, MEDIA_BUCKET, getPublicUrl } from "../lib/supabase";
+import { supabase, MEDIA_BUCKET, PAYMENTS_FOLDER, getPublicUrl, uploadWithRetry } from "../lib/supabase";
 import { logger } from "../lib/logger";
 
 const router = Router();
 
 // ── Limits & allowed formats ─────────────────────────────────────────────────
 const MAX_VIDEO_SIZE = 500 * 1024 * 1024; // 500 MB
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;  // 10 MB
 
 const ALLOWED_VIDEO_MIMES = ["video/mp4", "video/webm", "video/quicktime"];
-const ALLOWED_VIDEO_EXT = [".mp4", ".webm", ".mov"];
+const ALLOWED_VIDEO_EXT  = [".mp4", ".webm", ".mov"];
 const ALLOWED_IMAGE_MIMES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
-const ALLOWED_IMAGE_EXT = [".jpg", ".jpeg", ".png", ".webp"];
+const ALLOWED_IMAGE_EXT  = [".jpg", ".jpeg", ".png", ".webp"];
 
 function extOf(filename: string): string {
   return path.extname(filename).toLowerCase();
 }
 
 // All uploads use memory storage — nothing ever touches local disk.
-// Buffers are streamed straight to Supabase Storage.
 const videoUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_VIDEO_SIZE },
@@ -47,17 +46,15 @@ const imageUpload = multer({
 });
 
 /**
- * Wraps a multer middleware so every failure (unexpected field, file too
- * large, unsupported format, etc.) becomes a clean JSON response instead of
- * Express's default HTML error page / an uncaught MulterError.
+ * Wraps a multer middleware so every failure becomes a clean JSON response
+ * instead of Express's default HTML error page.
  */
-function withMulterErrorHandling(middleware: (req: Request, res: Response, cb: (err: any) => void) => void) {
+function withMulterErrorHandling(
+  middleware: (req: Request, res: Response, cb: (err: any) => void) => void,
+) {
   return (req: Request, res: Response, next: NextFunction) => {
     middleware(req, res, (err: any) => {
-      if (!err) {
-        next();
-        return;
-      }
+      if (!err) { next(); return; }
 
       if (err instanceof multer.MulterError) {
         logger.error({ code: err.code, field: err.field }, "Multer upload error");
@@ -91,15 +88,10 @@ function withMulterErrorHandling(middleware: (req: Request, res: Response, cb: (
 async function uploadToMediaBucket(folder: string, file: Express.Multer.File) {
   const ext = extOf(file.originalname);
   const filename = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
-  const { data, error } = await supabase.storage.from(MEDIA_BUCKET).upload(filename, file.buffer, {
-    contentType: file.mimetype,
-    upsert: false,
-  });
-  if (error) throw error;
-  return { path: data.path, url: getPublicUrl(MEDIA_BUCKET, data.path) };
+  return uploadWithRetry(MEDIA_BUCKET, filename, file.buffer, file.mimetype, { upsert: false });
 }
 
-// ── Video upload → Supabase Storage (yzx/videos) ─────────────────────────────
+// ── Video upload → yzx/videos/ ────────────────────────────────────────────────
 router.post(
   "/upload/video",
   authenticate,
@@ -111,16 +103,16 @@ router.post(
     }
     try {
       const { path: storedPath, url } = await uploadToMediaBucket("videos", req.file);
-      logger.info({ path: storedPath, size: req.file.size }, "Video uploaded to Supabase");
+      logger.info({ path: storedPath, size: req.file.size }, "Video uploaded to Supabase yzx/videos");
       res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size });
     } catch (err: any) {
       logger.error({ err }, "Video upload to Supabase failed");
-      res.status(500).json({ success: false, message: "Upload video gagal." });
+      res.status(500).json({ success: false, message: "Upload video gagal: " + (err?.message ?? "Unknown error") });
     }
   },
 );
 
-// ── Thumbnail upload → Supabase Storage (yzx/thumnails) ──────────────────────
+// ── Thumbnail upload → yzx/thumnails/ ────────────────────────────────────────
 router.post(
   "/upload/thumbnail",
   authenticate,
@@ -131,17 +123,18 @@ router.post(
       return;
     }
     try {
+      // Note: folder name "thumnails" (single 'n') matches the Supabase bucket path
       const { path: storedPath, url } = await uploadToMediaBucket("thumnails", req.file);
-      logger.info({ path: storedPath, size: req.file.size }, "Thumbnail uploaded to Supabase");
+      logger.info({ path: storedPath, size: req.file.size }, "Thumbnail uploaded to Supabase yzx/thumnails");
       res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size });
     } catch (err: any) {
       logger.error({ err }, "Thumbnail upload to Supabase failed");
-      res.status(500).json({ success: false, message: "Upload thumbnail gagal." });
+      res.status(500).json({ success: false, message: "Upload thumbnail gagal: " + (err?.message ?? "Unknown error") });
     }
   },
 );
 
-// ── Generic image upload (avatars, logos, banners, QRIS...) ─────────────────
+// ── Generic image upload (avatars, logos, banners, QRIS…) ────────────────────
 router.post(
   "/upload/image",
   authenticate,
@@ -153,16 +146,16 @@ router.post(
     }
     try {
       const { path: storedPath, url } = await uploadToMediaBucket("images", req.file);
-      logger.info({ path: storedPath, size: req.file.size }, "Image uploaded to Supabase");
+      logger.info({ path: storedPath, size: req.file.size }, "Image uploaded to Supabase yzx/images");
       res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size });
     } catch (err: any) {
       logger.error({ err }, "Image upload to Supabase failed");
-      res.status(500).json({ success: false, message: "Upload gambar gagal." });
+      res.status(500).json({ success: false, message: "Upload gambar gagal: " + (err?.message ?? "Unknown error") });
     }
   },
 );
 
-// ── Payment proof → Supabase Storage (separate "payments" bucket) ───────────
+// ── Payment proof → yzx/payments/ ────────────────────────────────────────────
 const proofUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_IMAGE_SIZE },
@@ -191,41 +184,48 @@ router.post(
 
     const userId = req.user.userId;
     const ext = extOf(req.file.originalname) || ".jpg";
-    const filename = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+    // Path within the consolidated yzx bucket: payments/{userId}/{timestamp}-{random}.ext
+    const storagePath = `${PAYMENTS_FOLDER}/${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
 
-    logger.info({ userId, filename, size: req.file.size, mimetype: req.file.mimetype }, "Uploading payment proof to Supabase");
+    logger.info({ userId, storagePath, size: req.file.size, mimetype: req.file.mimetype }, "Uploading payment proof to Supabase yzx/payments");
 
     try {
-      const { data, error } = await supabase.storage
-        .from(PAYMENT_BUCKET)
-        .upload(filename, req.file.buffer, { contentType: req.file.mimetype, upsert: false });
+      const { path: savedPath, url: publicUrl } = await uploadWithRetry(
+        MEDIA_BUCKET,
+        storagePath,
+        req.file.buffer,
+        req.file.mimetype,
+        { upsert: false, maxRetries: 3 },
+      );
 
-      if (error) {
-        logger.error({ supabaseError: error, userId, filename }, "Supabase upload error");
+      logger.info({ userId, path: savedPath, publicUrl }, "Payment proof uploaded successfully");
+      res.json({
+        success: true,
+        url: publicUrl,
+        path: savedPath,
+        bucket: MEDIA_BUCKET,
+        folder: PAYMENTS_FOLDER,
+        filename: storagePath,
+        size: req.file.size,
+      });
+    } catch (err: any) {
+      logger.error({ err, userId, storagePath }, "Supabase payment proof upload error");
 
-        let userMessage = "Upload gagal.";
-        const msg = error.message?.toLowerCase() ?? "";
-        if (msg.includes("bucket") && msg.includes("not found")) {
-          userMessage = `Bucket "${PAYMENT_BUCKET}" tidak ditemukan di Supabase. Buat bucket tersebut di dashboard Supabase Storage terlebih dahulu.`;
-        } else if (msg.includes("permission") || msg.includes("policy") || msg.includes("violates")) {
-          userMessage = "Akses ditolak oleh Supabase. Periksa policy RLS pada bucket.";
-        } else if (msg.includes("already exists") || msg.includes("duplicate")) {
-          userMessage = "File dengan nama yang sama sudah ada. Silakan coba lagi.";
-        } else if (msg.includes("size") || msg.includes("too large")) {
-          userMessage = "File terlalu besar menurut konfigurasi Supabase.";
-        }
-
-        res.status(500).json({ success: false, message: userMessage });
-        return;
+      let userMessage = "Upload gagal.";
+      const msg = (err?.message ?? "").toLowerCase();
+      if (msg.includes("bucket") && msg.includes("not found")) {
+        userMessage = `Bucket "${MEDIA_BUCKET}" tidak ditemukan di Supabase. Buat bucket tersebut di dashboard Supabase Storage.`;
+      } else if (msg.includes("permission") || msg.includes("policy") || msg.includes("violates")) {
+        userMessage = "Akses ditolak oleh Supabase. Periksa RLS policy pada bucket yzx.";
+      } else if (msg.includes("already exists") || msg.includes("duplicate")) {
+        userMessage = "File dengan nama yang sama sudah ada. Silakan coba lagi.";
+      } else if (msg.includes("size") || msg.includes("too large")) {
+        userMessage = "File terlalu besar menurut konfigurasi Supabase.";
+      } else if (msg.includes("network") || msg.includes("fetch")) {
+        userMessage = "Gagal menghubungi Supabase Storage. Periksa koneksi server.";
       }
 
-      const publicUrl = getPublicUrl(PAYMENT_BUCKET, data.path);
-      logger.info({ userId, path: data.path, publicUrl }, "Payment proof uploaded successfully");
-
-      res.json({ success: true, url: publicUrl, path: data.path, bucket: PAYMENT_BUCKET, filename, size: req.file.size });
-    } catch (err: any) {
-      logger.error({ err, userId }, "Unexpected error during Supabase upload");
-      res.status(502).json({ success: false, message: "Gagal menghubungi Supabase Storage. Periksa koneksi server." });
+      res.status(500).json({ success: false, message: userMessage, detail: err?.message });
     }
   },
 );
@@ -235,10 +235,9 @@ router.get("/upload/debug", authenticate, async (req: Request, res: Response) =>
   const result: Record<string, any> = {
     supabaseUrl: process.env.SUPABASE_URL ?? "(not set)",
     serviceKeyPresent: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-    bucket: PAYMENT_BUCKET,
     mediaBucket: MEDIA_BUCKET,
-    bucketStatus: null,
-    bucketPublic: null,
+    paymentsFolder: PAYMENTS_FOLDER,
+    buckets: [],
     mediaBucketStatus: null,
     mediaBucketPublic: null,
     listError: null,
@@ -252,10 +251,7 @@ router.get("/upload/debug", authenticate, async (req: Request, res: Response) =>
     if (listErr) {
       result.listError = { message: listErr.message, statusCode: (listErr as any).statusCode };
     } else {
-      const bucket = (buckets ?? []).find((b: any) => b.name === PAYMENT_BUCKET);
-      result.bucketStatus = bucket ? "found" : "NOT_FOUND";
-      result.bucketPublic = bucket?.public ?? null;
-
+      result.buckets = (buckets ?? []).map((b: any) => ({ name: b.name, public: b.public }));
       const mediaBucket = (buckets ?? []).find((b: any) => b.name === MEDIA_BUCKET);
       result.mediaBucketStatus = mediaBucket ? "found" : "NOT_FOUND";
       result.mediaBucketPublic = mediaBucket?.public ?? null;
@@ -264,26 +260,19 @@ router.get("/upload/debug", authenticate, async (req: Request, res: Response) =>
     result.listError = { message: e?.message ?? String(e) };
   }
 
+  // Test upload to yzx/payments/debug/
   const tinyPng = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==",
     "base64",
   );
-  const testPath = `debug/${req.user!.userId}-${Date.now()}.png`;
+  const testPath = `${PAYMENTS_FOLDER}/debug/${req.user!.userId}-${Date.now()}.png`;
   try {
-    const { data, error } = await supabase.storage
-      .from(PAYMENT_BUCKET)
-      .upload(testPath, tinyPng, { contentType: "image/png", upsert: true });
-
-    if (error) {
-      result.uploadTestResult = "FAILED";
-      result.uploadTestError = { message: error.message, statusCode: (error as any).statusCode ?? null };
-    } else {
-      result.uploadTestResult = "SUCCESS";
-      result.uploadTestUrl = getPublicUrl(PAYMENT_BUCKET, data.path);
-      await supabase.storage.from(PAYMENT_BUCKET).remove([testPath]);
-    }
+    const { path: savedPath, url } = await uploadWithRetry(MEDIA_BUCKET, testPath, tinyPng, "image/png", { upsert: true });
+    result.uploadTestResult = "SUCCESS";
+    result.uploadTestUrl = url;
+    await supabase.storage.from(MEDIA_BUCKET).remove([savedPath]);
   } catch (e: any) {
-    result.uploadTestResult = "EXCEPTION";
+    result.uploadTestResult = "FAILED";
     result.uploadTestError = { message: e?.message ?? String(e) };
   }
 

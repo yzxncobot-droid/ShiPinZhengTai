@@ -7,13 +7,14 @@ import { usersTable } from "./users";
 /**
  * A purchasable pack of 1-10 videos sold at a discount. Bundles are
  * purchase-only: access to a bundle's videos is granted exclusively via
- * `bundlePurchasesTable`, never via a subscription (see `videosTable.bundleExclusive`).
+ * `bundlePurchasesTable`, never via a subscription (see `videosTable.visibility`).
  */
 export const bundlesTable = pgTable("bundles", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   description: text("description"),
   thumbnail: text("thumbnail"),
+  banner: text("banner"), // wide banner image shown on the bundle detail page
   price: doublePrecision("price").notNull(),
   originalPrice: doublePrecision("original_price"),
   badge: text("badge"), // e.g. "BEST SELLER", "POPULAR", "NEW", "VALUE PACK"

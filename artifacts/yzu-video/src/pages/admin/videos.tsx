@@ -20,23 +20,43 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 import {
-  Search, Plus, Edit, Trash2, Eye, Globe, EyeOff, FileEdit,
-  ChevronLeft, ChevronRight, Video, Star, RefreshCw, CheckSquare,
+  Search, Plus, Edit, Trash2, EyeOff, Globe,
+  ChevronLeft, ChevronRight, Video, Star, RefreshCw, CheckSquare, Lock,
 } from "lucide-react";
+
+type VideoVisibility = "public" | "premium" | "hidden_bundle";
 
 const STATUS_COLORS: Record<string, string> = {
   published: "bg-green-500/10 text-green-600 border-green-200",
-  draft: "bg-yellow-500/10 text-yellow-600 border-yellow-200",
-  hidden: "bg-gray-500/10 text-gray-600 border-gray-200",
+  draft:     "bg-yellow-500/10 text-yellow-600 border-yellow-200",
+  hidden:    "bg-gray-500/10 text-gray-600 border-gray-200",
   scheduled: "bg-blue-500/10 text-blue-600 border-blue-200",
 };
 
 const STATUS_LABELS: Record<string, string> = {
   published: "Dipublikasi",
-  draft: "Draft",
-  hidden: "Disembunyikan",
+  draft:     "Draft",
+  hidden:    "Disembunyikan",
   scheduled: "Terjadwal",
 };
+
+const VISIBILITY_BADGE: Record<VideoVisibility, { label: string; className: string }> = {
+  public:        { label: "Gratis",        className: "bg-emerald-500/10 text-emerald-600 border-emerald-200" },
+  premium:       { label: "Premium",       className: "bg-yellow-500/10 text-yellow-600 border-yellow-200" },
+  hidden_bundle: { label: "Bundle",        className: "bg-violet-500/10 text-violet-600 border-violet-200" },
+};
+
+function VisibilityBadge({ visibility }: { visibility?: string }) {
+  const v = (visibility ?? "public") as VideoVisibility;
+  const cfg = VISIBILITY_BADGE[v] ?? VISIBILITY_BADGE.public;
+  return (
+    <Badge variant="outline" className={`border text-xs gap-1 ${cfg.className}`}>
+      {v === "premium" && <Star className="h-3 w-3" />}
+      {v === "hidden_bundle" && <Lock className="h-3 w-3" />}
+      {cfg.label}
+    </Badge>
+  );
+}
 
 export default function AdminVideos() {
   const { user } = useAuth();
@@ -45,7 +65,7 @@ export default function AdminVideos() {
   const isOwner = user?.role === "owner";
 
   const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState("all");
+  const [visibilityFilter, setVisibilityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<number[]>([]);
@@ -54,8 +74,11 @@ export default function AdminVideos() {
   const [bulkAction, setBulkAction] = useState("");
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["admin-videos", search, typeFilter, statusFilter, page],
-    queryFn: () => adminFetch(`/videos?search=${search}&type=${typeFilter !== "all" ? typeFilter : ""}&page=${page}&limit=15${isOwner ? "" : `&creatorId=${user?.id}`}`),
+    queryKey: ["admin-videos", search, visibilityFilter, statusFilter, page],
+    queryFn: () =>
+      adminFetch(
+        `/videos?search=${search}&${visibilityFilter !== "all" ? `type=${visibilityFilter}` : ""}&page=${page}&limit=15&includeHidden=true${isOwner ? "" : `&creatorId=${user?.id}`}`,
+      ),
     placeholderData: (prev) => prev,
   });
 
@@ -99,8 +122,7 @@ export default function AdminVideos() {
     toast({ title: `${selected.length} video ${action === "delete" ? "dihapus" : "diperbarui"}` });
   };
 
-  const quickStatus = (id: number, status: string) =>
-    updateMut.mutate({ id, data: { status } });
+  const quickStatus = (id: number, status: string) => updateMut.mutate({ id, data: { status } });
 
   return (
     <ProtectedRoute allowedRoles={["admin", "owner"]}>
@@ -110,9 +132,7 @@ export default function AdminVideos() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-bold">Manajemen Video</h1>
-              <p className="text-sm text-muted-foreground">
-                {total} video ditemukan
-              </p>
+              <p className="text-sm text-muted-foreground">{total} video ditemukan</p>
             </div>
             <Link href="/admin/upload">
               <Button className="gap-2"><Plus className="h-4 w-4" />Upload Video</Button>
@@ -130,12 +150,13 @@ export default function AdminVideos() {
                 className="pl-9"
               />
             </div>
-            <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); setPage(1); }}>
-              <SelectTrigger className="w-32"><SelectValue placeholder="Tipe" /></SelectTrigger>
+            <Select value={visibilityFilter} onValueChange={(v) => { setVisibilityFilter(v); setPage(1); }}>
+              <SelectTrigger className="w-40"><SelectValue placeholder="Visibilitas" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Semua Tipe</SelectItem>
                 <SelectItem value="free">Gratis</SelectItem>
                 <SelectItem value="premium">Premium</SelectItem>
+                <SelectItem value="hidden_bundle">Bundle</SelectItem>
               </SelectContent>
             </Select>
             <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
@@ -183,7 +204,7 @@ export default function AdminVideos() {
                     </th>
                     <th className="p-3 text-left font-medium text-muted-foreground">Video</th>
                     <th className="p-3 text-left font-medium text-muted-foreground hidden md:table-cell">Kategori</th>
-                    <th className="p-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Tipe</th>
+                    <th className="p-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Visibilitas</th>
                     <th className="p-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Status</th>
                     <th className="p-3 text-right font-medium text-muted-foreground hidden md:table-cell">Views</th>
                     <th className="p-3 text-left font-medium text-muted-foreground hidden xl:table-cell">Tanggal</th>
@@ -194,9 +215,7 @@ export default function AdminVideos() {
                   {isLoading
                     ? Array(8).fill(0).map((_, i) => (
                       <tr key={i}>
-                        <td colSpan={8} className="p-3">
-                          <Skeleton className="h-10 w-full" />
-                        </td>
+                        <td colSpan={8} className="p-3"><Skeleton className="h-10 w-full" /></td>
                       </tr>
                     ))
                     : videos.length === 0
@@ -232,13 +251,10 @@ export default function AdminVideos() {
                           {v.category?.name ?? "—"}
                         </td>
                         <td className="p-3 hidden lg:table-cell">
-                          <Badge variant={v.type === "premium" ? "default" : "secondary"} className="gap-1">
-                            {v.type === "premium" && <Star className="h-3 w-3" />}
-                            {v.type === "premium" ? "Premium" : "Gratis"}
-                          </Badge>
-                          {v.type === "premium" && v.price && (
+                          <VisibilityBadge visibility={v.visibility} />
+                          {v.visibility !== "public" && v.price ? (
                             <p className="text-xs text-muted-foreground mt-0.5">{fmtRp(v.price)}</p>
-                          )}
+                          ) : null}
                         </td>
                         <td className="p-3 hidden lg:table-cell">
                           <Badge className={`border text-xs ${STATUS_COLORS[v.status] ?? STATUS_COLORS.draft}`}>
@@ -285,9 +301,7 @@ export default function AdminVideos() {
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                Halaman {page} dari {totalPages} ({total} total)
-              </p>
+              <p className="text-sm text-muted-foreground">Halaman {page} dari {totalPages} ({total} total)</p>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
                   <ChevronLeft className="h-4 w-4" />
@@ -324,18 +338,25 @@ export default function AdminVideos() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-medium">Tipe</label>
-                    <Select value={editVideo.type} onValueChange={(v) => setEditVideo((p: any) => ({ ...p, type: v }))}>
+                    <label className="text-sm font-medium">Visibilitas</label>
+                    <Select
+                      value={editVideo.visibility ?? (editVideo.bundleExclusive ? "hidden_bundle" : editVideo.type === "premium" ? "premium" : "public")}
+                      onValueChange={(v) => setEditVideo((p: any) => ({ ...p, visibility: v }))}
+                    >
                       <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="free">Gratis</SelectItem>
+                        <SelectItem value="public">Gratis (Public)</SelectItem>
                         <SelectItem value="premium">Premium</SelectItem>
+                        <SelectItem value="hidden_bundle">Bundle Eksklusif</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
                     <label className="text-sm font-medium">Status</label>
-                    <Select value={editVideo.status ?? "published"} onValueChange={(v) => setEditVideo((p: any) => ({ ...p, status: v }))}>
+                    <Select
+                      value={editVideo.status ?? "published"}
+                      onValueChange={(v) => setEditVideo((p: any) => ({ ...p, status: v }))}
+                    >
                       <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="published">Dipublikasi</SelectItem>
@@ -345,7 +366,7 @@ export default function AdminVideos() {
                     </Select>
                   </div>
                 </div>
-                {editVideo.type === "premium" && (
+                {(editVideo.visibility === "premium" || editVideo.visibility === "hidden_bundle") && (
                   <div>
                     <label className="text-sm font-medium">Harga (Rp)</label>
                     <Input

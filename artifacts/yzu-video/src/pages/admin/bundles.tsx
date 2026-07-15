@@ -2,7 +2,8 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminFetch, fmtRp, fmtDate } from "@/lib/admin-api";
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,24 +15,31 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Label } from "@/components/ui/label";
-import { Plus, Edit, Trash2, Search, Gift, RefreshCw, Layers } from "lucide-react";
+import { Plus, Edit, Trash2, Search, Gift, RefreshCw, Layers, Image as ImageIcon, Loader2 } from "lucide-react";
 
 const BADGES = ["NONE", "BEST SELLER", "POPULAR", "NEW", "VALUE PACK"];
 
 const EMPTY_FORM = {
-  title: "", description: "", thumbnail: "", price: 0, originalPrice: 0,
+  title: "", description: "", thumbnail: "", banner: "",
+  price: 0, originalPrice: 0,
   badge: "NONE", isActive: true, sortOrder: 0, videoIds: [] as number[],
 };
 
 export default function AdminBundles() {
   const { toast } = useToast();
+  const { token } = useAuth();
   const qc = useQueryClient();
+
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editBundle, setEditBundle] = useState<any>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [form, setForm] = useState<typeof EMPTY_FORM>(EMPTY_FORM);
   const [videoSearch, setVideoSearch] = useState("");
+  const [isUploadingBanner, setIsUploadingBanner] = useState(false);
+  const [isUploadingThumb, setIsUploadingThumb] = useState(false);
+  const bannerRef = useRef<HTMLInputElement>(null);
+  const thumbRef = useRef<HTMLInputElement>(null);
 
   const { data: bundles, isLoading, refetch } = useQuery({
     queryKey: ["admin-bundles"],
@@ -40,7 +48,7 @@ export default function AdminBundles() {
 
   const { data: videosData } = useQuery({
     queryKey: ["admin-bundles-video-picker", videoSearch],
-    queryFn: () => adminFetch(`/videos?search=${videoSearch}&limit=50`),
+    queryFn: () => adminFetch(`/videos?search=${videoSearch}&limit=50&includeHidden=true`),
     enabled: showForm || !!editBundle,
   });
 
@@ -70,7 +78,8 @@ export default function AdminBundles() {
     const detail = await adminFetch(`/bundles/${bundle.id}`);
     setEditBundle(detail);
     setForm({
-      title: detail.title, description: detail.description ?? "", thumbnail: detail.thumbnail ?? "",
+      title: detail.title, description: detail.description ?? "",
+      thumbnail: detail.thumbnail ?? "", banner: detail.banner ?? "",
       price: detail.price ?? 0, originalPrice: detail.originalPrice ?? 0,
       badge: detail.badge ?? "NONE", isActive: detail.isActive ?? true, sortOrder: detail.sortOrder ?? 0,
       videoIds: (detail.videos ?? []).map((v: any) => v.id),
@@ -89,10 +98,39 @@ export default function AdminBundles() {
     });
   };
 
+  const uploadImage = async (file: File, field: "thumbnail" | "banner") => {
+    const setUploading = field === "banner" ? setIsUploadingBanner : setIsUploadingThumb;
+    setUploading(true);
+    const fd = new FormData();
+    fd.append("image", file);
+    try {
+      const data = await new Promise<{ url: string }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.addEventListener("load", () => {
+          let parsed: any = null;
+          try { parsed = JSON.parse(xhr.responseText); } catch {}
+          if (xhr.status >= 200 && xhr.status < 300 && parsed?.success !== false) resolve(parsed);
+          else reject(new Error(parsed?.message ?? "Upload gagal"));
+        });
+        xhr.addEventListener("error", () => reject(new Error("Network error")));
+        xhr.open("POST", "/api/upload/image");
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+        xhr.send(fd);
+      });
+      setForm((p) => ({ ...p, [field]: data.url }));
+      toast({ title: `${field === "banner" ? "Banner" : "Thumbnail"} berhasil diupload` });
+    } catch (err: any) {
+      toast({ title: "Upload gagal", description: err.message, variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const buildPayload = () => ({
     title: form.title,
     description: form.description || null,
     thumbnail: form.thumbnail || null,
+    banner: form.banner || null,
     price: Number(form.price),
     originalPrice: form.originalPrice ? Number(form.originalPrice) : null,
     badge: form.badge === "NONE" ? null : form.badge,
@@ -107,20 +145,79 @@ export default function AdminBundles() {
 
   const FormFields = () => (
     <div className="space-y-4 py-2 max-h-[65vh] overflow-y-auto pr-1">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1.5 col-span-2">
-          <Label>Judul Bundle *</Label>
-          <Input value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} placeholder="Contoh: Paket Dongeng Seru" />
-        </div>
+      <div className="space-y-1.5">
+        <Label>Judul Bundle *</Label>
+        <Input value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} placeholder="Contoh: Paket Dongeng Seru" />
       </div>
       <div className="space-y-1.5">
         <Label>Deskripsi</Label>
         <Textarea value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} placeholder="Deskripsi bundle" rows={2} />
       </div>
-      <div className="space-y-1.5">
-        <Label>URL Thumbnail</Label>
-        <Input value={form.thumbnail} onChange={(e) => setForm((p) => ({ ...p, thumbnail: e.target.value }))} placeholder="https://..." />
+
+      {/* Thumbnail + Banner uploads */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <Label>Thumbnail</Label>
+          <input type="file" accept="image/*" className="hidden" ref={thumbRef}
+            onChange={(e) => e.target.files?.[0] && uploadImage(e.target.files[0], "thumbnail")} />
+          <div
+            className="relative border rounded-lg overflow-hidden cursor-pointer group h-24"
+            onClick={() => thumbRef.current?.click()}
+          >
+            {isUploadingThumb ? (
+              <div className="h-full flex items-center justify-center bg-muted/20">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : form.thumbnail ? (
+              <>
+                <img src={form.thumbnail} className="h-full w-full object-cover" alt="thumbnail" />
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <ImageIcon className="h-6 w-6 text-white" />
+                </div>
+              </>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center bg-muted/20 text-muted-foreground">
+                <ImageIcon className="h-5 w-5 mb-1" />
+                <span className="text-xs">Upload thumbnail</span>
+              </div>
+            )}
+          </div>
+          <Input
+            value={form.thumbnail} onChange={(e) => setForm((p) => ({ ...p, thumbnail: e.target.value }))}
+            placeholder="Atau tempel URL" className="text-xs h-7" />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Banner (opsional)</Label>
+          <input type="file" accept="image/*" className="hidden" ref={bannerRef}
+            onChange={(e) => e.target.files?.[0] && uploadImage(e.target.files[0], "banner")} />
+          <div
+            className="relative border rounded-lg overflow-hidden cursor-pointer group h-24"
+            onClick={() => bannerRef.current?.click()}
+          >
+            {isUploadingBanner ? (
+              <div className="h-full flex items-center justify-center bg-muted/20">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : form.banner ? (
+              <>
+                <img src={form.banner} className="h-full w-full object-cover" alt="banner" />
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <ImageIcon className="h-6 w-6 text-white" />
+                </div>
+              </>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center bg-muted/20 text-muted-foreground">
+                <ImageIcon className="h-5 w-5 mb-1" />
+                <span className="text-xs">Upload banner</span>
+              </div>
+            )}
+          </div>
+          <Input
+            value={form.banner} onChange={(e) => setForm((p) => ({ ...p, banner: e.target.value }))}
+            placeholder="Atau tempel URL" className="text-xs h-7" />
+        </div>
       </div>
+
       <div className="grid grid-cols-3 gap-4">
         <div className="space-y-1.5">
           <Label>Harga Bundle *</Label>
@@ -172,9 +269,14 @@ export default function AdminBundles() {
             <label key={v.id} className="flex items-center gap-2.5 p-2 hover:bg-muted/30 cursor-pointer">
               <Checkbox checked={form.videoIds.includes(v.id)} onCheckedChange={() => toggleVideo(v.id)} />
               <div className="h-8 w-12 rounded bg-muted overflow-hidden shrink-0">
-                {v.thumbnail && <img src={v.thumbnail} className="h-full w-full object-cover" />}
+                {v.thumbnail && <img src={v.thumbnail} className="h-full w-full object-cover" alt="" />}
               </div>
-              <span className="text-xs font-medium truncate flex-1">{v.title}</span>
+              <div className="flex-1 min-w-0">
+                <span className="text-xs font-medium truncate block">{v.title}</span>
+                {v.visibility === "hidden_bundle" && (
+                  <span className="text-[10px] text-violet-500 font-medium">sudah di bundle</span>
+                )}
+              </div>
             </label>
           ))}
         </div>
@@ -183,7 +285,7 @@ export default function AdminBundles() {
   );
 
   return (
-    <ProtectedRoute allowedRoles={["owner"]}>
+    <ProtectedRoute allowedRoles={["admin", "owner"]}>
       <AdminLayout>
         <div className="p-6 space-y-5 max-w-5xl mx-auto">
           <div className="flex items-center justify-between gap-4">
@@ -232,7 +334,7 @@ export default function AdminBundles() {
                     <td className="p-3">
                       <div className="flex items-center gap-2.5">
                         <div className="h-9 w-14 rounded-md bg-muted overflow-hidden shrink-0">
-                          {b.thumbnail && <img src={b.thumbnail} className="h-full w-full object-cover" />}
+                          {b.thumbnail && <img src={b.thumbnail} className="h-full w-full object-cover" alt="" />}
                         </div>
                         <span className="font-medium truncate max-w-[180px]">{b.title}</span>
                       </div>
@@ -305,7 +407,9 @@ export default function AdminBundles() {
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Hapus Bundle?</AlertDialogTitle>
-              <AlertDialogDescription>Video di dalamnya tidak akan terhapus, tapi bundle ini akan hilang dari aplikasi.</AlertDialogDescription>
+              <AlertDialogDescription>
+                Video di dalamnya akan dikembalikan ke status "premium" (tidak lagi tersembunyi). Bundle ini akan hilang dari aplikasi.
+              </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Batal</AlertDialogCancel>

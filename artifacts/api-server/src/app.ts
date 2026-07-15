@@ -6,6 +6,11 @@ import { logger } from "./lib/logger";
 
 const app: Express = express();
 
+// Trust the Replit proxy (mTLS reverse-proxy) so that X-Forwarded-* headers
+// are honoured in production. Without this, Express sees the proxy IP as the
+// client IP and may reject forwarded requests.
+app.set("trust proxy", 1);
+
 app.use(
   pinoHttp({
     logger,
@@ -25,9 +30,20 @@ app.use(
     },
   }),
 );
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+
+// Allow all origins – the app is served through Replit's proxy; the origin
+// header will vary between dev (.replit.dev) and production (.replit.app).
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
+
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 app.use("/api", router);
 
