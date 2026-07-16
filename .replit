@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "bash"]
+modules = ["web", "bash", "nodejs-22"]
 
 [deployment]
 router = "application"
@@ -32,13 +32,13 @@ args = "artifacts/mockup-sandbox: Component Preview Server"
 name = "artifacts/api-server: API Server"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/api-server run dev"
-waitForPort = 8080
-
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=8080 pnpm --filter @workspace/api-server run dev"
+waitForPort = 8080
 
 [[workflows.workflow]]
 name = "artifacts/yzu-video: web"
