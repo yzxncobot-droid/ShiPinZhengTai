@@ -113,62 +113,72 @@ function normalizeVisibility(body: any): Record<string, any> {
 
 // ── GET /videos — list/search videos ─────────────────────────────────────────
 router.get("/videos", optionalAuth, async (req, res) => {
-  const {
-    search, categoryId, visibility, type, isFeatured,
-    page = "1", limit = "20", sort = "createdAt", order = "desc",
-  } = req.query as Record<string, string>;
+  try {
+    const {
+      search, categoryId, visibility, type, isFeatured,
+      page = "1", limit = "20", sort = "createdAt", order = "desc",
+    } = req.query as Record<string, string>;
 
-  const pageNum = parseInt(page) || 1;
-  const limitNum = Math.min(parseInt(limit) || 20, 100);
-  const offset = (pageNum - 1) * limitNum;
-  const userId = req.user?.userId;
-  const isStaff = req.user && ["admin", "owner"].includes(req.user.role);
+    const pageNum = parseInt(page) || 1;
+    const limitNum = Math.min(parseInt(limit) || 20, 100);
+    const offset = (pageNum - 1) * limitNum;
+    const userId = req.user?.userId;
+    const isStaff = req.user && ["admin", "owner"].includes(req.user.role);
 
-  const conditions: any[] = [isNull(videosTable.deletedAt)];
+    const conditions: any[] = [isNull(videosTable.deletedAt)];
 
-  // Non-staff only see published, non-hidden-bundle videos
-  if (!isStaff) {
-    conditions.push(eq(videosTable.status, "published"));
-    conditions.push(ne(videosTable.visibility, "hidden_bundle"));
+    // Non-staff only see published, non-hidden-bundle videos
+    if (!isStaff) {
+      conditions.push(eq(videosTable.status, "published"));
+      conditions.push(ne(videosTable.visibility, "hidden_bundle"));
+    }
+
+    if (search) conditions.push(ilike(videosTable.title, `%${search}%`));
+    if (categoryId) conditions.push(eq(videosTable.categoryId, categoryId));
+    if (visibility) conditions.push(eq(videosTable.visibility, visibility as any));
+    if (type) conditions.push(eq(videosTable.type, type as any));
+    if (isFeatured === "true") conditions.push(eq(videosTable.isFeatured, true));
+
+    const where = and(...conditions);
+
+    const [{ total }] = await db.select({ total: count() }).from(videosTable).where(where);
+
+    const sortCol = (videosTable as any)[sort] ?? videosTable.createdAt;
+    const orderFn = order === "asc" ? asc : desc;
+
+    const rows = await db.select().from(videosTable)
+      .where(where)
+      .orderBy(orderFn(sortCol))
+      .limit(limitNum)
+      .offset(offset);
+
+    const data = await Promise.all(rows.map((v) => formatVideo(v, userId)));
+    res.json({ data, total: Number(total), page: pageNum, limit: limitNum });
+  } catch (err) {
+    logger.error({ err }, "GET /videos failed");
+    res.json({ data: [], total: 0, page: 1, limit: 20 });
   }
-
-  if (search) conditions.push(ilike(videosTable.title, `%${search}%`));
-  if (categoryId) conditions.push(eq(videosTable.categoryId, categoryId));
-  if (visibility) conditions.push(eq(videosTable.visibility, visibility as any));
-  if (type) conditions.push(eq(videosTable.type, type as any));
-  if (isFeatured === "true") conditions.push(eq(videosTable.isFeatured, true));
-
-  const where = and(...conditions);
-
-  const [{ total }] = await db.select({ total: count() }).from(videosTable).where(where);
-
-  const sortCol = (videosTable as any)[sort] ?? videosTable.createdAt;
-  const orderFn = order === "asc" ? asc : desc;
-
-  const rows = await db.select().from(videosTable)
-    .where(where)
-    .orderBy(orderFn(sortCol))
-    .limit(limitNum)
-    .offset(offset);
-
-  const data = await Promise.all(rows.map((v) => formatVideo(v, userId)));
-  res.json({ data, total: Number(total), page: pageNum, limit: limitNum });
 });
 
 // ── GET /videos/featured ──────────────────────────────────────────────────────
 router.get("/videos/featured", optionalAuth, async (req, res) => {
-  const userId = req.user?.userId;
-  const rows = await db.select().from(videosTable)
-    .where(and(
-      eq(videosTable.isFeatured, true),
-      eq(videosTable.status, "published"),
-      ne(videosTable.visibility, "hidden_bundle"),
-      isNull(videosTable.deletedAt),
-    ))
-    .orderBy(desc(videosTable.createdAt))
-    .limit(10);
-  const data = await Promise.all(rows.map((v) => formatVideo(v, userId)));
-  res.json(data);
+  try {
+    const userId = req.user?.userId;
+    const rows = await db.select().from(videosTable)
+      .where(and(
+        eq(videosTable.isFeatured, true),
+        eq(videosTable.status, "published"),
+        ne(videosTable.visibility, "hidden_bundle"),
+        isNull(videosTable.deletedAt),
+      ))
+      .orderBy(desc(videosTable.createdAt))
+      .limit(10);
+    const data = await Promise.all(rows.map((v) => formatVideo(v, userId)));
+    res.json(data);
+  } catch (err) {
+    logger.error({ err }, "GET /videos/featured failed");
+    res.json([]);
+  }
 });
 
 // ── GET /videos/:id ───────────────────────────────────────────────────────────

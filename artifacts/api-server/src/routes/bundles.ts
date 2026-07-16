@@ -107,32 +107,47 @@ async function clearStaleBundleExclusive(videoIds: string[]) {
 
 // ── GET /bundles — list active bundles (public) ────────────────────────────────
 router.get("/bundles", optionalAuth, async (req, res) => {
-  const userId = req.user?.userId;
-  const bundles = await db.select().from(bundlesTable)
-    .where(and(eq(bundlesTable.isActive, true), isNull(bundlesTable.deletedAt)))
-    .orderBy(asc(bundlesTable.sortOrder));
-  const formatted = await Promise.all(bundles.map((b) => formatBundle(b, { userId })));
-  res.json(formatted);
+  try {
+    const userId = req.user?.userId;
+    const bundles = await db.select().from(bundlesTable)
+      .where(and(eq(bundlesTable.isActive, true), isNull(bundlesTable.deletedAt)))
+      .orderBy(asc(bundlesTable.sortOrder));
+    const formatted = await Promise.all(bundles.map((b) => formatBundle(b, { userId })));
+    res.json(formatted);
+  } catch (err) {
+    logger.error({ err }, "GET /bundles failed");
+    res.json([]);
+  }
 });
 
 // ── GET /bundles/all — all bundles for admin ───────────────────────────────────
 router.get("/bundles/all", authenticate, requireRole("admin", "owner"), async (_req, res) => {
-  const bundles = await db.select().from(bundlesTable)
-    .where(isNull(bundlesTable.deletedAt))
-    .orderBy(asc(bundlesTable.sortOrder));
-  const formatted = await Promise.all(bundles.map((b) => formatBundle(b, { includeVideos: true })));
-  res.json(formatted);
+  try {
+    const bundles = await db.select().from(bundlesTable)
+      .where(isNull(bundlesTable.deletedAt))
+      .orderBy(asc(bundlesTable.sortOrder));
+    const formatted = await Promise.all(bundles.map((b) => formatBundle(b, { includeVideos: true })));
+    res.json(formatted);
+  } catch (err) {
+    logger.error({ err }, "GET /bundles/all failed");
+    res.json([]);
+  }
 });
 
 // ── GET /bundles/:id ──────────────────────────────────────────────────────────
 router.get("/bundles/:id", optionalAuth, async (req, res) => {
-  const id = req.params.id;
-  const userId = req.user?.userId;
-  const [bundle] = await db.select().from(bundlesTable)
-    .where(and(eq(bundlesTable.id, id), isNull(bundlesTable.deletedAt))).limit(1);
-  if (!bundle) { res.status(404).json({ error: "Not found" }); return; }
-  const formatted = await formatBundle(bundle, { includeVideos: true, userId });
-  res.json(formatted);
+  try {
+    const id = req.params.id;
+    const userId = req.user?.userId;
+    const [bundle] = await db.select().from(bundlesTable)
+      .where(and(eq(bundlesTable.id, id), isNull(bundlesTable.deletedAt))).limit(1);
+    if (!bundle) { res.status(404).json({ error: "Not found" }); return; }
+    const formatted = await formatBundle(bundle, { includeVideos: true, userId });
+    res.json(formatted);
+  } catch (err) {
+    logger.error({ err }, "GET /bundles/:id failed");
+    res.status(500).json({ error: "Failed to load bundle" });
+  }
 });
 
 // ── POST /bundles — create bundle (admin/owner) ────────────────────────────────

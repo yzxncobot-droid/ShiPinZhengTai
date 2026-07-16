@@ -16,11 +16,22 @@ const BADGES = [
 
 const MASCOTS = [Star, Cloud, Rocket, Smile];
 
+/** Stable numeric hash from a UUID string (or any string). Never returns NaN. */
+function strHash(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
 export function VideoCard({ video, layout = "grid" }: VideoCardProps) {
   const isPremium = video.type === "premium";
-  
-  const badge = BADGES[video.id % BADGES.length];
-  const MascotIcon = MASCOTS[video.id % MASCOTS.length];
+
+  // video.id is a UUID string — use a hash so modulo never produces NaN
+  const hash = strHash(String(video.id));
+  const badge = BADGES[hash % BADGES.length] ?? BADGES[0];
+  const MascotIcon = MASCOTS[hash % MASCOTS.length] ?? MASCOTS[0];
   const formatRupiah = (value: number) => `Rp ${value.toLocaleString("id-ID")}`;
   
   if (layout === "list") {
@@ -49,10 +60,10 @@ export function VideoCard({ video, layout = "grid" }: VideoCardProps) {
           <div className="flex items-center gap-3 mt-2 text-[10px] font-bold text-slate-400">
             <div className="flex items-center gap-1">
               <Eye className="h-3 w-3" />
-              <span>{video.views.toLocaleString()}</span>
+              <span>{(video.views ?? 0).toLocaleString()}</span>
             </div>
             <span>•</span>
-            <span className="truncate">{formatDistanceToNow(new Date(video.createdAt))}</span>
+            <span className="truncate">{video.createdAt ? formatDistanceToNow(new Date(video.createdAt)) : "—"}</span>
           </div>
         </div>
       </Link>

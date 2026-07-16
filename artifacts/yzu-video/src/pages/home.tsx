@@ -2,11 +2,28 @@ import { useGetFeaturedVideos, useListVideos, useListCategories, getListVideosQu
 import { AppLayout } from "@/components/layout/AppLayout";
 import { VideoCard, VideoCardSkeleton } from "@/components/video/VideoCard";
 import { Button } from "@/components/ui/button";
-import { Play, Flame, Clock, Ticket, Sparkles, Rocket, Star, Music, Gamepad2, Heart, Smile, Cloud } from "lucide-react";
+import { Play, Flame, Sparkles, Rocket, Star, Music, Gamepad2, Heart, Smile, Cloud } from "lucide-react";
 import { Link } from "wouter";
-import { useState } from "react";
+import { useState, Component, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+
+/** Lightweight section-level error boundary — renders a quiet fallback instead of crashing the page. */
+class SectionBoundary extends Component<{ label: string; children: ReactNode }, { err: boolean }> {
+  state = { err: false };
+  static getDerivedStateFromError() { return { err: true }; }
+  componentDidCatch(e: Error) { console.error(`[SectionBoundary:${this.props.label}]`, e); }
+  render() {
+    if (this.state.err) {
+      return (
+        <div className="py-10 text-center text-sm text-slate-400 font-medium">
+          Konten ini tidak dapat ditampilkan saat ini.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const CATEGORY_ICONS = [Star, Rocket, Sparkles, Music, Gamepad2, Heart, Smile, Cloud];
 
@@ -93,6 +110,7 @@ export default function Home() {
       <div className="container mx-auto px-4 py-8 space-y-12">
         
         {/* Categories / Produk Video */}
+        <SectionBoundary label="categories">
         <section>
           <div className="flex items-center justify-between mb-4 px-2">
             <h2 className="text-xl font-heading font-extrabold text-slate-800">
@@ -152,8 +170,10 @@ export default function Home() {
             </div>
           )}
         </section>
+        </SectionBoundary>
 
         {/* Trending Section */}
+        <SectionBoundary label="trending">
         <section className="px-2">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-heading font-extrabold text-slate-800 flex items-center gap-2">
@@ -169,6 +189,7 @@ export default function Home() {
                 ))}
           </div>
         </section>
+        </SectionBoundary>
 
       </div>
     </AppLayout>

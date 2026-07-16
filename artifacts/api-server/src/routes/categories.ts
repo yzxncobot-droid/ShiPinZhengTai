@@ -7,15 +7,20 @@ import { authenticate, requireRole } from "../middlewares/auth";
 const router = Router();
 
 router.get("/categories", async (_req, res) => {
-  const cats = await db.select().from(categoriesTable)
-    .where(isNull(categoriesTable.deletedAt))
-    .orderBy(categoriesTable.name);
-  const withCount = await Promise.all(cats.map(async (c) => {
-    const [{ value }] = await db.select({ value: count() }).from(videosTable)
-      .where(eq(videosTable.categoryId, c.id));
-    return { ...c, videoCount: Number(value) };
-  }));
-  res.json(withCount);
+  try {
+    const cats = await db.select().from(categoriesTable)
+      .where(isNull(categoriesTable.deletedAt))
+      .orderBy(categoriesTable.name);
+    const withCount = await Promise.all(cats.map(async (c) => {
+      const [{ value }] = await db.select({ value: count() }).from(videosTable)
+        .where(eq(videosTable.categoryId, c.id));
+      return { ...c, videoCount: Number(value) };
+    }));
+    res.json(withCount);
+  } catch (err) {
+    console.error("GET /categories failed:", err);
+    res.json([]);
+  }
 });
 
 router.post("/categories", authenticate, requireRole("admin", "owner"), async (req, res) => {
