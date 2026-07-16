@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useListBundles, useGetBundle, usePurchaseBundle, getListBundlesQueryKey } from "@workspace/api-client-react";
+import type { Bundle } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 const formatRupiah = (value: number) => `Rp ${value.toLocaleString("id-ID")}`;
@@ -99,6 +100,7 @@ export default function BundlesPage() {
       onSuccess: () => {
         toast({ title: "🎉 Bundle berhasil dibeli!", description: `"${title}" sudah jadi milikmu selamanya.` });
         queryClient.invalidateQueries({ queryKey: getListBundlesQueryKey() });
+        setLocation(`/bundles/${id}`);
       },
       onError: (err: any) => {
         toast({ title: "Yah, gagal 😢", description: err?.message || "Terjadi kesalahan saat membeli bundle.", variant: "destructive" });
@@ -111,6 +113,15 @@ export default function BundlesPage() {
   return (
     <AppLayout>
       <div className="container mx-auto px-4 py-10 md:py-14">
+        <div className="flex justify-end mb-2 max-w-4xl mx-auto">
+          <button
+            onClick={() => setLocation("/bundles/my")}
+            className="text-xs font-extrabold text-purple-600 hover:text-purple-800 flex items-center gap-1 px-3 py-1.5 rounded-full bg-purple-50 hover:bg-purple-100 transition-colors"
+          >
+            My Bundles →
+          </button>
+        </div>
+
         <div className="text-center max-w-2xl mx-auto mb-10 relative">
           <Star className="absolute -top-4 left-4 h-8 w-8 text-yellow-400 fill-yellow-400 transform -rotate-12 opacity-80" />
           <Sparkles className="absolute top-2 right-6 h-6 w-6 text-pink-400 opacity-80" />
@@ -139,8 +150,12 @@ export default function BundlesPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-4xl mx-auto">
-            {list.map((bundle) => (
-              <div key={bundle.id} className="relative flex flex-col rounded-3xl bg-white border border-slate-100 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+            {list.map((bundle: Bundle) => (
+              <div
+                key={bundle.id}
+                className="relative flex flex-col rounded-3xl bg-white border border-slate-100 shadow-sm hover:shadow-md transition-shadow overflow-hidden cursor-pointer"
+                onClick={() => setLocation(`/bundles/${bundle.id}`)}
+              >
                 {/* Thumbnail */}
                 <div className="relative h-40 bg-gradient-to-br from-purple-500 to-pink-500">
                   {bundle.thumbnail && (

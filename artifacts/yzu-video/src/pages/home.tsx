@@ -137,12 +137,12 @@ export default function Home() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4 md:gap-6 px-1">
             {isLoadingFiltered 
               ? Array(10).fill(0).map((_, i) => <VideoCardSkeleton key={i} />)
-              : filteredVideos?.data.map(video => (
+              : filteredVideos?.data?.map(video => (
                   <VideoCard key={video.id} video={video} />
                 ))}
           </div>
 
-          {filteredVideos?.data.length === 0 && (
+          {(filteredVideos?.data?.length ?? 0) === 0 && filteredVideos !== undefined && (
             <div className="py-16 text-center flex flex-col items-center bg-white rounded-3xl border border-slate-100 mx-2 mt-4 shadow-sm">
               <div className="h-16 w-16 bg-purple-100 rounded-full flex items-center justify-center mb-3">
                 <Rocket className="h-8 w-8 text-purple-500" />
@@ -164,7 +164,7 @@ export default function Home() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4 md:gap-6">
             {isLoadingTrending 
               ? Array(4).fill(0).map((_, i) => <VideoCardSkeleton key={i} />)
-              : trendingVideos?.data.slice(0, 5).map(video => (
+              : trendingVideos?.data?.slice(0, 5).map(video => (
                   <VideoCard key={video.id} video={video} />
                 ))}
           </div>

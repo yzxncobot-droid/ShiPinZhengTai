@@ -19,6 +19,8 @@ import ProfilePage from "@/pages/profile";
 import NotificationsPage from "@/pages/notifications";
 import SearchPage from "@/pages/search";
 import BundlesPage from "@/pages/bundles";
+import BundleDetailPage from "@/pages/bundles/detail";
+import MyBundlesPage from "@/pages/bundles/my";
 import VideoDetailPage from "@/pages/videos/detail";
 import DebugUploadPage from "@/pages/debug-upload";
 
@@ -64,6 +66,8 @@ function AppRouter() {
       <Route path="/leaderboard" component={LeaderboardPage} />
       <Route path="/search" component={SearchPage} />
       <Route path="/bundles" component={BundlesPage} />
+      <Route path="/bundles/my" component={MyBundlesPage} />
+      <Route path="/bundles/:id" component={BundleDetailPage} />
       <Route path="/videos/:id" component={VideoDetailPage} />
       <Route path="/debug-upload" component={DebugUploadPage} />
 
