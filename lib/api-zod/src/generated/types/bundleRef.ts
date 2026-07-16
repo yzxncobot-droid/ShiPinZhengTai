@@ -7,6 +7,6 @@
  */
 
 export interface BundleRef {
-  id: number;
+  id: string;
   title: string;
 }

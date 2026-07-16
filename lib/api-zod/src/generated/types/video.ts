@@ -10,7 +10,7 @@ import type { User } from './user';
 import type { VideoType } from './videoType';
 
 export interface Video {
-  id: number;
+  id: string;
   title: string;
   /** @nullable */
   description?: string | null;
@@ -26,9 +26,9 @@ export interface Video {
   downloadable?: boolean;
   isFeatured?: boolean;
   /** @nullable */
-  categoryId?: number | null;
+  categoryId?: string | null;
   category?: Category;
-  creatorId?: number;
+  creatorId?: string;
   creator?: User;
   isLiked?: boolean;
   bundleExclusive?: boolean;

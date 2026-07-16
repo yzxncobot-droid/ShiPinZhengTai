@@ -8,9 +8,9 @@
 import type { Subscription } from './subscription';
 
 export interface UserSubscription {
-  id: number;
-  userId: number;
-  subscriptionId: number;
+  id: string;
+  userId: string;
+  subscriptionId: string;
   subscription?: Subscription;
   startDate: Date;
   endDate: Date;

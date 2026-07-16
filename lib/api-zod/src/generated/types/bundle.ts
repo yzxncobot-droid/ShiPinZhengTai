@@ -7,7 +7,7 @@
  */
 
 export interface Bundle {
-  id: number;
+  id: string;
   title: string;
   /** @nullable */
   description?: string | null;

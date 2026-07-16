@@ -86,7 +86,7 @@ async function run() {
     .from(schema.userSubscriptionsTable)
     .where(and(eq(schema.userSubscriptionsTable.isActive, true), gte(schema.userSubscriptionsTable.endDate, now)));
 
-  const activeMap = new Map<number, Date>(activeSubs.map(s => [s.userId, new Date(s.endDate)]));
+  const activeMap = new Map<string, Date>(activeSubs.map(s => [s.userId, new Date(s.endDate)]));
   let subSynced = 0;
   for (const u of allUsers) {
     const expiry = activeMap.get(u.id) ?? null;

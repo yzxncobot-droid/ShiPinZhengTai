@@ -85,7 +85,7 @@ router.get("/withdrawals/all", authenticate, requireRole("admin", "owner"), asyn
 
 // Admin/owner: approve withdrawal
 router.patch("/withdrawals/:id/approve", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const adminId = req.user!.userId;
 
   const [withdrawal] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id)).limit(1);
@@ -153,7 +153,7 @@ router.patch("/withdrawals/:id/approve", authenticate, requireRole("admin", "own
 
 // Admin/owner: reject withdrawal
 router.patch("/withdrawals/:id/reject", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const adminId = req.user!.userId;
   const { reason } = req.body;
 

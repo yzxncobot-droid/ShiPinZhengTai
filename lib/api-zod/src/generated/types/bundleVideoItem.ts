@@ -7,7 +7,7 @@
  */
 
 export interface BundleVideoItem {
-  id: number;
+  id: string;
   title: string;
   /** @nullable */
   thumbnail?: string | null;

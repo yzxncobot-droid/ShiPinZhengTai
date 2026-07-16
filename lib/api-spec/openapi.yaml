@@ -146,7 +146,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: User
@@ -163,7 +163,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       requestBody:
         required: true
         content:
@@ -186,7 +186,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Deleted
@@ -201,7 +201,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       requestBody:
         required: true
         content:
@@ -226,7 +226,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       requestBody:
         required: true
         content:
@@ -251,7 +251,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       requestBody:
         required: true
         content:
@@ -276,7 +276,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       requestBody:
         required: true
         content:
@@ -389,7 +389,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Video
@@ -406,7 +406,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       requestBody:
         required: true
         content:
@@ -429,7 +429,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Deleted
@@ -444,7 +444,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Purchased
@@ -463,7 +463,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Like toggled
@@ -482,7 +482,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: View recorded
@@ -497,7 +497,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Related videos
@@ -518,7 +518,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Comments
@@ -535,7 +535,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       requestBody:
         required: true
         content:
@@ -560,12 +560,12 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
         - in: path
           name: commentId
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Deleted
@@ -613,7 +613,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       requestBody:
         required: true
         content:
@@ -636,7 +636,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Deleted
@@ -684,7 +684,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       requestBody:
         required: true
         content:
@@ -707,7 +707,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Deleted
@@ -722,7 +722,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Purchased
@@ -787,7 +787,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Bundle detail
@@ -804,7 +804,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       requestBody:
         required: true
         content:
@@ -827,7 +827,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Deleted
@@ -842,7 +842,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Purchased
@@ -942,7 +942,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Confirmed
@@ -961,7 +961,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Denied
@@ -980,7 +980,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Deleted
@@ -1186,7 +1186,7 @@ paths:
           name: id
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: Marked read
@@ -1282,7 +1282,7 @@ components:
       required: [id, username, email, role, isBanned, createdAt]
       properties:
         id:
-          type: integer
+          type: string
         username:
           type: string
         email:
@@ -1362,7 +1362,7 @@ components:
       required: [subscriptionId]
       properties:
         subscriptionId:
-          type: integer
+          type: string
         durationDays:
           type: integer
 
@@ -1372,7 +1372,7 @@ components:
       required: [userId, balance, totalTopup, totalSpent]
       properties:
         userId:
-          type: integer
+          type: string
         balance:
           type: number
         totalTopup:
@@ -1386,7 +1386,7 @@ components:
       required: [id, title, type, views, likes, createdAt]
       properties:
         id:
-          type: integer
+          type: string
         title:
           type: string
         description:
@@ -1409,11 +1409,11 @@ components:
         isFeatured:
           type: boolean
         categoryId:
-          type: ["integer", "null"]
+          type: ["string", "null"]
         category:
           $ref: "#/components/schemas/Category"
         creatorId:
-          type: integer
+          type: string
         creator:
           $ref: "#/components/schemas/User"
         isLiked:
@@ -1429,11 +1429,11 @@ components:
       required: [id, userId, videoId, price, createdAt, video]
       properties:
         id:
-          type: integer
+          type: string
         userId:
-          type: integer
+          type: string
         videoId:
-          type: integer
+          type: string
         price:
           type: number
         createdAt:
@@ -1447,7 +1447,7 @@ components:
       required: [id, title, type, views, likes, createdAt, comments]
       properties:
         id:
-          type: integer
+          type: string
         title:
           type: string
         description:
@@ -1470,11 +1470,11 @@ components:
         isFeatured:
           type: boolean
         categoryId:
-          type: ["integer", "null"]
+          type: ["string", "null"]
         category:
           $ref: "#/components/schemas/Category"
         creatorId:
-          type: integer
+          type: string
         creator:
           $ref: "#/components/schemas/User"
         isLiked:
@@ -1536,7 +1536,7 @@ components:
         isFeatured:
           type: boolean
         creatorId:
-          type: integer
+          type: string
 
     VideoUpdate:
       type: object
@@ -1567,7 +1567,7 @@ components:
       required: [id, title]
       properties:
         id:
-          type: integer
+          type: string
         title:
           type: string
 
@@ -1576,7 +1576,7 @@ components:
       required: [id, title]
       properties:
         id:
-          type: integer
+          type: string
         title:
           type: string
         thumbnail:
@@ -1587,7 +1587,7 @@ components:
       required: [id, title, price, isActive, sortOrder, videoCount, discountPercent, hasPurchased, createdAt]
       properties:
         id:
-          type: integer
+          type: string
         title:
           type: string
         description:
@@ -1619,7 +1619,7 @@ components:
       required: [id, title, price, isActive, sortOrder, videoCount, discountPercent, hasPurchased, videos, createdAt]
       properties:
         id:
-          type: integer
+          type: string
         title:
           type: string
         description:
@@ -1675,7 +1675,7 @@ components:
           minItems: 1
           maxItems: 10
           items:
-            type: integer
+            type: string
 
     BundleUpdate:
       type: object
@@ -1701,18 +1701,18 @@ components:
           minItems: 1
           maxItems: 10
           items:
-            type: integer
+            type: string
 
     BundlePurchaseResult:
       type: object
       required: [id, userId, bundleId, price, createdAt, bundle]
       properties:
         id:
-          type: integer
+          type: string
         userId:
-          type: integer
+          type: string
         bundleId:
-          type: integer
+          type: string
         price:
           type: number
         createdAt:
@@ -1736,7 +1736,7 @@ components:
       required: [id, name]
       properties:
         id:
-          type: integer
+          type: string
         name:
           type: string
         description:
@@ -1767,7 +1767,7 @@ components:
       required: [id, name, price, durationDays, isActive]
       properties:
         id:
-          type: integer
+          type: string
         name:
           type: string
         description:
@@ -1813,11 +1813,11 @@ components:
       required: [id, userId, subscriptionId, startDate, endDate, isActive]
       properties:
         id:
-          type: integer
+          type: string
         userId:
-          type: integer
+          type: string
         subscriptionId:
-          type: integer
+          type: string
         subscription:
           $ref: "#/components/schemas/Subscription"
         startDate:
@@ -1835,9 +1835,9 @@ components:
       required: [id, userId, amount, status, createdAt]
       properties:
         id:
-          type: integer
+          type: string
         userId:
-          type: integer
+          type: string
         user:
           $ref: "#/components/schemas/User"
         amount:
@@ -1884,9 +1884,9 @@ components:
       required: [id, userId, type, amount, description, createdAt]
       properties:
         id:
-          type: integer
+          type: string
         userId:
-          type: integer
+          type: string
         type:
           type: string
           enum: [topup, subscription, purchase, adjustment]
@@ -1895,7 +1895,7 @@ components:
         description:
           type: string
         referenceId:
-          type: ["integer", "null"]
+          type: ["string", "null"]
         createdAt:
           type: string
           format: date-time
@@ -1921,11 +1921,11 @@ components:
       required: [id, videoId, userId, content, createdAt]
       properties:
         id:
-          type: integer
+          type: string
         videoId:
-          type: integer
+          type: string
         userId:
-          type: integer
+          type: string
         user:
           $ref: "#/components/schemas/User"
         content:
@@ -2072,7 +2072,7 @@ components:
       required: [id, title, views, likes, type]
       properties:
         id:
-          type: integer
+          type: string
         title:
           type: string
         views:
@@ -2114,7 +2114,7 @@ components:
         rank:
           type: integer
         userId:
-          type: integer
+          type: string
         username:
           type: string
         avatar:
@@ -2128,9 +2128,9 @@ components:
       required: [id, userId, title, message, isRead, createdAt]
       properties:
         id:
-          type: integer
+          type: string
         userId:
-          type: integer
+          type: string
         title:
           type: string
         message:

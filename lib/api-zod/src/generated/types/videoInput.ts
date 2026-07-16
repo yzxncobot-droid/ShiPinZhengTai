@@ -17,5 +17,5 @@ export interface VideoInput {
   categoryId?: number;
   downloadable?: boolean;
   isFeatured?: boolean;
-  creatorId?: number;
+  creatorId?: string;
 }

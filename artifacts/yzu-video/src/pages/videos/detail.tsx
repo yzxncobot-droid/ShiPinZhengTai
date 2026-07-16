@@ -16,7 +16,7 @@ import { FunLogo } from "@/components/layout/AppLayout";
 
 export default function VideoDetailPage() {
   const [, params] = useRoute("/videos/:id");
-  const id = params?.id ? parseInt(params.id) : 0;
+  const id = params?.id ?? "";
   
   const { user } = useAuth();
   const { toast } = useToast();

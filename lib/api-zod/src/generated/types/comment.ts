@@ -8,9 +8,9 @@
 import type { User } from './user';
 
 export interface Comment {
-  id: number;
-  videoId: number;
-  userId: number;
+  id: string;
+  videoId: string;
+  userId: string;
   user?: User;
   content: string;
   createdAt: Date;

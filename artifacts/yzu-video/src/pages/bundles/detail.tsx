@@ -21,7 +21,7 @@ const FEATURES = [
 
 export default function BundleDetailPage() {
   const [, params] = useRoute("/bundles/:id");
-  const id = params?.id ? parseInt(params.id) : 0;
+  const id = params?.id ?? "";
   const { user } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();

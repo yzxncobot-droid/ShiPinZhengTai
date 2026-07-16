@@ -87,7 +87,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   const token = authHeader.slice(7);
   let payload: JwtPayload;
   try {
-    payload = jwt.verify(token, JWT_SECRET) as JwtPayload;
+    payload = jwt.verify(token, JWT_SECRET!) as unknown as JwtPayload;
   } catch {
     res.status(401).json({ error: "Invalid token" });
     return;
@@ -143,7 +143,7 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
   }
   const token = authHeader.slice(7);
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as JwtPayload;
+    const payload = jwt.verify(token, JWT_SECRET!) as unknown as JwtPayload;
     if (payload.jti) {
       try {
         const session = await getSession(payload.jti);
@@ -194,6 +194,6 @@ export function requireRole(...roles: string[]) {
 /** Sign a JWT with a unique jti for Redis session tracking. */
 export function signToken(userId: string, role: string): { token: string; jti: string } {
   const jti = crypto.randomUUID();
-  const token = jwt.sign({ userId, role, jti }, JWT_SECRET, { expiresIn: "30d" });
+  const token = jwt.sign({ userId, role, jti }, JWT_SECRET!, { expiresIn: "30d" });
   return { token, jti };
 }

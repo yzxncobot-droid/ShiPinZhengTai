@@ -8,7 +8,7 @@
 
 export interface LeaderboardEntry {
   rank: number;
-  userId: number;
+  userId: string;
   username: string;
   /** @nullable */
   avatar?: string | null;

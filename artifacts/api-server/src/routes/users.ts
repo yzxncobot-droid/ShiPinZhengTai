@@ -61,7 +61,7 @@ router.get("/users", authenticate, requireRole("admin", "owner"), async (req, re
 
 // ── GET /users/:id ────────────────────────────────────────────────────────────
 router.get("/users/:id", authenticate, async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const requesterId = req.user!.userId;
   const requesterRole = req.user!.role;
 
@@ -78,7 +78,7 @@ router.get("/users/:id", authenticate, async (req, res) => {
 
 // ── PATCH /users/:id — update profile ────────────────────────────────────────
 router.patch("/users/:id", authenticate, async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const requesterId = req.user!.userId;
   const requesterRole = req.user!.role;
 
@@ -128,7 +128,7 @@ router.patch("/users/:id", authenticate, async (req, res) => {
 
 // ── DELETE /users/:id (owner only) ───────────────────────────────────────────
 router.delete("/users/:id", authenticate, requireRole("owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   if (id === req.user!.userId) { res.status(400).json({ error: "Cannot delete own account" }); return; }
   await db.update(usersTable).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(usersTable.id, id));
   await invalidateUserCache(id);
@@ -137,7 +137,7 @@ router.delete("/users/:id", authenticate, requireRole("owner"), async (req, res)
 
 // ── PATCH /users/:id/role (owner only) ───────────────────────────────────────
 router.patch("/users/:id/role", authenticate, requireRole("owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const { role } = req.body;
   if (!VALID_ROLES.includes(role)) {
     res.status(400).json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(", ")}` }); return;
@@ -155,7 +155,7 @@ router.patch("/users/:id/role", authenticate, requireRole("owner"), async (req, 
 
 // ── PATCH /users/:id/wallet — manual balance adjustment (admin/owner) ─────────
 router.patch("/users/:id/wallet", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const { delta, reason } = req.body;
   if (typeof delta !== "number") {
     res.status(400).json({ error: "delta must be a number" }); return;
@@ -208,7 +208,7 @@ router.patch("/users/:id/wallet", authenticate, requireRole("admin", "owner"), a
 
 // ── POST /users/:id/ban (owner only) ─────────────────────────────────────────
 router.post("/users/:id/ban", authenticate, requireRole("owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   if (id === req.user!.userId) { res.status(400).json({ error: "Cannot ban own account" }); return; }
   const { banned = true } = req.body;
   const [updated] = await db.update(usersTable).set({ isBanned: !!banned, updatedAt: new Date() })
@@ -221,7 +221,7 @@ router.post("/users/:id/ban", authenticate, requireRole("owner"), async (req, re
 
 // ── POST /users/:id/grant-subscription (admin/owner) ─────────────────────────
 router.post("/users/:id/grant-subscription", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const { subscriptionId, days } = req.body;
   if (!subscriptionId || !days) {
     res.status(400).json({ error: "subscriptionId and days are required" }); return;
@@ -264,7 +264,7 @@ router.post("/users/:id/grant-subscription", authenticate, requireRole("admin", 
 
 // ── GET /users/:id/referrals (owner/admin or self) ────────────────────────────
 router.get("/users/:id/referrals", authenticate, async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   if (req.user!.userId !== id && req.user!.role !== "admin" && req.user!.role !== "owner") {
     res.status(403).json({ error: "Forbidden" }); return;
   }

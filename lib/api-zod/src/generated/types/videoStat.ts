@@ -7,7 +7,7 @@
  */
 
 export interface VideoStat {
-  id: number;
+  id: string;
   title: string;
   views: number;
   likes: number;

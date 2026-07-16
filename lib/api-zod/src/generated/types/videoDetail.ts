@@ -12,7 +12,7 @@ import type { User } from './user';
 import type { VideoDetailType } from './videoDetailType';
 
 export interface VideoDetail {
-  id: number;
+  id: string;
   title: string;
   /** @nullable */
   description?: string | null;
@@ -28,9 +28,9 @@ export interface VideoDetail {
   downloadable?: boolean;
   isFeatured?: boolean;
   /** @nullable */
-  categoryId?: number | null;
+  categoryId?: string | null;
   category?: Category;
-  creatorId?: number;
+  creatorId?: string;
   creator?: User;
   isLiked?: boolean;
   hasAccess?: boolean;

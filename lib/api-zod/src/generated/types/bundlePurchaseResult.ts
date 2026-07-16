@@ -8,9 +8,9 @@
 import type { BundleDetail } from './bundleDetail';
 
 export interface BundlePurchaseResult {
-  id: number;
-  userId: number;
-  bundleId: number;
+  id: string;
+  userId: string;
+  bundleId: string;
   price: number;
   createdAt: Date;
   bundle: BundleDetail;

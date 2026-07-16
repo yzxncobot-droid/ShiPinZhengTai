@@ -7,7 +7,7 @@
  */
 
 export interface Subscription {
-  id: number;
+  id: string;
   name: string;
   /** @nullable */
   description?: string | null;

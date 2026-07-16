@@ -32,7 +32,7 @@ export const RegisterBody = zod.object({
 export const RegisterResponse = zod.object({
   "token": zod.string(),
   "user": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -43,11 +43,11 @@ export const RegisterResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -73,7 +73,7 @@ export const LoginBody = zod.object({
 export const LoginResponse = zod.object({
   "token": zod.string(),
   "user": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -84,11 +84,11 @@ export const LoginResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -107,7 +107,7 @@ export const LoginResponse = zod.object({
  * @summary Get current authenticated user
  */
 export const GetMeResponse = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -118,11 +118,11 @@ export const GetMeResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -154,7 +154,7 @@ export const ListUsersQueryParams = zod.object({
 
 export const ListUsersResponse = zod.object({
   "data": zod.array(zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -165,11 +165,11 @@ export const ListUsersResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -191,11 +191,11 @@ export const ListUsersResponse = zod.object({
  * @summary Get user by id
  */
 export const GetUserParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const GetUserResponse = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -206,11 +206,11 @@ export const GetUserResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -228,7 +228,7 @@ export const GetUserResponse = zod.object({
  * @summary Update user profile
  */
 export const UpdateUserParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const UpdateUserBody = zod.object({
@@ -239,7 +239,7 @@ export const UpdateUserBody = zod.object({
 })
 
 export const UpdateUserResponse = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -250,11 +250,11 @@ export const UpdateUserResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -272,7 +272,7 @@ export const UpdateUserResponse = zod.object({
  * @summary Delete user (owner)
  */
 export const DeleteUserParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const DeleteUserResponse = zod.unknown()
@@ -282,7 +282,7 @@ export const DeleteUserResponse = zod.unknown()
  * @summary Change user role (owner)
  */
 export const UpdateUserRoleParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const UpdateUserRoleBody = zod.object({
@@ -290,7 +290,7 @@ export const UpdateUserRoleBody = zod.object({
 })
 
 export const UpdateUserRoleResponse = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -301,11 +301,11 @@ export const UpdateUserRoleResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -323,7 +323,7 @@ export const UpdateUserRoleResponse = zod.object({
  * @summary Adjust user wallet balance (owner)
  */
 export const UpdateUserWalletParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const UpdateUserWalletBody = zod.object({
@@ -332,7 +332,7 @@ export const UpdateUserWalletBody = zod.object({
 })
 
 export const UpdateUserWalletResponse = zod.object({
-  "userId": zod.number(),
+  "userId": zod.string(),
   "balance": zod.number(),
   "totalTopup": zod.number(),
   "totalSpent": zod.number()
@@ -343,7 +343,7 @@ export const UpdateUserWalletResponse = zod.object({
  * @summary Ban or unban a user (owner)
  */
 export const BanUserParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const BanUserBody = zod.object({
@@ -351,7 +351,7 @@ export const BanUserBody = zod.object({
 })
 
 export const BanUserResponse = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -362,11 +362,11 @@ export const BanUserResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -384,20 +384,20 @@ export const BanUserResponse = zod.object({
  * @summary Grant subscription to user (owner)
  */
 export const GrantUserSubscriptionParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const GrantUserSubscriptionBody = zod.object({
-  "subscriptionId": zod.number(),
+  "subscriptionId": zod.string(),
   "durationDays": zod.number().optional()
 })
 
 export const GrantUserSubscriptionResponse = zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -424,7 +424,7 @@ export const ListVideosQueryParams = zod.object({
 
 export const ListVideosResponse = zod.object({
   "data": zod.array(zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "thumbnail": zod.string().nullish(),
@@ -435,16 +435,16 @@ export const ListVideosResponse = zod.object({
   "likes": zod.number(),
   "downloadable": zod.boolean().optional(),
   "isFeatured": zod.boolean().optional(),
-  "categoryId": zod.number().nullish(),
+  "categoryId": zod.string().nullish(),
   "category": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "videoCount": zod.number().optional()
 }).optional(),
-  "creatorId": zod.number().optional(),
+  "creatorId": zod.string().optional(),
   "creator": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -455,11 +455,11 @@ export const ListVideosResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -494,11 +494,11 @@ export const CreateVideoBody = zod.object({
   "categoryId": zod.number().optional(),
   "downloadable": zod.boolean().optional(),
   "isFeatured": zod.boolean().optional(),
-  "creatorId": zod.number().optional()
+  "creatorId": zod.string().optional()
 })
 
 export const CreateVideoResponse = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "thumbnail": zod.string().nullish(),
@@ -509,16 +509,16 @@ export const CreateVideoResponse = zod.object({
   "likes": zod.number(),
   "downloadable": zod.boolean().optional(),
   "isFeatured": zod.boolean().optional(),
-  "categoryId": zod.number().nullish(),
+  "categoryId": zod.string().nullish(),
   "category": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "videoCount": zod.number().optional()
 }).optional(),
-  "creatorId": zod.number().optional(),
+  "creatorId": zod.string().optional(),
   "creator": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -529,11 +529,11 @@ export const CreateVideoResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -555,7 +555,7 @@ export const CreateVideoResponse = zod.object({
  * @summary Get featured/banner videos
  */
 export const GetFeaturedVideosResponseItem = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "thumbnail": zod.string().nullish(),
@@ -566,16 +566,16 @@ export const GetFeaturedVideosResponseItem = zod.object({
   "likes": zod.number(),
   "downloadable": zod.boolean().optional(),
   "isFeatured": zod.boolean().optional(),
-  "categoryId": zod.number().nullish(),
+  "categoryId": zod.string().nullish(),
   "category": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "videoCount": zod.number().optional()
 }).optional(),
-  "creatorId": zod.number().optional(),
+  "creatorId": zod.string().optional(),
   "creator": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -586,11 +586,11 @@ export const GetFeaturedVideosResponseItem = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -613,7 +613,7 @@ export const GetFeaturedVideosResponse = zod.array(GetFeaturedVideosResponseItem
  * @summary Get trending videos
  */
 export const GetTrendingVideosResponseItem = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "thumbnail": zod.string().nullish(),
@@ -624,16 +624,16 @@ export const GetTrendingVideosResponseItem = zod.object({
   "likes": zod.number(),
   "downloadable": zod.boolean().optional(),
   "isFeatured": zod.boolean().optional(),
-  "categoryId": zod.number().nullish(),
+  "categoryId": zod.string().nullish(),
   "category": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "videoCount": zod.number().optional()
 }).optional(),
-  "creatorId": zod.number().optional(),
+  "creatorId": zod.string().optional(),
   "creator": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -644,11 +644,11 @@ export const GetTrendingVideosResponseItem = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -671,11 +671,11 @@ export const GetTrendingVideosResponse = zod.array(GetTrendingVideosResponseItem
  * @summary Get video details
  */
 export const GetVideoParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const GetVideoResponse = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "thumbnail": zod.string().nullish(),
@@ -686,16 +686,16 @@ export const GetVideoResponse = zod.object({
   "likes": zod.number(),
   "downloadable": zod.boolean().optional(),
   "isFeatured": zod.boolean().optional(),
-  "categoryId": zod.number().nullish(),
+  "categoryId": zod.string().nullish(),
   "category": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "videoCount": zod.number().optional()
 }).optional(),
-  "creatorId": zod.number().optional(),
+  "creatorId": zod.string().optional(),
   "creator": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -706,11 +706,11 @@ export const GetVideoResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -727,15 +727,15 @@ export const GetVideoResponse = zod.object({
   "hasPurchased": zod.boolean().optional(),
   "bundleExclusive": zod.boolean().optional(),
   "bundles": zod.array(zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string()
 })).optional(),
   "comments": zod.array(zod.object({
-  "id": zod.number(),
-  "videoId": zod.number(),
-  "userId": zod.number(),
+  "id": zod.string(),
+  "videoId": zod.string(),
+  "userId": zod.string(),
   "user": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -746,11 +746,11 @@ export const GetVideoResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -773,7 +773,7 @@ export const GetVideoResponse = zod.object({
  * @summary Update video (admin/owner)
  */
 export const UpdateVideoParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const UpdateVideoBody = zod.object({
@@ -789,7 +789,7 @@ export const UpdateVideoBody = zod.object({
 })
 
 export const UpdateVideoResponse = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "thumbnail": zod.string().nullish(),
@@ -800,16 +800,16 @@ export const UpdateVideoResponse = zod.object({
   "likes": zod.number(),
   "downloadable": zod.boolean().optional(),
   "isFeatured": zod.boolean().optional(),
-  "categoryId": zod.number().nullish(),
+  "categoryId": zod.string().nullish(),
   "category": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "videoCount": zod.number().optional()
 }).optional(),
-  "creatorId": zod.number().optional(),
+  "creatorId": zod.string().optional(),
   "creator": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -820,11 +820,11 @@ export const UpdateVideoResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -846,7 +846,7 @@ export const UpdateVideoResponse = zod.object({
  * @summary Delete video (admin/owner)
  */
 export const DeleteVideoParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const DeleteVideoResponse = zod.unknown()
@@ -856,17 +856,17 @@ export const DeleteVideoResponse = zod.unknown()
  * @summary Buy a single premium video with wallet balance
  */
 export const PurchaseVideoParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const PurchaseVideoResponse = zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "videoId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "videoId": zod.string(),
   "price": zod.number(),
   "createdAt": zod.coerce.date(),
   "video": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "thumbnail": zod.string().nullish(),
@@ -877,16 +877,16 @@ export const PurchaseVideoResponse = zod.object({
   "likes": zod.number(),
   "downloadable": zod.boolean().optional(),
   "isFeatured": zod.boolean().optional(),
-  "categoryId": zod.number().nullish(),
+  "categoryId": zod.string().nullish(),
   "category": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "videoCount": zod.number().optional()
 }).optional(),
-  "creatorId": zod.number().optional(),
+  "creatorId": zod.string().optional(),
   "creator": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -897,11 +897,11 @@ export const PurchaseVideoResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -924,7 +924,7 @@ export const PurchaseVideoResponse = zod.object({
  * @summary Like a video
  */
 export const LikeVideoParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const LikeVideoResponse = zod.object({
@@ -937,7 +937,7 @@ export const LikeVideoResponse = zod.object({
  * @summary Record a video view
  */
 export const RecordViewParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const RecordViewResponse = zod.unknown()
@@ -947,11 +947,11 @@ export const RecordViewResponse = zod.unknown()
  * @summary Get related videos
  */
 export const GetRelatedVideosParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const GetRelatedVideosResponseItem = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "thumbnail": zod.string().nullish(),
@@ -962,16 +962,16 @@ export const GetRelatedVideosResponseItem = zod.object({
   "likes": zod.number(),
   "downloadable": zod.boolean().optional(),
   "isFeatured": zod.boolean().optional(),
-  "categoryId": zod.number().nullish(),
+  "categoryId": zod.string().nullish(),
   "category": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "videoCount": zod.number().optional()
 }).optional(),
-  "creatorId": zod.number().optional(),
+  "creatorId": zod.string().optional(),
   "creator": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -982,11 +982,11 @@ export const GetRelatedVideosResponseItem = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -1009,16 +1009,16 @@ export const GetRelatedVideosResponse = zod.array(GetRelatedVideosResponseItem)
  * @summary Get comments for a video
  */
 export const FetchVideoCommentsParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const FetchVideoCommentsResponse = zod.object({
   "data": zod.array(zod.object({
-  "id": zod.number(),
-  "videoId": zod.number(),
-  "userId": zod.number(),
+  "id": zod.string(),
+  "videoId": zod.string(),
+  "userId": zod.string(),
   "user": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -1029,11 +1029,11 @@ export const FetchVideoCommentsResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -1058,7 +1058,7 @@ export const FetchVideoCommentsResponse = zod.object({
  * @summary Add a comment
  */
 export const AddCommentParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const AddCommentBody = zod.object({
@@ -1066,11 +1066,11 @@ export const AddCommentBody = zod.object({
 })
 
 export const AddCommentResponse = zod.object({
-  "id": zod.number(),
-  "videoId": zod.number(),
-  "userId": zod.number(),
+  "id": zod.string(),
+  "videoId": zod.string(),
+  "userId": zod.string(),
   "user": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -1081,11 +1081,11 @@ export const AddCommentResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -1106,8 +1106,8 @@ export const AddCommentResponse = zod.object({
  * @summary Delete a comment
  */
 export const DeleteCommentParams = zod.object({
-  "id": zod.coerce.number(),
-  "commentId": zod.coerce.number()
+  "id": zod.coerce.string(),
+  "commentId": zod.coerce.string()
 })
 
 export const DeleteCommentResponse = zod.unknown()
@@ -1117,7 +1117,7 @@ export const DeleteCommentResponse = zod.unknown()
  * @summary List all categories
  */
 export const ListCategoriesResponseItem = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "videoCount": zod.number().optional()
@@ -1134,7 +1134,7 @@ export const CreateCategoryBody = zod.object({
 })
 
 export const CreateCategoryResponse = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "videoCount": zod.number().optional()
@@ -1145,7 +1145,7 @@ export const CreateCategoryResponse = zod.object({
  * @summary Update category (owner)
  */
 export const UpdateCategoryParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const UpdateCategoryBody = zod.object({
@@ -1154,7 +1154,7 @@ export const UpdateCategoryBody = zod.object({
 })
 
 export const UpdateCategoryResponse = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "videoCount": zod.number().optional()
@@ -1165,7 +1165,7 @@ export const UpdateCategoryResponse = zod.object({
  * @summary Delete category (owner)
  */
 export const DeleteCategoryParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const DeleteCategoryResponse = zod.unknown()
@@ -1175,7 +1175,7 @@ export const DeleteCategoryResponse = zod.unknown()
  * @summary List available subscription plans
  */
 export const ListSubscriptionsResponseItem = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -1197,7 +1197,7 @@ export const CreateSubscriptionBody = zod.object({
 })
 
 export const CreateSubscriptionResponse = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -1210,7 +1210,7 @@ export const CreateSubscriptionResponse = zod.object({
  * @summary Update subscription plan (owner)
  */
 export const UpdateSubscriptionParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const UpdateSubscriptionBody = zod.object({
@@ -1222,7 +1222,7 @@ export const UpdateSubscriptionBody = zod.object({
 })
 
 export const UpdateSubscriptionResponse = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -1235,7 +1235,7 @@ export const UpdateSubscriptionResponse = zod.object({
  * @summary Delete subscription plan (owner)
  */
 export const DeleteSubscriptionParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const DeleteSubscriptionResponse = zod.unknown()
@@ -1245,15 +1245,15 @@ export const DeleteSubscriptionResponse = zod.unknown()
  * @summary Purchase subscription using wallet balance
  */
 export const PurchaseSubscriptionParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const PurchaseSubscriptionResponse = zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -1270,11 +1270,11 @@ export const PurchaseSubscriptionResponse = zod.object({
  * @summary Get current user active subscription
  */
 export const GetMyActiveSubscriptionResponse = zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -1291,7 +1291,7 @@ export const GetMyActiveSubscriptionResponse = zod.object({
  * @summary List video bundles (purchase-only packs of 1-10 videos)
  */
 export const ListBundlesResponseItem = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "thumbnail": zod.string().nullish(),
@@ -1324,11 +1324,11 @@ export const CreateBundleBody = zod.object({
   "badge": zod.string().optional(),
   "isActive": zod.boolean().optional(),
   "sortOrder": zod.number().optional(),
-  "videoIds": zod.array(zod.number()).min(1).max(createBundleBodyVideoIdsMax)
+  "videoIds": zod.array(zod.string()).min(1).max(createBundleBodyVideoIdsMax)
 })
 
 export const CreateBundleResponse = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "thumbnail": zod.string().nullish(),
@@ -1341,7 +1341,7 @@ export const CreateBundleResponse = zod.object({
   "discountPercent": zod.number(),
   "hasPurchased": zod.boolean(),
   "videos": zod.array(zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "thumbnail": zod.string().nullish()
 })),
@@ -1353,11 +1353,11 @@ export const CreateBundleResponse = zod.object({
  * @summary Get bundle detail including its videos
  */
 export const GetBundleParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const GetBundleResponse = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "thumbnail": zod.string().nullish(),
@@ -1370,7 +1370,7 @@ export const GetBundleResponse = zod.object({
   "discountPercent": zod.number(),
   "hasPurchased": zod.boolean(),
   "videos": zod.array(zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "thumbnail": zod.string().nullish()
 })),
@@ -1382,7 +1382,7 @@ export const GetBundleResponse = zod.object({
  * @summary Update a bundle (owner)
  */
 export const UpdateBundleParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const updateBundleBodyVideoIdsMax = 10;
@@ -1398,11 +1398,11 @@ export const UpdateBundleBody = zod.object({
   "badge": zod.string().optional(),
   "isActive": zod.boolean().optional(),
   "sortOrder": zod.number().optional(),
-  "videoIds": zod.array(zod.number()).min(1).max(updateBundleBodyVideoIdsMax).optional()
+  "videoIds": zod.array(zod.string()).min(1).max(updateBundleBodyVideoIdsMax).optional()
 })
 
 export const UpdateBundleResponse = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "thumbnail": zod.string().nullish(),
@@ -1415,7 +1415,7 @@ export const UpdateBundleResponse = zod.object({
   "discountPercent": zod.number(),
   "hasPurchased": zod.boolean(),
   "videos": zod.array(zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "thumbnail": zod.string().nullish()
 })),
@@ -1427,7 +1427,7 @@ export const UpdateBundleResponse = zod.object({
  * @summary Delete a bundle (owner)
  */
 export const DeleteBundleParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const DeleteBundleResponse = zod.unknown()
@@ -1437,17 +1437,17 @@ export const DeleteBundleResponse = zod.unknown()
  * @summary Purchase a bundle using wallet balance (grants permanent access to its videos)
  */
 export const PurchaseBundleParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const PurchaseBundleResponse = zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "bundleId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "bundleId": zod.string(),
   "price": zod.number(),
   "createdAt": zod.coerce.date(),
   "bundle": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "thumbnail": zod.string().nullish(),
@@ -1460,7 +1460,7 @@ export const PurchaseBundleResponse = zod.object({
   "discountPercent": zod.number(),
   "hasPurchased": zod.boolean(),
   "videos": zod.array(zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "thumbnail": zod.string().nullish()
 })),
@@ -1473,7 +1473,7 @@ export const PurchaseBundleResponse = zod.object({
  * @summary Get current user's wallet
  */
 export const GetWalletResponse = zod.object({
-  "userId": zod.number(),
+  "userId": zod.string(),
   "balance": zod.number(),
   "totalTopup": zod.number(),
   "totalSpent": zod.number()
@@ -1490,10 +1490,10 @@ export const ListMyTopupsQueryParams = zod.object({
 
 export const ListMyTopupsResponse = zod.object({
   "data": zod.array(zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
   "user": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -1504,11 +1504,11 @@ export const ListMyTopupsResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -1541,10 +1541,10 @@ export const CreateTopupBody = zod.object({
 })
 
 export const CreateTopupResponse = zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
   "user": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -1555,11 +1555,11 @@ export const CreateTopupResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -1590,10 +1590,10 @@ export const ListAllTopupsQueryParams = zod.object({
 
 export const ListAllTopupsResponse = zod.object({
   "data": zod.array(zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
   "user": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -1604,11 +1604,11 @@ export const ListAllTopupsResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -1636,14 +1636,14 @@ export const ListAllTopupsResponse = zod.object({
  * @summary Confirm a topup (owner)
  */
 export const ConfirmTopupParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const ConfirmTopupResponse = zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
   "user": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -1654,11 +1654,11 @@ export const ConfirmTopupResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -1682,14 +1682,14 @@ export const ConfirmTopupResponse = zod.object({
  * @summary Deny a topup (owner)
  */
 export const DenyTopupParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const DenyTopupResponse = zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
   "user": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -1700,11 +1700,11 @@ export const DenyTopupResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -1728,7 +1728,7 @@ export const DenyTopupResponse = zod.object({
  * @summary Delete a topup record (owner)
  */
 export const DeleteTopupParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const DeleteTopupResponse = zod.unknown()
@@ -1745,12 +1745,12 @@ export const ListTransactionsQueryParams = zod.object({
 
 export const ListTransactionsResponse = zod.object({
   "data": zod.array(zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
   "type": zod.enum(['topup', 'subscription', 'purchase', 'adjustment']),
   "amount": zod.number(),
   "description": zod.string(),
-  "referenceId": zod.number().nullish(),
+  "referenceId": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })),
   "total": zod.number(),
@@ -1769,7 +1769,7 @@ export const GetWatchHistoryQueryParams = zod.object({
 
 export const GetWatchHistoryResponse = zod.object({
   "data": zod.array(zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "thumbnail": zod.string().nullish(),
@@ -1780,16 +1780,16 @@ export const GetWatchHistoryResponse = zod.object({
   "likes": zod.number(),
   "downloadable": zod.boolean().optional(),
   "isFeatured": zod.boolean().optional(),
-  "categoryId": zod.number().nullish(),
+  "categoryId": zod.string().nullish(),
   "category": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "videoCount": zod.number().optional()
 }).optional(),
-  "creatorId": zod.number().optional(),
+  "creatorId": zod.string().optional(),
   "creator": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "username": zod.string(),
   "email": zod.string(),
   "role": zod.enum(['user', 'admin', 'owner']),
@@ -1800,11 +1800,11 @@ export const GetWatchHistoryResponse = zod.object({
   "totalSpent": zod.number().optional(),
   "createdAt": zod.coerce.date(),
   "activeSubscription": zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
-  "subscriptionId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
+  "subscriptionId": zod.string(),
   "subscription": zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "price": zod.number(),
@@ -1922,7 +1922,7 @@ export const GetAnalyticsOverviewResponse = zod.object({
  * @summary Get video analytics (owner)
  */
 export const GetVideoAnalyticsResponseItem = zod.object({
-  "id": zod.number(),
+  "id": zod.string(),
   "title": zod.string(),
   "views": zod.number(),
   "likes": zod.number(),
@@ -1966,7 +1966,7 @@ export const GetTopupLeaderboardQueryParams = zod.object({
 
 export const GetTopupLeaderboardResponseItem = zod.object({
   "rank": zod.number(),
-  "userId": zod.number(),
+  "userId": zod.string(),
   "username": zod.string(),
   "avatar": zod.string().nullish(),
   "totalAmount": zod.number()
@@ -1978,8 +1978,8 @@ export const GetTopupLeaderboardResponse = zod.array(GetTopupLeaderboardResponse
  * @summary Get user notifications
  */
 export const ListNotificationsResponseItem = zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
   "title": zod.string(),
   "message": zod.string(),
   "type": zod.string().optional(),
@@ -1999,12 +1999,12 @@ export const MarkAllNotificationsReadResponse = zod.unknown()
  * @summary Mark one notification as read
  */
 export const MarkNotificationReadParams = zod.object({
-  "id": zod.coerce.number()
+  "id": zod.coerce.string()
 })
 
 export const MarkNotificationReadResponse = zod.object({
-  "id": zod.number(),
-  "userId": zod.number(),
+  "id": zod.string(),
+  "userId": zod.string(),
   "title": zod.string(),
   "message": zod.string(),
   "type": zod.string().optional(),

@@ -9,8 +9,8 @@ import type { TopupStatus } from './topupStatus';
 import type { User } from './user';
 
 export interface Topup {
-  id: number;
-  userId: number;
+  id: string;
+  userId: string;
   user?: User;
   amount: number;
   /** @nullable */

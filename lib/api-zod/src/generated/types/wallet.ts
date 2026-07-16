@@ -7,7 +7,7 @@
  */
 
 export interface Wallet {
-  userId: number;
+  userId: string;
   balance: number;
   totalTopup: number;
   totalSpent: number;

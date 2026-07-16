@@ -1,0 +1,245 @@
+CRITICAL VIDEO & BUNDLE ACCESS BUG
+
+Problem:
+
+Videos and Bundles are successfully uploaded from the admin dashboard.
+
+The records exist in the database.
+
+The thumbnails appear on the homepage.
+
+However, when opening:
+
+/video/[id]
+/watch/[id]
+/bundle/[id]
+
+the application shows:
+
+- Video Tidak Ditemukan
+- Bundle Tidak Ditemukan
+
+even though the content exists.
+
+==================================================
+FULL INVESTIGATION REQUIRED
+==================================================
+
+Trace the complete flow:
+
+Upload Video
+↓
+Database Save
+↓
+Homepage Display
+↓
+Video Detail Page
+↓
+Video Player Page
+
+and
+
+Bundle Creation
+↓
+Database Save
+↓
+Bundle List
+↓
+Bundle Detail Page
+
+Find exactly where the lookup fails.
+
+==================================================
+DATABASE VALIDATION
+==================================================
+
+Inspect all tables:
+
+videos
+bundles
+categories
+bundle_videos
+purchases
+subscriptions
+
+Verify:
+
+- IDs are correctly stored
+- UUID format is valid
+- Slugs are generated
+- Video URL exists
+- Thumbnail URL exists
+- Bundle relations exist
+
+Check if pages are searching by:
+
+id
+slug
+uuid
+
+and verify they match the uploaded records.
+
+==================================================
+ROUTING AUDIT
+==================================================
+
+Inspect all routes:
+
+/video/[id]
+/watch/[id]
+/bundle/[id]
+/bundle/[slug]
+/videos/[id]
+
+Verify the route parameter matches the database field.
+
+Example issue:
+
+Page expects:
+
+/video/slug
+
+but homepage sends:
+
+/video/id
+
+or vice versa.
+
+Fix all route mismatches.
+
+==================================================
+API DEBUGGING
+==================================================
+
+Inspect APIs:
+
+GET /api/videos
+GET /api/video/[id]
+GET /api/bundles
+GET /api/bundle/[id]
+
+Add logs:
+
+console.log("Requested ID:", id)
+console.log("Video Found:", video)
+console.log("Bundle Found:", bundle)
+
+Identify exactly where null is returned.
+
+==================================================
+VISIBILITY CHECK
+==================================================
+
+Verify videos are not being hidden because of:
+
+draft status
+private status
+bundle-only status
+subscription-only status
+published flag
+
+Ensure published videos can be opened.
+
+==================================================
+SUPABASE STORAGE AUDIT
+==================================================
+
+Check:
+
+- video_url
+- thumbnail_url
+
+Verify URLs are valid.
+
+If using signed URLs:
+
+Generate valid URLs automatically.
+
+If bucket is public:
+
+Use public URLs.
+
+Prevent content from appearing as missing when URL exists.
+
+==================================================
+BUNDLE RELATION FIX
+==================================================
+
+Inspect bundle-video relationship.
+
+Verify:
+
+bundle_id exists
+video_id exists
+
+Bundle page should load all linked videos.
+
+Prevent:
+
+"Bundle tidak ditemukan"
+
+when bundle exists but relation query fails.
+
+==================================================
+ERROR HANDLING
+==================================================
+
+Replace generic errors:
+
+"Video Tidak Ditemukan"
+"Bundle Tidak Ditemukan"
+
+with detailed logs.
+
+Display actual cause:
+
+- Invalid ID
+- Missing record
+- Missing relation
+- Database query failed
+- Storage URL invalid
+
+==================================================
+MIGRATION AUDIT
+==================================================
+
+If project was migrated to Neon:
+
+Check all queries.
+
+Verify old Supabase IDs and new Neon IDs are compatible.
+
+Fix broken references.
+
+==================================================
+FINAL TESTS
+==================================================
+
+Create new video
+Publish video
+Open video page
+
+Create new bundle
+Attach videos
+Open bundle page
+
+Verify:
+
+✓ Homepage loads
+✓ Video detail page loads
+✓ Video player loads
+✓ Bundle page loads
+✓ Bundle videos appear
+✓ Mobile works
+✓ Desktop works
+
+Generate final report:
+
+- Root cause
+- Files modified
+- Queries fixed
+- Routes fixed
+- Database issues found
+- Storage issues found
+
+The system must automatically open all existing videos and bundles after upload without showing "Video Tidak Ditemukan" or "Bundle Tidak Ditemukan".

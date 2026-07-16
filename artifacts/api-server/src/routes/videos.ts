@@ -183,7 +183,7 @@ router.get("/videos/featured", optionalAuth, async (req, res) => {
 
 // ── GET /videos/:id ───────────────────────────────────────────────────────────
 router.get("/videos/:id", optionalAuth, async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const userId = req.user?.userId;
 
   const [video] = await db.select().from(videosTable)
@@ -205,7 +205,7 @@ router.get("/videos/:id", optionalAuth, async (req, res) => {
 
 // ── POST /videos/:id/view — record a view ─────────────────────────────────────
 router.post("/videos/:id/view", optionalAuth, async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const userId = req.user?.userId;
 
   const [video] = await db.select({ id: videosTable.id, visibility: videosTable.visibility })
@@ -262,7 +262,7 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
 
 // ── PATCH /videos/:id — update video ─────────────────────────────────────────
 router.patch("/videos/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const userId = req.user!.userId;
 
   const [existing] = await db.select().from(videosTable)
@@ -285,7 +285,7 @@ router.patch("/videos/:id", authenticate, requireRole("admin", "owner"), async (
 
 // ── DELETE /videos/:id (soft delete) ─────────────────────────────────────────
 router.delete("/videos/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   await db.update(videosTable).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(videosTable.id, id));
   await invalidateCache(keys.analytics("overview")).catch(() => {});
   res.json({ message: "Deleted" });
@@ -293,7 +293,7 @@ router.delete("/videos/:id", authenticate, requireRole("admin", "owner"), async 
 
 // ── POST /videos/:id/like ─────────────────────────────────────────────────────
 router.post("/videos/:id/like", authenticate, async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const userId = req.user!.userId;
 
   try {
@@ -315,7 +315,7 @@ router.post("/videos/:id/like", authenticate, async (req, res) => {
 
 // ── POST /videos/:id/purchase — buy a premium video ──────────────────────────
 router.post("/videos/:id/purchase", authenticate, async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const userId = req.user!.userId;
 
   const [video] = await db.select().from(videosTable)
@@ -387,7 +387,7 @@ router.post("/videos/:id/purchase", authenticate, async (req, res) => {
 
 // ── GET /videos/:id/comments ──────────────────────────────────────────────────
 router.get("/videos/:id/comments", async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const rows = await db.select().from(commentsTable)
     .where(eq(commentsTable.videoId, id))
     .orderBy(desc(commentsTable.createdAt))
@@ -405,7 +405,7 @@ router.get("/videos/:id/comments", async (req, res) => {
 
 // ── POST /videos/:id/comments ─────────────────────────────────────────────────
 router.post("/videos/:id/comments", authenticate, async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const userId = req.user!.userId;
   const { content } = req.body;
   if (!content?.trim()) { res.status(400).json({ error: "Content required" }); return; }
@@ -421,7 +421,7 @@ router.post("/videos/:id/comments", authenticate, async (req, res) => {
 
 // ── DELETE /videos/:id/comments/:commentId ────────────────────────────────────
 router.delete("/videos/:id/comments/:commentId", authenticate, async (req, res) => {
-  const commentId = req.params.commentId;
+  const commentId = req.params.commentId as string;
   const userId = req.user!.userId;
   const role = req.user!.role;
 

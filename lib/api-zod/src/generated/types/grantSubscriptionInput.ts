@@ -7,6 +7,6 @@
  */
 
 export interface GrantSubscriptionInput {
-  subscriptionId: number;
+  subscriptionId: string;
   durationDays?: number;
 }

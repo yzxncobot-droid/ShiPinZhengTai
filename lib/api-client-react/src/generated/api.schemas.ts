@@ -31,7 +31,7 @@ export const UserRole = {
 } as const;
 
 export interface Subscription {
-  id: number;
+  id: string;
   name: string;
   /** @nullable */
   description?: string | null;
@@ -41,9 +41,9 @@ export interface Subscription {
 }
 
 export interface UserSubscription {
-  id: number;
-  userId: number;
-  subscriptionId: number;
+  id: string;
+  userId: string;
+  subscriptionId: string;
   subscription?: Subscription;
   startDate: string;
   endDate: string;
@@ -51,7 +51,7 @@ export interface UserSubscription {
 }
 
 export interface User {
-  id: number;
+  id: string;
   username: string;
   email: string;
   role: UserRole;
@@ -107,12 +107,12 @@ export interface BanInput {
 }
 
 export interface GrantSubscriptionInput {
-  subscriptionId: number;
+  subscriptionId: string;
   durationDays?: number;
 }
 
 export interface Wallet {
-  userId: number;
+  userId: string;
   balance: number;
   totalTopup: number;
   totalSpent: number;
@@ -127,7 +127,7 @@ export const VideoType = {
 } as const;
 
 export interface Category {
-  id: number;
+  id: string;
   name: string;
   /** @nullable */
   description?: string | null;
@@ -135,7 +135,7 @@ export interface Category {
 }
 
 export interface Video {
-  id: number;
+  id: string;
   title: string;
   /** @nullable */
   description?: string | null;
@@ -151,9 +151,9 @@ export interface Video {
   downloadable?: boolean;
   isFeatured?: boolean;
   /** @nullable */
-  categoryId?: number | null;
+  categoryId?: string | null;
   category?: Category;
-  creatorId?: number;
+  creatorId?: string;
   creator?: User;
   isLiked?: boolean;
   bundleExclusive?: boolean;
@@ -161,9 +161,9 @@ export interface Video {
 }
 
 export interface VideoPurchaseResult {
-  id: number;
-  userId: number;
-  videoId: number;
+  id: string;
+  userId: string;
+  videoId: string;
   price: number;
   createdAt: string;
   video: Video;
@@ -178,21 +178,21 @@ export const VideoDetailType = {
 } as const;
 
 export interface BundleRef {
-  id: number;
+  id: string;
   title: string;
 }
 
 export interface Comment {
-  id: number;
-  videoId: number;
-  userId: number;
+  id: string;
+  videoId: string;
+  userId: string;
   user?: User;
   content: string;
   createdAt: string;
 }
 
 export interface VideoDetail {
-  id: number;
+  id: string;
   title: string;
   /** @nullable */
   description?: string | null;
@@ -208,9 +208,9 @@ export interface VideoDetail {
   downloadable?: boolean;
   isFeatured?: boolean;
   /** @nullable */
-  categoryId?: number | null;
+  categoryId?: string | null;
   category?: Category;
-  creatorId?: number;
+  creatorId?: string;
   creator?: User;
   isLiked?: boolean;
   hasAccess?: boolean;
@@ -246,7 +246,7 @@ export interface VideoInput {
   categoryId?: number;
   downloadable?: boolean;
   isFeatured?: boolean;
-  creatorId?: number;
+  creatorId?: string;
 }
 
 export type VideoUpdateType = typeof VideoUpdateType[keyof typeof VideoUpdateType];
@@ -270,14 +270,14 @@ export interface VideoUpdate {
 }
 
 export interface BundleVideoItem {
-  id: number;
+  id: string;
   title: string;
   /** @nullable */
   thumbnail?: string | null;
 }
 
 export interface Bundle {
-  id: number;
+  id: string;
   title: string;
   /** @nullable */
   description?: string | null;
@@ -297,7 +297,7 @@ export interface Bundle {
 }
 
 export interface BundleDetail {
-  id: number;
+  id: string;
   title: string;
   /** @nullable */
   description?: string | null;
@@ -330,7 +330,7 @@ export interface BundleInput {
      * @minItems 1
      * @maxItems 10
      */
-  videoIds: number[];
+  videoIds: string[];
 }
 
 export interface BundleUpdate {
@@ -346,13 +346,13 @@ export interface BundleUpdate {
      * @minItems 1
      * @maxItems 10
      */
-  videoIds?: number[];
+  videoIds?: string[];
 }
 
 export interface BundlePurchaseResult {
-  id: number;
-  userId: number;
-  bundleId: number;
+  id: string;
+  userId: string;
+  bundleId: string;
   price: number;
   createdAt: string;
   bundle: BundleDetail;
@@ -399,8 +399,8 @@ export const TopupStatus = {
 } as const;
 
 export interface Topup {
-  id: number;
-  userId: number;
+  id: string;
+  userId: string;
   user?: User;
   amount: number;
   /** @nullable */
@@ -433,13 +433,13 @@ export const TransactionType = {
 } as const;
 
 export interface Transaction {
-  id: number;
-  userId: number;
+  id: string;
+  userId: string;
   type: TransactionType;
   amount: number;
   description: string;
   /** @nullable */
-  referenceId?: number | null;
+  referenceId?: string | null;
   createdAt: string;
 }
 
@@ -538,7 +538,7 @@ export interface AnalyticsOverview {
 }
 
 export interface VideoStat {
-  id: number;
+  id: string;
   title: string;
   views: number;
   likes: number;
@@ -560,7 +560,7 @@ export interface AdminStats {
 
 export interface LeaderboardEntry {
   rank: number;
-  userId: number;
+  userId: string;
   username: string;
   /** @nullable */
   avatar?: string | null;
@@ -568,8 +568,8 @@ export interface LeaderboardEntry {
 }
 
 export interface Notification {
-  id: number;
-  userId: number;
+  id: string;
+  userId: string;
   title: string;
   message: string;
   type?: string;

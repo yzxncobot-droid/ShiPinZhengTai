@@ -8,12 +8,12 @@
 import type { TransactionType } from './transactionType';
 
 export interface Transaction {
-  id: number;
-  userId: number;
+  id: string;
+  userId: string;
   type: TransactionType;
   amount: number;
   description: string;
   /** @nullable */
-  referenceId?: number | null;
+  referenceId?: string | null;
   createdAt: Date;
 }

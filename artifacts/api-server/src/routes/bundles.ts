@@ -137,7 +137,7 @@ router.get("/bundles/all", authenticate, requireRole("admin", "owner"), async (_
 // ── GET /bundles/:id ──────────────────────────────────────────────────────────
 router.get("/bundles/:id", optionalAuth, async (req, res) => {
   try {
-    const id = req.params.id;
+    const id = req.params.id as string;
     const userId = req.user?.userId;
     const [bundle] = await db.select().from(bundlesTable)
       .where(and(eq(bundlesTable.id, id), isNull(bundlesTable.deletedAt))).limit(1);
@@ -180,7 +180,7 @@ router.post("/bundles", authenticate, requireRole("admin", "owner"), async (req,
 
 // ── PATCH /bundles/:id — update bundle (admin/owner) ─────────────────────────
 router.patch("/bundles/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const { title, description, thumbnail, banner, price, originalPrice, badge, sortOrder, isActive, videoIds } = req.body;
 
   const [existing] = await db.select().from(bundlesTable)
@@ -225,7 +225,7 @@ router.patch("/bundles/:id", authenticate, requireRole("admin", "owner"), async 
 
 // ── DELETE /bundles/:id (soft delete) ────────────────────────────────────────
 router.delete("/bundles/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const oldLinks = await db.select({ videoId: bundleVideosTable.videoId })
     .from(bundleVideosTable).where(eq(bundleVideosTable.bundleId, id));
   const oldIds = oldLinks.map((r) => r.videoId);
@@ -237,7 +237,7 @@ router.delete("/bundles/:id", authenticate, requireRole("admin", "owner"), async
 
 // ── POST /bundles/:id/purchase — buy a bundle ─────────────────────────────────
 router.post("/bundles/:id/purchase", authenticate, async (req, res) => {
-  const bundleId = req.params.id;
+  const bundleId = req.params.id as string;
   const userId = req.user!.userId;
 
   const [bundle] = await db.select().from(bundlesTable)

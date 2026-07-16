@@ -73,7 +73,7 @@ router.get("/topups/all", authenticate, requireRole("admin", "owner"), async (re
 
 // ── PATCH /topups/:id/confirm — approve top-up (admin/owner) ─────────────────
 router.patch("/topups/:id/confirm", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const reviewerId = req.user!.userId;
 
   const [topup] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
@@ -154,7 +154,7 @@ router.patch("/topups/:id/confirm", authenticate, requireRole("admin", "owner"),
 
 // ── PATCH /topups/:id/deny — deny top-up (admin/owner) ───────────────────────
 router.patch("/topups/:id/deny", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const reviewerId = req.user!.userId;
   const { note } = req.body;
 
@@ -192,7 +192,7 @@ router.patch("/topups/:id/deny", authenticate, requireRole("admin", "owner"), as
 
 // ── DELETE /topups/:id (admin/owner) ─────────────────────────────────────────
 router.delete("/topups/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   await db.delete(topupsTable).where(eq(topupsTable.id, id));
   res.json({ message: "Deleted" });
 });

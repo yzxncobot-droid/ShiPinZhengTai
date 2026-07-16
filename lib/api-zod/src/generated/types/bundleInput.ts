@@ -19,5 +19,5 @@ export interface BundleInput {
      * @minItems 1
      * @maxItems 10
      */
-  videoIds: number[];
+  videoIds: string[];
 }

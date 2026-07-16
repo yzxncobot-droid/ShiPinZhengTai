@@ -40,7 +40,7 @@ router.post("/subscriptions", authenticate, requireRole("admin", "owner"), async
 
 // ── PATCH /subscriptions/:id (admin/owner) ────────────────────────────────────
 router.patch("/subscriptions/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const { name, description, price, durationDays, isActive, sortOrder } = req.body;
   const updates: any = { updatedAt: new Date() };
   if (name !== undefined) updates.name = name;
@@ -56,14 +56,14 @@ router.patch("/subscriptions/:id", authenticate, requireRole("admin", "owner"), 
 
 // ── DELETE /subscriptions/:id (owner) ────────────────────────────────────────
 router.delete("/subscriptions/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   await db.delete(subscriptionsTable).where(eq(subscriptionsTable.id, id));
   res.json({ message: "Deleted" });
 });
 
 // ── POST /subscriptions/:id/purchase — buy a subscription plan ────────────────
 router.post("/subscriptions/:id/purchase", authenticate, async (req, res) => {
-  const planId = req.params.id;
+  const planId = req.params.id as string;
   const userId = req.user!.userId;
 
   const [plan] = await db.select().from(subscriptionsTable)

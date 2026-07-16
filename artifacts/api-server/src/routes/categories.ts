@@ -33,7 +33,7 @@ router.post("/categories", authenticate, requireRole("admin", "owner"), async (r
 });
 
 router.patch("/categories/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const { name, description, icon, banner, slug, sortOrder, isActive } = req.body;
   const updates: any = {};
   if (name !== undefined) updates.name = name;
@@ -50,7 +50,7 @@ router.patch("/categories/:id", authenticate, requireRole("admin", "owner"), asy
 });
 
 router.delete("/categories/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   // Soft delete
   await db.update(categoriesTable).set({ deletedAt: new Date() }).where(eq(categoriesTable.id, id));
   res.json({ message: "Deleted" });

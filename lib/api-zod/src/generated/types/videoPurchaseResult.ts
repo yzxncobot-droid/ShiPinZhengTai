@@ -8,9 +8,9 @@
 import type { Video } from './video';
 
 export interface VideoPurchaseResult {
-  id: number;
-  userId: number;
-  videoId: number;
+  id: string;
+  userId: string;
+  videoId: string;
   price: number;
   createdAt: Date;
   video: Video;
