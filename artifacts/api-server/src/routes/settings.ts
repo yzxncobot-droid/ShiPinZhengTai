@@ -24,7 +24,7 @@ const SETTINGS_FIELDS = [
   "metaTitle", "googleAnalyticsId", "googleSearchConsoleId",
 ] as const;
 
-router.patch("/settings", authenticate, requireRole("owner"), async (req, res) => {
+router.patch("/settings", authenticate, requireRole("admin", "owner"), async (req, res) => {
   const body: Record<string, any> = {};
   for (const field of SETTINGS_FIELDS) {
     if (req.body[field] !== undefined) body[field] = req.body[field];

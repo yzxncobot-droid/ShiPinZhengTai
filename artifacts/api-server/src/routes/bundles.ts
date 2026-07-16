@@ -209,7 +209,7 @@ router.patch("/bundles/:id", authenticate, requireRole("admin", "owner"), async 
 });
 
 // ── DELETE /bundles/:id (soft delete) ────────────────────────────────────────
-router.delete("/bundles/:id", authenticate, requireRole("owner"), async (req, res) => {
+router.delete("/bundles/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
   const id = req.params.id;
   const oldLinks = await db.select({ videoId: bundleVideosTable.videoId })
     .from(bundleVideosTable).where(eq(bundleVideosTable.bundleId, id));

@@ -55,7 +55,7 @@ router.patch("/subscriptions/:id", authenticate, requireRole("admin", "owner"), 
 });
 
 // ── DELETE /subscriptions/:id (owner) ────────────────────────────────────────
-router.delete("/subscriptions/:id", authenticate, requireRole("owner"), async (req, res) => {
+router.delete("/subscriptions/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
   const id = req.params.id;
   await db.delete(subscriptionsTable).where(eq(subscriptionsTable.id, id));
   res.json({ message: "Deleted" });

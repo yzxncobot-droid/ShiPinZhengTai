@@ -18,7 +18,7 @@ router.get("/categories", async (_req, res) => {
   res.json(withCount);
 });
 
-router.post("/categories", authenticate, requireRole("owner"), async (req, res) => {
+router.post("/categories", authenticate, requireRole("admin", "owner"), async (req, res) => {
   const { name, description, icon, banner, slug, sortOrder, isActive } = req.body;
   if (!name) { res.status(400).json({ error: "Name required" }); return; }
   const [cat] = await db.insert(categoriesTable)
@@ -27,7 +27,7 @@ router.post("/categories", authenticate, requireRole("owner"), async (req, res) 
   res.status(201).json({ ...cat, videoCount: 0 });
 });
 
-router.patch("/categories/:id", authenticate, requireRole("owner"), async (req, res) => {
+router.patch("/categories/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
   const id = req.params.id;
   const { name, description, icon, banner, slug, sortOrder, isActive } = req.body;
   const updates: any = {};
@@ -44,7 +44,7 @@ router.patch("/categories/:id", authenticate, requireRole("owner"), async (req, 
   res.json({ ...cat, videoCount: Number(value) });
 });
 
-router.delete("/categories/:id", authenticate, requireRole("owner"), async (req, res) => {
+router.delete("/categories/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
   const id = req.params.id;
   // Soft delete
   await db.update(categoriesTable).set({ deletedAt: new Date() }).where(eq(categoriesTable.id, id));
