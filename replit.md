@@ -4,51 +4,61 @@ A premium video platform (browse, upload, subscribe/pay-per-view, leaderboard) w
 
 ## Run & Operate
 
-- Workflows: `API Server` (port 8080) and `Web` (port 21561, `PORT`/`BASE_PATH` set inline in the workflow command). After a fresh GitHub re-import, the artifact registry (`.replit-artifact/artifact.toml` per artifact) is not auto-registered as a workflow, so these were configured manually with `configureWorkflow` rather than via `createArtifact`. The `mockup-sandbox` artifact exists on disk but has no workflow configured (not needed to run the app; set one up if you want canvas mockups).
-- `pnpm --filter @workspace/api-server run dev` — run the API server (needs `PORT` set)
-- `pnpm --filter @workspace/yzu-video run dev` — run the web app (needs `PORT` and `BASE_PATH` set)
+Three artifact-managed workflows run automatically:
+
+| Workflow | Command | Port |
+|---|---|---|
+| `artifacts/api-server: API Server` | `pnpm --filter @workspace/api-server run dev` | 8080 |
+| `artifacts/yzu-video: web` | `pnpm --filter @workspace/yzu-video run dev` | auto |
+| `artifacts/mockup-sandbox: Component Preview Server` | `pnpm --filter @workspace/mockup-sandbox run dev` | auto |
+
+Other useful commands:
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only) — required once after schema changes; ran this after the re-import since tables were empty
+- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only); run once after a fresh clone or schema change
 
-## Required integrations / secrets
+## Required secrets
 
-- `DATABASE_URL` — Postgres connection string, auto-provisioned by Replit's built-in database. Already set.
-- `SESSION_SECRET` — used to sign JWTs (`artifacts/api-server/src/middlewares/auth.ts`). Already set.
-- `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` — the API server uses the Supabase JS client for file storage (video/thumbnail uploads, see `artifacts/api-server/src/lib/supabase.ts` and `routes/upload.ts`). You need your own Supabase project for this: create one at supabase.com, then grab the Project URL and the `service_role` key from Project Settings → API. These were requested and saved as secrets.
-- No other third-party integrations are wired up yet (no payment provider is connected despite subscriptions/topups/transactions tables existing in the schema — if you want real payments, Stripe or Whop would need to be added).
+| Secret | Description |
+|---|---|
+| `SESSION_SECRET` | Signs JWTs (`artifacts/api-server/src/middlewares/auth.ts`) |
+| `SUPABASE_URL` | Supabase project URL (e.g. `https://xxxx.supabase.co`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role key — Supabase → Project Settings → API |
+| `DATABASE_URL` | **Must use the Supabase connection pooler URL** (Transaction mode, port 6543). The direct `db.*.supabase.co` hostname is not reachable from Replit. Find it at Supabase → Project Settings → Database → Connection Pooling. |
+
+Feature-flag env vars (all default to `true`): `ENABLE_WALLET`, `ENABLE_SUBSCRIPTIONS`, `ENABLE_BUNDLES`, `ENABLE_REFERRALS`, `ENABLE_MANUAL_QRIS`.
+
+Storage bucket env vars (all default to `yzx`): `SUPABASE_VIDEOS_BUCKET`, `SUPABASE_THUMBNAILS_BUCKET`, `SUPABASE_PAYMENTS_BUCKET`.
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
+- pnpm workspaces, **Node.js 22**, TypeScript 5.9
+- API: Express 5, esbuild bundle
+- DB: PostgreSQL (Supabase) + Drizzle ORM
 - Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Frontend: React 19, Vite 7, Tailwind CSS 4, Radix UI, TanStack Query, Wouter
+- API codegen: Orval (from OpenAPI spec in `lib/api-spec`)
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+| Area | Path |
+|---|---|
+| DB schema | `lib/db/src/schema/index.ts` |
+| API spec (OpenAPI) | `lib/api-spec/` |
+| Generated API hooks | `lib/api-client-react/src/` |
+| API routes | `artifacts/api-server/src/routes/` |
+| Supabase client + storage | `artifacts/api-server/src/lib/supabase.ts` |
+| Frontend pages | `artifacts/yzu-video/src/pages/` |
+| Frontend components | `artifacts/yzu-video/src/components/` |
 
-## Architecture decisions
+## Gotchas
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
-
-## Product
-
-_Describe the high-level user-facing capabilities of this app once they exist._
+- **Node.js 22 required** — `@supabase/realtime-js` needs native WebSocket, only available in Node 22+.
+- **Use Supabase pooler for DATABASE_URL** — the direct hostname is blocked from Replit. Use the Transaction mode pooler (port 6543) from Supabase → Settings → Database.
+- **Run `pnpm --filter @workspace/db run push` after a fresh clone** — tables start empty; the site loads with spinners until the schema is pushed and real content is uploaded.
+- **New users default to role `meril`** — to access admin/upload features, an owner must promote the account via the admin panel.
 
 ## User preferences
 
 _Populate as you build — explicit user instructions worth remembering across sessions._
-
-## Gotchas
-
-- After a fresh clone/re-import, run `pnpm --filter @workspace/db run push` once before starting the API server — the DB schema exists but tables start empty (no seed data), so the site loads with no videos/categories until real content is uploaded.
-- The API server's `dev` script requires `PORT` to be set explicitly (`PORT=8080 pnpm --filter @workspace/api-server run dev`); it throws on startup otherwise.
-
-## Pointers
-
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
