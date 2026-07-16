@@ -1,5 +1,5 @@
 import {
-  pgTable, serial, text, integer, boolean, timestamp,
+  pgTable, uuid, text, boolean, timestamp,
   doublePrecision, pgEnum, uniqueIndex, index,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
@@ -23,7 +23,7 @@ export const subscriptionStatusEnum = pgEnum("subscription_status_enum", [
 export const usersTable = pgTable(
   "users",
   {
-    id: serial("id").primaryKey(),
+    id: uuid("id").defaultRandom().primaryKey(),
 
     // ── Identity ───────────────────────────────────────────────────────
     username: text("username").notNull().unique(),
@@ -49,7 +49,10 @@ export const usersTable = pgTable(
     /** Unique code that users can share to earn credits. Auto-generated on insert. */
     referralCode: text("referral_code").unique(),
     /** The user who referred this account (null if organic signup). */
-    referredBy: integer("referred_by"),
+    referredBy: uuid("referred_by"),
+
+    // ── Soft delete ───────────────────────────────────────────────────
+    deletedAt: timestamp("deleted_at"),
 
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -60,11 +63,12 @@ export const usersTable = pgTable(
     referralCodeIdx: uniqueIndex("users_referral_code_idx").on(t.referralCode),
     roleIdx:         index("users_role_idx").on(t.role),
     createdAtIdx:    index("users_created_at_idx").on(t.createdAt),
+    deletedAtIdx:    index("users_deleted_at_idx").on(t.deletedAt),
   }),
 );
 
 export const insertUserSchema = createInsertSchema(usersTable).omit({
-  id: true, createdAt: true, updatedAt: true,
+  id: true, createdAt: true, updatedAt: true, deletedAt: true,
 });
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof usersTable.$inferSelect;

@@ -1,4 +1,7 @@
-import { pgTable, serial, text, integer, boolean, timestamp, doublePrecision, pgEnum } from "drizzle-orm/pg-core";
+import {
+  pgTable, uuid, text, integer, boolean, timestamp,
+  doublePrecision, pgEnum, index,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -15,39 +18,51 @@ export const videoTypeEnum = pgEnum("video_type", ["free", "premium"]);
  */
 export const videoVisibilityEnum = pgEnum("video_visibility", ["public", "premium", "hidden_bundle"]);
 
-export const videosTable = pgTable("videos", {
-  id: serial("id").primaryKey(),
-  title: text("title").notNull(),
-  description: text("description"),
-  thumbnail: text("thumbnail"),
-  videoUrl: text("video_url").notNull(),
-  /** @deprecated use visibility instead; kept for API compat */
-  type: videoTypeEnum("type").notNull().default("free"),
-  price: doublePrecision("price"),
-  views: integer("views").notNull().default(0),
-  likes: integer("likes").notNull().default(0),
-  downloadable: boolean("downloadable").notNull().default(false),
-  isFeatured: boolean("is_featured").notNull().default(false),
-  /**
-   * Primary visibility flag. Supersedes type + bundleExclusive.
-   * Use this for all filtering in queries.
-   */
-  visibility: videoVisibilityEnum("visibility").notNull().default("public"),
-  /** @deprecated use visibility === "hidden_bundle" instead; kept for compat */
-  bundleExclusive: boolean("bundle_exclusive").notNull().default(false),
-  // CMS fields
-  status: text("status").notNull().default("published"), // draft | published | hidden | scheduled
-  tags: text("tags"),           // JSON array string
-  duration: integer("duration"), // seconds
-  scheduledAt: timestamp("scheduled_at"),
-  categoryId: integer("category_id").references(() => categoriesTable.id, { onDelete: "set null" }),
-  creatorId: integer("creator_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+export const videosTable = pgTable(
+  "videos",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    title: text("title").notNull(),
+    description: text("description"),
+    thumbnail: text("thumbnail"),
+    videoUrl: text("video_url").notNull(),
+    /** @deprecated use visibility instead; kept for API compat */
+    type: videoTypeEnum("type").notNull().default("free"),
+    price: doublePrecision("price"),
+    views: integer("views").notNull().default(0),
+    likes: integer("likes").notNull().default(0),
+    downloadable: boolean("downloadable").notNull().default(false),
+    isFeatured: boolean("is_featured").notNull().default(false),
+    /**
+     * Primary visibility flag. Supersedes type + bundleExclusive.
+     * Use this for all filtering in queries.
+     */
+    visibility: videoVisibilityEnum("visibility").notNull().default("public"),
+    /** @deprecated use visibility === "hidden_bundle" instead; kept for compat */
+    bundleExclusive: boolean("bundle_exclusive").notNull().default(false),
+    // CMS fields
+    status: text("status").notNull().default("published"), // draft | published | hidden | scheduled
+    tags: text("tags"),           // JSON array string
+    duration: integer("duration"), // seconds
+    scheduledAt: timestamp("scheduled_at"),
+    categoryId: uuid("category_id").references(() => categoriesTable.id, { onDelete: "set null" }),
+    creatorId: uuid("creator_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    deletedAt: timestamp("deleted_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    creatorIdx:   index("videos_creator_id_idx").on(t.creatorId),
+    categoryIdx:  index("videos_category_id_idx").on(t.categoryId),
+    visibilityIdx: index("videos_visibility_idx").on(t.visibility),
+    statusIdx:    index("videos_status_idx").on(t.status),
+    createdAtIdx: index("videos_created_at_idx").on(t.createdAt),
+    deletedAtIdx: index("videos_deleted_at_idx").on(t.deletedAt),
+  }),
+);
 
 export const insertVideoSchema = createInsertSchema(videosTable).omit({
-  id: true, createdAt: true, updatedAt: true, views: true, likes: true,
+  id: true, createdAt: true, updatedAt: true, views: true, likes: true, deletedAt: true,
 });
 export type InsertVideo = z.infer<typeof insertVideoSchema>;
 export type Video = typeof videosTable.$inferSelect;

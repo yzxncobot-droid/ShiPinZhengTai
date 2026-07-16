@@ -4,9 +4,8 @@ import {
   usersTable, walletsTable, walletTransactionsTable,
   transactionsTable,
 } from "@workspace/db";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, sql, count } from "drizzle-orm";
 import { authenticate } from "../middlewares/auth";
-import { logger } from "../lib/logger";
 
 const router = Router();
 

@@ -1,5 +1,5 @@
 import {
-  pgTable, serial, text, integer, boolean, timestamp, doublePrecision, index,
+  pgTable, uuid, text, integer, boolean, timestamp, doublePrecision, index,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -10,7 +10,7 @@ import { usersTable } from "./users";
  * Defines the purchasable tier catalogue; admin/owner can create/disable plans.
  */
 export const subscriptionsTable = pgTable("subscriptions", {
-  id: serial("id").primaryKey(),
+  id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
   price: doublePrecision("price").notNull(),
@@ -31,9 +31,9 @@ export const subscriptionPlansTable = subscriptionsTable;
 export const userSubscriptionsTable = pgTable(
   "user_subscriptions",
   {
-    id: serial("id").primaryKey(),
-    userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
-    subscriptionId: integer("subscription_id").notNull().references(() => subscriptionsTable.id, { onDelete: "cascade" }),
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    subscriptionId: uuid("subscription_id").notNull().references(() => subscriptionsTable.id, { onDelete: "cascade" }),
     startDate: timestamp("start_date").notNull().defaultNow(),
     endDate: timestamp("end_date").notNull(),
     isActive: boolean("is_active").notNull().default(true),

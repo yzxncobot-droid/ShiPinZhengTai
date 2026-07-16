@@ -1,5 +1,5 @@
 import {
-  pgTable, serial, integer, doublePrecision, text, timestamp, pgEnum, index,
+  pgTable, uuid, doublePrecision, text, timestamp, pgEnum, index,
 } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
@@ -15,12 +15,12 @@ export const transactionTypeEnum = pgEnum("transaction_type", [
 export const transactionsTable = pgTable(
   "transactions",
   {
-    id: serial("id").primaryKey(),
-    userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
     type: transactionTypeEnum("type").notNull(),
     amount: doublePrecision("amount").notNull(),    // positive = credit, negative = debit
     description: text("description").notNull(),
-    referenceId: integer("reference_id"),
+    referenceId: text("reference_id"),              // UUID of the referenced record (as text)
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => ({

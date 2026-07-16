@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { auditLogsTable, usersTable } from "@workspace/db";
-import { eq, desc, ilike, and, gte, lte } from "drizzle-orm";
+import { eq, desc, ilike, and, gte, lte, count } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
 
 const router = Router();
@@ -14,20 +14,19 @@ router.get("/audit-logs", authenticate, requireRole("owner"), async (req, res) =
 
   const conditions: any[] = [];
   if (action) conditions.push(ilike(auditLogsTable.action, `%${action}%`));
-  if (userId) conditions.push(eq(auditLogsTable.userId, parseInt(userId)));
+  if (userId) conditions.push(eq(auditLogsTable.userId, userId)); // UUID string directly
   if (from) conditions.push(gte(auditLogsTable.createdAt, new Date(from)));
   if (to) conditions.push(lte(auditLogsTable.createdAt, new Date(to)));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-  const allRows = where
-    ? await db.select({ id: auditLogsTable.id }).from(auditLogsTable).where(where)
-    : await db.select({ id: auditLogsTable.id }).from(auditLogsTable);
-  const total = allRows.length;
+  const [{ total }] = await db.select({ total: count() }).from(auditLogsTable).where(where);
 
-  const raw = where
-    ? await db.select().from(auditLogsTable).where(where).orderBy(desc(auditLogsTable.createdAt)).limit(limitNum).offset(offset)
-    : await db.select().from(auditLogsTable).orderBy(desc(auditLogsTable.createdAt)).limit(limitNum).offset(offset);
+  const raw = await db.select().from(auditLogsTable)
+    .where(where)
+    .orderBy(desc(auditLogsTable.createdAt))
+    .limit(limitNum)
+    .offset(offset);
 
   const data = await Promise.all(raw.map(async (log) => {
     let user = null;
@@ -40,7 +39,7 @@ router.get("/audit-logs", authenticate, requireRole("owner"), async (req, res) =
     return { ...log, user };
   }));
 
-  res.json({ data, total, page: pageNum, limit: limitNum });
+  res.json({ data, total: Number(total), page: pageNum, limit: limitNum });
 });
 
 export default router;

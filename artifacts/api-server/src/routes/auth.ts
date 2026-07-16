@@ -5,10 +5,12 @@ import { db } from "@workspace/db";
 import {
   usersTable, userSubscriptionsTable, subscriptionsTable,
   walletsTable, referralsTable, notificationsTable,
-  walletTransactionsTable,
+  walletTransactionsTable, loginHistoryTable,
 } from "@workspace/db";
 import { eq, and, gte, ilike, or } from "drizzle-orm";
 import { authenticate, signToken } from "../middlewares/auth";
+import { createSession, deleteSession, invalidateUserCache } from "../lib/redis";
+import { authRateLimit } from "../middlewares/rate-limit";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -34,7 +36,7 @@ export function formatUser(user: typeof usersTable.$inferSelect, activeSub?: any
   };
 }
 
-export async function getActiveSubscription(userId: number) {
+export async function getActiveSubscription(userId: string) {
   const now = new Date();
   const [sub] = await db
     .select({
@@ -67,7 +69,7 @@ export async function getActiveSubscription(userId: number) {
 }
 
 /** Ensure a wallet ledger row exists for a user (idempotent). */
-async function ensureWallet(userId: number) {
+async function ensureWallet(userId: string) {
   await db.insert(walletsTable)
     .values({ userId, balance: 0, totalEarned: 0, totalSpent: 0 })
     .onConflictDoNothing();
@@ -81,11 +83,11 @@ async function generateReferralCode(): Promise<string> {
       .from(usersTable).where(eq(usersTable.referralCode, code)).limit(1);
     if (!existing) return code;
   }
-  return nanoid(12).toUpperCase(); // fallback: longer code
+  return nanoid(12).toUpperCase();
 }
 
 // ── POST /auth/register ───────────────────────────────────────────────────────
-router.post("/auth/register", async (req, res) => {
+router.post("/auth/register", authRateLimit, async (req, res) => {
   const { username, password, email, referralCode } = req.body;
 
   if (!username?.trim() || !password) {
@@ -105,7 +107,6 @@ router.post("/auth/register", async (req, res) => {
     return;
   }
 
-  // Check uniqueness
   const [existingUsername] = await db.select({ id: usersTable.id })
     .from(usersTable).where(ilike(usersTable.username, username.trim())).limit(1);
   if (existingUsername) {
@@ -123,7 +124,7 @@ router.post("/auth/register", async (req, res) => {
   }
 
   // Resolve referrer
-  let referrerId: number | null = null;
+  let referrerId: string | null = null;
   if (referralCode) {
     const [referrer] = await db.select({ id: usersTable.id, referralCode: usersTable.referralCode })
       .from(usersTable).where(eq(usersTable.referralCode, referralCode.toUpperCase())).limit(1);
@@ -143,10 +144,8 @@ router.post("/auth/register", async (req, res) => {
       referredBy: referrerId ?? undefined,
     }).returning();
 
-    // Create wallet ledger row
     await ensureWallet(user.id);
 
-    // Record referral relationship
     if (referrerId) {
       await db.insert(referralsTable).values({
         referrerId,
@@ -156,7 +155,6 @@ router.post("/auth/register", async (req, res) => {
       }).onConflictDoNothing();
     }
 
-    // Welcome notification
     await db.insert(notificationsTable).values({
       userId: user.id,
       title: "Selamat Datang! 🎉",
@@ -164,7 +162,26 @@ router.post("/auth/register", async (req, res) => {
       type: "system",
     });
 
-    const token = signToken(user.id, user.role);
+    const { token, jti } = signToken(user.id, user.role);
+
+    // Store session in Redis
+    await createSession(jti, {
+      userId: user.id,
+      role: user.role,
+      username: user.username,
+      createdAt: Date.now(),
+    });
+
+    // Record login history
+    await db.insert(loginHistoryTable).values({
+      userId: user.id,
+      identifier: user.username,
+      ipAddress: req.ip ?? null,
+      userAgent: req.headers["user-agent"] ?? null,
+      success: true,
+      sessionId: jti,
+    });
+
     logger.info({ userId: user.id, username: user.username }, "New user registered");
     res.status(201).json({ token, user: formatUser(user) });
   } catch (err: any) {
@@ -179,8 +196,7 @@ router.post("/auth/register", async (req, res) => {
 });
 
 // ── POST /auth/login ──────────────────────────────────────────────────────────
-router.post("/auth/login", async (req, res) => {
-  // Accept username OR email in the "username" field for backward compat
+router.post("/auth/login", authRateLimit, async (req, res) => {
   const { username, email, password } = req.body;
   const identifier = (username ?? email ?? "").trim();
 
@@ -189,7 +205,6 @@ router.post("/auth/login", async (req, res) => {
     return;
   }
 
-  // Try username first, then email
   const [user] = await db.select().from(usersTable)
     .where(
       or(
@@ -200,21 +215,45 @@ router.post("/auth/login", async (req, res) => {
     .limit(1);
 
   if (!user) {
+    // Record failed attempt (user not found)
+    await db.insert(loginHistoryTable).values({
+      identifier,
+      ipAddress: req.ip ?? null,
+      userAgent: req.headers["user-agent"] ?? null,
+      success: false,
+      failureReason: "not_found",
+    }).catch(() => {});
     res.status(401).json({ error: "Username atau password salah" });
     return;
   }
+
   if (user.isBanned) {
+    await db.insert(loginHistoryTable).values({
+      userId: user.id,
+      identifier,
+      ipAddress: req.ip ?? null,
+      userAgent: req.headers["user-agent"] ?? null,
+      success: false,
+      failureReason: "banned",
+    }).catch(() => {});
     res.status(403).json({ error: "Akun kamu diblokir. Hubungi admin untuk info lebih lanjut." });
     return;
   }
 
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) {
+    await db.insert(loginHistoryTable).values({
+      userId: user.id,
+      identifier,
+      ipAddress: req.ip ?? null,
+      userAgent: req.headers["user-agent"] ?? null,
+      success: false,
+      failureReason: "invalid_password",
+    }).catch(() => {});
     res.status(401).json({ error: "Username atau password salah" });
     return;
   }
 
-  // Ensure wallet exists (idempotent, covers migrated accounts)
   await ensureWallet(user.id);
 
   // Sync subscription cache
@@ -231,7 +270,29 @@ router.post("/auth/login", async (req, res) => {
     }).where(eq(usersTable.id, user.id));
   }
 
-  const token = signToken(user.id, user.role);
+  const { token, jti } = signToken(user.id, user.role);
+
+  // Store session in Redis
+  await createSession(jti, {
+    userId: user.id,
+    role: user.role,
+    username: user.username,
+    createdAt: Date.now(),
+  });
+
+  // Record successful login
+  await db.insert(loginHistoryTable).values({
+    userId: user.id,
+    identifier,
+    ipAddress: req.ip ?? null,
+    userAgent: req.headers["user-agent"] ?? null,
+    success: true,
+    sessionId: jti,
+  }).catch(() => {});
+
+  // Invalidate any stale user cache
+  await invalidateUserCache(user.id);
+
   logger.info({ userId: user.id, username: user.username }, "User logged in");
   res.json({ token, user: formatUser({ ...user, subscriptionStatus: subStatus as any }, activeSub) });
 });
@@ -249,7 +310,12 @@ router.get("/auth/me", authenticate, async (req, res) => {
 });
 
 // ── POST /auth/logout ─────────────────────────────────────────────────────────
-router.post("/auth/logout", (_req, res) => {
+router.post("/auth/logout", authenticate, async (req, res) => {
+  const { jti } = req.user!;
+  if (jti) {
+    await deleteSession(jti).catch(() => {});
+    await invalidateUserCache(req.user!.userId).catch(() => {});
+  }
   res.json({ message: "Logged out" });
 });
 

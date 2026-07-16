@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, timestamp, doublePrecision, unique } from "drizzle-orm/pg-core";
+import { pgTable, uuid, timestamp, doublePrecision, unique, index } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 import { videosTable } from "./videos";
 
@@ -6,15 +6,17 @@ import { videosTable } from "./videos";
 export const videoPurchasesTable = pgTable(
   "video_purchases",
   {
-    id: serial("id").primaryKey(),
-    userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
-    videoId: integer("video_id").notNull().references(() => videosTable.id, { onDelete: "cascade" }),
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    videoId: uuid("video_id").notNull().references(() => videosTable.id, { onDelete: "cascade" }),
     price: doublePrecision("price").notNull(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (table) => ({
-    userVideoUnique: unique().on(table.userId, table.videoId),
-  }),
+  (table) => ([
+    unique().on(table.userId, table.videoId),
+    index("video_purchases_user_id_idx").on(table.userId),
+    index("video_purchases_video_id_idx").on(table.videoId),
+  ]),
 );
 
 export type VideoPurchase = typeof videoPurchasesTable.$inferSelect;

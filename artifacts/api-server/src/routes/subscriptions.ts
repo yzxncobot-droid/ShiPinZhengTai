@@ -7,6 +7,7 @@ import {
 import { eq, and, gte, desc, sql } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
 import { getActiveSubscription } from "./auth";
+import { invalidateUserCache, invalidateCache, keys, TTL } from "../lib/redis";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -39,7 +40,7 @@ router.post("/subscriptions", authenticate, requireRole("admin", "owner"), async
 
 // ── PATCH /subscriptions/:id (admin/owner) ────────────────────────────────────
 router.patch("/subscriptions/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = req.params.id;
   const { name, description, price, durationDays, isActive, sortOrder } = req.body;
   const updates: any = { updatedAt: new Date() };
   if (name !== undefined) updates.name = name;
@@ -55,14 +56,14 @@ router.patch("/subscriptions/:id", authenticate, requireRole("admin", "owner"), 
 
 // ── DELETE /subscriptions/:id (owner) ────────────────────────────────────────
 router.delete("/subscriptions/:id", authenticate, requireRole("owner"), async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = req.params.id;
   await db.delete(subscriptionsTable).where(eq(subscriptionsTable.id, id));
   res.json({ message: "Deleted" });
 });
 
 // ── POST /subscriptions/:id/purchase — buy a subscription plan ────────────────
 router.post("/subscriptions/:id/purchase", authenticate, async (req, res) => {
-  const planId = parseInt(req.params.id);
+  const planId = req.params.id;
   const userId = req.user!.userId;
 
   const [plan] = await db.select().from(subscriptionsTable)
@@ -84,17 +85,24 @@ router.post("/subscriptions/:id/purchase", authenticate, async (req, res) => {
   try {
     const result = await db.transaction(async (tx) => {
       // Debit wallet
-      const [debited] = await tx.update(usersTable).set({
+      await tx.update(usersTable).set({
         walletBalance: newBalance,
-        totalSpent: user.totalSpent + plan.price,
+        totalSpent: sql`${usersTable.totalSpent} + ${plan.price}`,
         subscriptionStatus: "active",
         subscriptionExpiry: endDate,
         updatedAt: new Date(),
-      }).where(eq(usersTable.id, userId)).returning();
+      }).where(eq(usersTable.id, userId));
 
-      // Deactivate old subscription
-      await tx.update(userSubscriptionsTable)
-        .set({ isActive: false })
+      // Sync wallet ledger
+      await tx.update(walletsTable).set({
+        balance: newBalance,
+        totalSpent: sql`${walletsTable.totalSpent} + ${plan.price}`,
+        updatedAt: new Date(),
+        lastTransactionAt: new Date(),
+      }).where(eq(walletsTable.userId, userId));
+
+      // Deactivate existing active subscriptions
+      await tx.update(userSubscriptionsTable).set({ isActive: false })
         .where(and(eq(userSubscriptionsTable.userId, userId), eq(userSubscriptionsTable.isActive, true)));
 
       const [sub] = await tx.insert(userSubscriptionsTable).values({
@@ -103,37 +111,34 @@ router.post("/subscriptions/:id/purchase", authenticate, async (req, res) => {
 
       await tx.insert(transactionsTable).values({
         userId, type: "subscription", amount: -plan.price,
-        description: `Purchased subscription: ${plan.name}`,
+        description: `Subscription: ${plan.name}`,
+        referenceId: sub.id,
+      });
+
+      await tx.insert(walletTransactionsTable).values({
+        userId, type: "subscription", amount: -plan.price,
+        balanceAfter: newBalance,
+        description: `Subscription: ${plan.name}`,
+        referenceType: "subscription",
         referenceId: sub.id,
       });
 
       await tx.insert(notificationsTable).values({
-        userId, title: "Langganan Aktif ✓",
-        message: `Berhasil berlangganan ${plan.name}. Aktif hingga ${endDate.toLocaleDateString("id-ID")}.`,
+        userId, title: "Langganan Aktif",
+        message: `Langganan ${plan.name} berhasil diaktifkan hingga ${endDate.toLocaleDateString("id-ID")}.`,
         type: "subscription",
       });
 
-      return { sub, debited };
+      return sub;
     });
 
-    // Sync wallet ledger
-    await db.update(walletsTable).set({
-      balance: newBalance,
-      totalSpent: user.totalSpent + plan.price,
-      lastTransactionAt: new Date(),
-      updatedAt: new Date(),
-    }).where(eq(walletsTable.userId, userId));
+    await invalidateUserCache(userId);
+    // Invalidate analytics cache since subscription counts changed
+    await invalidateCache(keys.analytics("overview")).catch(() => {});
 
-    await db.insert(walletTransactionsTable).values({
-      userId, type: "subscription", amount: -plan.price,
-      balanceAfter: newBalance,
-      description: `Subscription: ${plan.name}`,
-      referenceType: "subscription",
-      referenceId: result.sub.id,
-    });
-
-    logger.info({ userId, planId, price: plan.price }, "Subscription purchased");
-    res.json({ ...result.sub, subscription: plan });
+    const activeSub = await getActiveSubscription(userId);
+    logger.info({ userId, planId, planName: plan.name }, "Subscription purchased");
+    res.json({ subscription: result, activeSubscription: activeSub, newBalance });
   } catch (err: any) {
     logger.error({ err, userId, planId }, "Subscription purchase failed");
     res.status(500).json({ error: "Purchase failed" });
@@ -146,7 +151,6 @@ router.get("/subscriptions/my", authenticate, async (req, res) => {
   const data = await db
     .select({
       id: userSubscriptionsTable.id,
-      userId: userSubscriptionsTable.userId,
       startDate: userSubscriptionsTable.startDate,
       endDate: userSubscriptionsTable.endDate,
       isActive: userSubscriptionsTable.isActive,
@@ -165,8 +169,7 @@ router.get("/subscriptions/my", authenticate, async (req, res) => {
     .where(eq(userSubscriptionsTable.userId, userId))
     .orderBy(desc(userSubscriptionsTable.createdAt));
 
-  const active = await getActiveSubscription(userId);
-  res.json({ data, active });
+  res.json(data);
 });
 
 export default router;

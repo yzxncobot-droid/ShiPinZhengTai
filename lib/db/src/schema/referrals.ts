@@ -1,5 +1,5 @@
 import {
-  pgTable, serial, integer, doublePrecision, boolean, timestamp, text,
+  pgTable, uuid, doublePrecision, boolean, timestamp, text,
   pgEnum, index, unique,
 } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
@@ -17,9 +17,9 @@ export const referralStatusEnum = pgEnum("referral_status", [
 export const referralsTable = pgTable(
   "referrals",
   {
-    id: serial("id").primaryKey(),
-    referrerId: integer("referrer_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
-    referredId: integer("referred_id").notNull().unique().references(() => usersTable.id, { onDelete: "cascade" }),
+    id: uuid("id").defaultRandom().primaryKey(),
+    referrerId: uuid("referrer_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    referredId: uuid("referred_id").notNull().unique().references(() => usersTable.id, { onDelete: "cascade" }),
     status: referralStatusEnum("status").notNull().default("pending"),
     bonusAmount: doublePrecision("bonus_amount").notNull().default(0),
     bonusCredited: boolean("bonus_credited").notNull().default(false),

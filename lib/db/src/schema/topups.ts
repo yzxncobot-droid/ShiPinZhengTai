@@ -1,5 +1,5 @@
 import {
-  pgTable, serial, integer, doublePrecision, text, timestamp, pgEnum, index,
+  pgTable, uuid, doublePrecision, text, timestamp, pgEnum, index,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -16,20 +16,20 @@ export const topupStatusEnum = pgEnum("topup_status", ["pending", "confirmed", "
 export const topupsTable = pgTable(
   "topups",
   {
-    id: serial("id").primaryKey(),
-    userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
     amount: doublePrecision("amount").notNull(),
 
     /** Legacy inline proof URL — prefer paymentProofId for new records. */
     paymentProof: text("payment_proof"),
 
     /** Foreign key to the dedicated proof record (preferred). */
-    paymentProofId: integer("payment_proof_id").references(() => paymentProofsTable.id, { onDelete: "set null" }),
+    paymentProofId: uuid("payment_proof_id").references(() => paymentProofsTable.id, { onDelete: "set null" }),
 
     status: topupStatusEnum("status").notNull().default("pending"),
 
     /** Staff who confirmed/denied. */
-    reviewedBy: integer("reviewed_by").references(() => usersTable.id, { onDelete: "set null" }),
+    reviewedBy: uuid("reviewed_by").references(() => usersTable.id, { onDelete: "set null" }),
     reviewedAt: timestamp("reviewed_at"),
     reviewNote: text("review_note"),
 

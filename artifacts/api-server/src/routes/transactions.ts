@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { transactionsTable } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, count } from "drizzle-orm";
 import { authenticate } from "../middlewares/auth";
 
 const router = Router();
@@ -16,9 +16,15 @@ router.get("/transactions", authenticate, async (req, res) => {
   const where = type
     ? and(eq(transactionsTable.userId, userId), eq(transactionsTable.type, type as any))
     : eq(transactionsTable.userId, userId);
-  const all = await db.select().from(transactionsTable).where(where);
-  const data = await db.select().from(transactionsTable).where(where).orderBy(desc(transactionsTable.createdAt)).limit(limitNum).offset(offset);
-  res.json({ data, total: all.length, page: pageNum, limit: limitNum });
+
+  const [{ total }] = await db.select({ total: count() }).from(transactionsTable).where(where);
+  const data = await db.select().from(transactionsTable)
+    .where(where)
+    .orderBy(desc(transactionsTable.createdAt))
+    .limit(limitNum)
+    .offset(offset);
+
+  res.json({ data, total: Number(total), page: pageNum, limit: limitNum });
 });
 
 export default router;

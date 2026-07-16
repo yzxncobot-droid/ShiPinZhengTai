@@ -1,7 +1,7 @@
-import { pgTable, serial, text } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text } from "drizzle-orm/pg-core";
 
 export const settingsTable = pgTable("settings", {
-  id: serial("id").primaryKey(),
+  id: uuid("id").defaultRandom().primaryKey(),
   siteName: text("site_name").notNull().default("Yzu视频"),
   tagline: text("tagline"),
   siteDescription: text("site_description"),

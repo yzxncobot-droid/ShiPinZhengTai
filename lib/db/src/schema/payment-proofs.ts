@@ -1,5 +1,5 @@
 import {
-  pgTable, serial, integer, text, timestamp, pgEnum, index,
+  pgTable, uuid, text, timestamp, pgEnum, index,
 } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
@@ -13,14 +13,12 @@ export const proofStatusEnum = pgEnum("proof_status", [
  * payment_proofs – stores raw evidence files submitted by users for
  * manual payment verification. One proof can back multiple top-up
  * attempts (unusual) or be the sole evidence for a single payment.
- *
- * The companion payments/topups table holds the actual amount + status.
  */
 export const paymentProofsTable = pgTable(
   "payment_proofs",
   {
-    id: serial("id").primaryKey(),
-    userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
 
     /** Public URL of the uploaded screenshot/receipt in Supabase yzx/payments/. */
     imageUrl: text("image_url").notNull(),
@@ -31,7 +29,7 @@ export const paymentProofsTable = pgTable(
     status: proofStatusEnum("status").notNull().default("pending"),
 
     /** Staff member who reviewed this proof. */
-    reviewedBy: integer("reviewed_by").references(() => usersTable.id, { onDelete: "set null" }),
+    reviewedBy: uuid("reviewed_by").references(() => usersTable.id, { onDelete: "set null" }),
     reviewedAt: timestamp("reviewed_at"),
     reviewNote: text("review_note"),
 

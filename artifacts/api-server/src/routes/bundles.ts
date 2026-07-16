@@ -3,9 +3,11 @@ import { db } from "@workspace/db";
 import {
   bundlesTable, bundleVideosTable, bundlePurchasesTable,
   videosTable, usersTable, transactionsTable, notificationsTable,
+  walletTransactionsTable, walletsTable,
 } from "@workspace/db";
-import { eq, and, inArray, asc, gte, sql } from "drizzle-orm";
+import { eq, and, inArray, asc, gte, sql, isNull } from "drizzle-orm";
 import { authenticate, optionalAuth, requireRole } from "../middlewares/auth";
+import { invalidateUserCache, invalidateCache, keys } from "../lib/redis";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -17,7 +19,7 @@ function discountPercentOf(price: number, originalPrice: number | null | undefin
 
 async function formatBundle(
   b: typeof bundlesTable.$inferSelect,
-  opts: { includeVideos?: boolean; userId?: number } = {},
+  opts: { includeVideos?: boolean; userId?: string } = {},
 ) {
   const rows = await db
     .select({
@@ -57,23 +59,19 @@ async function formatBundle(
   };
 
   return opts.includeVideos
-    ? {
-        ...base,
-        videos: rows.map((r) => ({
-          id: r.id, title: r.title, thumbnail: r.thumbnail,
-          // When user has purchased the bundle, include video details; otherwise hide
-          ...(hasPurchased ? {} : {}),
-        })),
-      }
+    ? { ...base, videos: rows.map((r) => ({ id: r.id, title: r.title, thumbnail: r.thumbnail })) }
     : base;
 }
 
-async function validateVideoIds(videoIds: unknown): Promise<{ ids: number[] } | { error: string }> {
+/** Validate an array of video IDs (UUID strings). */
+async function validateVideoIds(videoIds: unknown): Promise<{ ids: string[] } | { error: string }> {
   if (!Array.isArray(videoIds) || videoIds.length < 1 || videoIds.length > 10) {
     return { error: "A bundle must contain between 1 and 10 videos" };
   }
-  const ids = [...new Set(videoIds.map((v) => parseInt(v as any, 10)))];
-  if (ids.some((id) => Number.isNaN(id))) {
+  const ids = [...new Set(videoIds.map((v) => String(v)))];
+  // Basic UUID format validation
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (ids.some((id) => !uuidRe.test(id))) {
     return { error: "Invalid video id in videoIds" };
   }
   const existing = await db.select({ id: videosTable.id }).from(videosTable).where(inArray(videosTable.id, ids));
@@ -83,11 +81,8 @@ async function validateVideoIds(videoIds: unknown): Promise<{ ids: number[] } | 
   return { ids };
 }
 
-/**
- * Mark all videos as hidden_bundle + keep bundleExclusive flag in sync.
- * Videos removed from all bundles have their visibility reset to "premium".
- */
-async function syncBundleVideoVisibility(videoIds: number[]) {
+/** Mark all videos as hidden_bundle + keep bundleExclusive flag in sync. */
+async function syncBundleVideoVisibility(videoIds: string[]) {
   if (videoIds.length === 0) return;
   await db.update(videosTable)
     .set({ visibility: "hidden_bundle", bundleExclusive: true, type: "premium", updatedAt: new Date() })
@@ -95,7 +90,7 @@ async function syncBundleVideoVisibility(videoIds: number[]) {
 }
 
 /** Clear bundleExclusive / reset visibility for videos no longer in any bundle. */
-async function clearStaleBundleExclusive(videoIds: number[]) {
+async function clearStaleBundleExclusive(videoIds: string[]) {
   if (videoIds.length === 0) return;
   const stillLinked = await db
     .select({ videoId: bundleVideosTable.videoId })
@@ -104,71 +99,80 @@ async function clearStaleBundleExclusive(videoIds: number[]) {
   const stillLinkedSet = new Set(stillLinked.map((r) => r.videoId));
   const toClear = videoIds.filter((id) => !stillLinkedSet.has(id));
   if (toClear.length > 0) {
-    // Demote to premium (not public) since these were previously locked videos
     await db.update(videosTable)
       .set({ visibility: "premium", bundleExclusive: false, updatedAt: new Date() })
       .where(inArray(videosTable.id, toClear));
   }
 }
 
-// GET /bundles — public list (inactive bundles hidden from non-admins)
+// ── GET /bundles — list active bundles (public) ────────────────────────────────
 router.get("/bundles", optionalAuth, async (req, res) => {
-  const isStaff = req.user?.role === "admin" || req.user?.role === "owner";
-  const raw = isStaff
-    ? await db.select().from(bundlesTable).orderBy(asc(bundlesTable.sortOrder))
-    : await db.select().from(bundlesTable).where(eq(bundlesTable.isActive, true)).orderBy(asc(bundlesTable.sortOrder));
-  const data = await Promise.all(raw.map((b) => formatBundle(b, { userId: req.user?.userId })));
-  res.json(data);
+  const userId = req.user?.userId;
+  const bundles = await db.select().from(bundlesTable)
+    .where(and(eq(bundlesTable.isActive, true), isNull(bundlesTable.deletedAt)))
+    .orderBy(asc(bundlesTable.sortOrder));
+  const formatted = await Promise.all(bundles.map((b) => formatBundle(b, { userId })));
+  res.json(formatted);
 });
 
-// POST /bundles (admin or owner)
-router.post("/bundles", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const {
-    title, description, thumbnail, banner, price, originalPrice,
-    badge, isActive = true, sortOrder = 0, videoIds,
-  } = req.body;
+// ── GET /bundles/all — all bundles for admin ───────────────────────────────────
+router.get("/bundles/all", authenticate, requireRole("admin", "owner"), async (_req, res) => {
+  const bundles = await db.select().from(bundlesTable)
+    .where(isNull(bundlesTable.deletedAt))
+    .orderBy(asc(bundlesTable.sortOrder));
+  const formatted = await Promise.all(bundles.map((b) => formatBundle(b, { includeVideos: true })));
+  res.json(formatted);
+});
 
+// ── GET /bundles/:id ──────────────────────────────────────────────────────────
+router.get("/bundles/:id", optionalAuth, async (req, res) => {
+  const id = req.params.id;
+  const userId = req.user?.userId;
+  const [bundle] = await db.select().from(bundlesTable)
+    .where(and(eq(bundlesTable.id, id), isNull(bundlesTable.deletedAt))).limit(1);
+  if (!bundle) { res.status(404).json({ error: "Not found" }); return; }
+  const formatted = await formatBundle(bundle, { includeVideos: true, userId });
+  res.json(formatted);
+});
+
+// ── POST /bundles — create bundle (admin/owner) ────────────────────────────────
+router.post("/bundles", authenticate, requireRole("admin", "owner"), async (req, res) => {
+  const { title, description, thumbnail, banner, price, originalPrice, badge, sortOrder = 0, videoIds } = req.body;
   if (!title || price == null) {
-    res.status(400).json({ error: "Title and price are required" }); return;
+    res.status(400).json({ error: "title and price are required" }); return;
   }
 
-  const validated = await validateVideoIds(videoIds);
-  if ("error" in validated) { res.status(400).json({ error: validated.error }); return; }
+  let validatedIds: string[] = [];
+  if (videoIds) {
+    const result = await validateVideoIds(videoIds);
+    if ("error" in result) { res.status(400).json({ error: result.error }); return; }
+    validatedIds = result.ids;
+  }
 
   const [bundle] = await db.insert(bundlesTable).values({
-    title, description, thumbnail, banner, price, originalPrice, badge, isActive, sortOrder,
+    title, description, thumbnail, banner, price, originalPrice, badge, sortOrder, isActive: true,
   }).returning();
 
-  await db.insert(bundleVideosTable).values(
-    validated.ids.map((videoId, i) => ({ bundleId: bundle.id, videoId, sortOrder: i })),
-  );
-  // Mark all videos in this bundle as hidden_bundle
-  await syncBundleVideoVisibility(validated.ids);
+  if (validatedIds.length > 0) {
+    await db.insert(bundleVideosTable).values(
+      validatedIds.map((videoId, i) => ({ bundleId: bundle.id, videoId, sortOrder: i })),
+    );
+    await syncBundleVideoVisibility(validatedIds);
+  }
 
-  logger.info({ bundleId: bundle.id, videoCount: validated.ids.length }, "Bundle created");
   res.status(201).json(await formatBundle(bundle, { includeVideos: true }));
 });
 
-// GET /bundles/:id
-router.get("/bundles/:id", optionalAuth, async (req, res) => {
-  const id = parseInt(req.params.id);
-  const [bundle] = await db.select().from(bundlesTable).where(eq(bundlesTable.id, id)).limit(1);
-  if (!bundle) { res.status(404).json({ error: "Bundle not found" }); return; }
-  res.json(await formatBundle(bundle, { includeVideos: true, userId: req.user?.userId }));
-});
-
-// PATCH /bundles/:id (admin or owner)
+// ── PATCH /bundles/:id — update bundle (admin/owner) ─────────────────────────
 router.patch("/bundles/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = parseInt(req.params.id);
-  const [bundle] = await db.select().from(bundlesTable).where(eq(bundlesTable.id, id)).limit(1);
-  if (!bundle) { res.status(404).json({ error: "Bundle not found" }); return; }
+  const id = req.params.id;
+  const { title, description, thumbnail, banner, price, originalPrice, badge, sortOrder, isActive, videoIds } = req.body;
 
-  const {
-    title, description, thumbnail, banner, price, originalPrice,
-    badge, isActive, sortOrder, videoIds,
-  } = req.body;
+  const [existing] = await db.select().from(bundlesTable)
+    .where(and(eq(bundlesTable.id, id), isNull(bundlesTable.deletedAt))).limit(1);
+  if (!existing) { res.status(404).json({ error: "Not found" }); return; }
 
-  const updates: Record<string, unknown> = { updatedAt: new Date() };
+  const updates: any = { updatedAt: new Date() };
   if (title !== undefined) updates.title = title;
   if (description !== undefined) updates.description = description;
   if (thumbnail !== undefined) updates.thumbnail = thumbnail;
@@ -176,57 +180,64 @@ router.patch("/bundles/:id", authenticate, requireRole("admin", "owner"), async 
   if (price !== undefined) updates.price = price;
   if (originalPrice !== undefined) updates.originalPrice = originalPrice;
   if (badge !== undefined) updates.badge = badge;
-  if (isActive !== undefined) updates.isActive = isActive;
   if (sortOrder !== undefined) updates.sortOrder = sortOrder;
-
-  if (videoIds !== undefined) {
-    const validated = await validateVideoIds(videoIds);
-    if ("error" in validated) { res.status(400).json({ error: validated.error }); return; }
-
-    const oldRows = await db.select({ videoId: bundleVideosTable.videoId })
-      .from(bundleVideosTable).where(eq(bundleVideosTable.bundleId, id));
-    const oldVideoIds = oldRows.map((r) => r.videoId);
-
-    await db.delete(bundleVideosTable).where(eq(bundleVideosTable.bundleId, id));
-    await db.insert(bundleVideosTable).values(
-      validated.ids.map((videoId, i) => ({ bundleId: id, videoId, sortOrder: i })),
-    );
-    await syncBundleVideoVisibility(validated.ids);
-
-    const removedVideoIds = oldVideoIds.filter((v) => !validated.ids.includes(v));
-    await clearStaleBundleExclusive(removedVideoIds);
-  }
+  if (isActive !== undefined) updates.isActive = isActive;
 
   const [updated] = await db.update(bundlesTable).set(updates).where(eq(bundlesTable.id, id)).returning();
+
+  if (videoIds !== undefined) {
+    const result = await validateVideoIds(videoIds);
+    if ("error" in result) { res.status(400).json({ error: result.error }); return; }
+
+    const oldLinks = await db.select({ videoId: bundleVideosTable.videoId })
+      .from(bundleVideosTable).where(eq(bundleVideosTable.bundleId, id));
+    const oldIds = oldLinks.map((r) => r.videoId);
+
+    await db.delete(bundleVideosTable).where(eq(bundleVideosTable.bundleId, id));
+    if (result.ids.length > 0) {
+      await db.insert(bundleVideosTable).values(
+        result.ids.map((videoId, i) => ({ bundleId: id, videoId, sortOrder: i })),
+      );
+      await syncBundleVideoVisibility(result.ids);
+    }
+    // Clear visibility for removed videos
+    const removed = oldIds.filter((old) => !result.ids.includes(old));
+    await clearStaleBundleExclusive(removed);
+  }
+
   res.json(await formatBundle(updated, { includeVideos: true }));
 });
 
-// DELETE /bundles/:id (admin or owner)
-router.delete("/bundles/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const id = parseInt(req.params.id);
-  const [bundle] = await db.select().from(bundlesTable).where(eq(bundlesTable.id, id)).limit(1);
-  if (!bundle) { res.status(404).json({ error: "Bundle not found" }); return; }
-
-  const rows = await db.select({ videoId: bundleVideosTable.videoId })
+// ── DELETE /bundles/:id (soft delete) ────────────────────────────────────────
+router.delete("/bundles/:id", authenticate, requireRole("owner"), async (req, res) => {
+  const id = req.params.id;
+  const oldLinks = await db.select({ videoId: bundleVideosTable.videoId })
     .from(bundleVideosTable).where(eq(bundleVideosTable.bundleId, id));
-  const videoIds = rows.map((r) => r.videoId);
+  const oldIds = oldLinks.map((r) => r.videoId);
 
-  await db.delete(bundlesTable).where(eq(bundlesTable.id, id));
-  await clearStaleBundleExclusive(videoIds);
-
+  await db.update(bundlesTable).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(bundlesTable.id, id));
+  await clearStaleBundleExclusive(oldIds);
   res.json({ message: "Deleted" });
 });
 
-// POST /bundles/:id/purchase
+// ── POST /bundles/:id/purchase — buy a bundle ─────────────────────────────────
 router.post("/bundles/:id/purchase", authenticate, async (req, res) => {
-  const bundleId = parseInt(req.params.id);
+  const bundleId = req.params.id;
   const userId = req.user!.userId;
 
-  const [bundle] = await db.select().from(bundlesTable).where(eq(bundlesTable.id, bundleId)).limit(1);
-  if (!bundle || !bundle.isActive) { res.status(404).json({ error: "Bundle not found" }); return; }
+  const [bundle] = await db.select().from(bundlesTable)
+    .where(and(eq(bundlesTable.id, bundleId), eq(bundlesTable.isActive, true), isNull(bundlesTable.deletedAt)))
+    .limit(1);
+  if (!bundle) { res.status(404).json({ error: "Bundle not found or inactive" }); return; }
 
-  const [existing] = await db
-    .select({ id: bundlePurchasesTable.id })
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+  if (user.walletBalance < bundle.price) {
+    res.status(400).json({ error: "Insufficient wallet balance" }); return;
+  }
+
+  const [existing] = await db.select({ id: bundlePurchasesTable.id })
     .from(bundlePurchasesTable)
     .where(and(eq(bundlePurchasesTable.userId, userId), eq(bundlePurchasesTable.bundleId, bundleId)))
     .limit(1);
@@ -248,11 +259,27 @@ router.post("/bundles/:id/purchase", authenticate, async (req, res) => {
 
       if (!debited) return { error: "INSUFFICIENT_BALANCE" as const };
 
-      const [purchase] = await tx.insert(bundlePurchasesTable).values({ userId, bundleId, price }).returning();
+      const [purchase] = await tx.insert(bundlePurchasesTable)
+        .values({ userId, bundleId, price }).returning();
+
+      await tx.update(walletsTable).set({
+        balance: sql`${walletsTable.balance} - ${price}`,
+        totalSpent: sql`${walletsTable.totalSpent} + ${price}`,
+        updatedAt: new Date(),
+        lastTransactionAt: new Date(),
+      }).where(eq(walletsTable.userId, userId));
 
       await tx.insert(transactionsTable).values({
         userId, type: "purchase", amount: -price,
         description: `Purchased bundle: ${bundle.title}`,
+        referenceId: purchase.id,
+      });
+
+      await tx.insert(walletTransactionsTable).values({
+        userId, type: "purchase", amount: -price,
+        balanceAfter: user.walletBalance - price,
+        description: `Purchased bundle: ${bundle.title}`,
+        referenceType: "bundle",
         referenceId: purchase.id,
       });
 
@@ -269,6 +296,8 @@ router.post("/bundles/:id/purchase", authenticate, async (req, res) => {
       res.status(400).json({ error: "Insufficient wallet balance" }); return;
     }
 
+    await invalidateUserCache(userId);
+
     res.json({ ...result.purchase, bundle: await formatBundle(bundle, { includeVideos: true, userId }) });
   } catch (err: any) {
     const pgCode = err?.code ?? err?.cause?.code;
@@ -276,6 +305,25 @@ router.post("/bundles/:id/purchase", authenticate, async (req, res) => {
     logger.error({ err, userId, bundleId }, "Bundle purchase failed");
     res.status(500).json({ error: "Purchase failed" });
   }
+});
+
+// ── GET /bundles/my — user's purchased bundles ────────────────────────────────
+router.get("/bundles/my", authenticate, async (req, res) => {
+  const userId = req.user!.userId;
+  const purchases = await db.select({
+    id: bundlePurchasesTable.id,
+    bundleId: bundlePurchasesTable.bundleId,
+    price: bundlePurchasesTable.price,
+    createdAt: bundlePurchasesTable.createdAt,
+  }).from(bundlePurchasesTable)
+    .where(eq(bundlePurchasesTable.userId, userId));
+
+  const data = await Promise.all(purchases.map(async (p) => {
+    const [bundle] = await db.select().from(bundlesTable).where(eq(bundlesTable.id, p.bundleId)).limit(1);
+    return bundle ? { ...p, bundle: await formatBundle(bundle, { includeVideos: true, userId }) } : null;
+  }));
+
+  res.json(data.filter(Boolean));
 });
 
 export default router;

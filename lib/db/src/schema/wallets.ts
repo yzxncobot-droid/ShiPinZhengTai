@@ -1,5 +1,5 @@
 import {
-  pgTable, serial, integer, doublePrecision, text, timestamp, pgEnum, index,
+  pgTable, uuid, doublePrecision, text, timestamp, pgEnum, index,
 } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
@@ -26,8 +26,8 @@ export const walletTxTypeEnum = pgEnum("wallet_tx_type", [
 export const walletsTable = pgTable(
   "wallets",
   {
-    id: serial("id").primaryKey(),
-    userId: integer("user_id").notNull().unique().references(() => usersTable.id, { onDelete: "cascade" }),
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull().unique().references(() => usersTable.id, { onDelete: "cascade" }),
     balance: doublePrecision("balance").notNull().default(0),
     totalEarned: doublePrecision("total_earned").notNull().default(0),
     totalSpent: doublePrecision("total_spent").notNull().default(0),
@@ -48,15 +48,15 @@ export const walletsTable = pgTable(
 export const walletTransactionsTable = pgTable(
   "wallet_transactions",
   {
-    id: serial("id").primaryKey(),
-    userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
     type: walletTxTypeEnum("type").notNull(),
     amount: doublePrecision("amount").notNull(),           // positive = credit, negative = debit
     balanceAfter: doublePrecision("balance_after").notNull(),
     description: text("description").notNull(),
     referenceType: text("reference_type"),                 // "payment", "video", "bundle", "subscription", etc.
-    referenceId: integer("reference_id"),
-    createdBy: integer("created_by").references(() => usersTable.id, { onDelete: "set null" }),
+    referenceId: text("reference_id"),                     // UUID of the referenced record (as text)
+    createdBy: uuid("created_by").references(() => usersTable.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => ({

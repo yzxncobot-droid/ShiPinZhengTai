@@ -1,8 +1,12 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { withdrawalsTable, usersTable, transactionsTable, notificationsTable, auditLogsTable } from "@workspace/db";
-import { eq, desc, and } from "drizzle-orm";
+import {
+  withdrawalsTable, usersTable, transactionsTable, notificationsTable, auditLogsTable,
+  walletTransactionsTable, walletsTable,
+} from "@workspace/db";
+import { eq, desc, and, sql, count } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
+import { invalidateUserCache } from "../lib/redis";
 
 const router = Router();
 
@@ -26,7 +30,7 @@ router.post("/withdrawals", authenticate, async (req, res) => {
   }).returning();
 
   await db.insert(auditLogsTable).values({
-    userId, action: "create_withdrawal", entity: "withdrawal", entityId: String(withdrawal.id),
+    userId, action: "create_withdrawal", entity: "withdrawal", entityId: withdrawal.id,
     details: JSON.stringify({ amount, method }),
     ipAddress: req.ip,
   });
@@ -42,44 +46,46 @@ router.get("/withdrawals/my", authenticate, async (req, res) => {
   const limitNum = Math.min(parseInt(limit) || 20, 100);
   const offset = (pageNum - 1) * limitNum;
 
-  const all = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.userId, userId));
+  const [{ total }] = await db.select({ total: count() }).from(withdrawalsTable)
+    .where(eq(withdrawalsTable.userId, userId));
   const data = await db.select().from(withdrawalsTable)
     .where(eq(withdrawalsTable.userId, userId))
     .orderBy(desc(withdrawalsTable.createdAt))
-    .limit(limitNum).offset(offset);
+    .limit(limitNum)
+    .offset(offset);
 
-  res.json({ data, total: all.length, page: pageNum, limit: limitNum });
+  res.json({ data, total: Number(total), page: pageNum, limit: limitNum });
 });
 
-// Owner/Admin: list all withdrawals
-router.get("/withdrawals", authenticate, requireRole("owner", "admin"), async (req, res) => {
+// Admin/owner: list all withdrawals
+router.get("/withdrawals/all", authenticate, requireRole("admin", "owner"), async (req, res) => {
   const { status, page = "1", limit = "20" } = req.query as Record<string, string>;
   const pageNum = parseInt(page) || 1;
   const limitNum = Math.min(parseInt(limit) || 20, 100);
   const offset = (pageNum - 1) * limitNum;
 
   const where = status ? eq(withdrawalsTable.status, status as any) : undefined;
-  const all = where
-    ? await db.select().from(withdrawalsTable).where(where)
-    : await db.select().from(withdrawalsTable);
-  const raw = where
-    ? await db.select().from(withdrawalsTable).where(where).orderBy(desc(withdrawalsTable.createdAt)).limit(limitNum).offset(offset)
-    : await db.select().from(withdrawalsTable).orderBy(desc(withdrawalsTable.createdAt)).limit(limitNum).offset(offset);
+  const [{ total }] = await db.select({ total: count() }).from(withdrawalsTable).where(where);
+
+  const raw = await db.select().from(withdrawalsTable)
+    .where(where)
+    .orderBy(desc(withdrawalsTable.createdAt))
+    .limit(limitNum)
+    .offset(offset);
 
   const data = await Promise.all(raw.map(async (w) => {
     const [user] = await db.select({
-      id: usersTable.id, username: usersTable.username, email: usersTable.email,
-      avatar: usersTable.avatar, walletBalance: usersTable.walletBalance,
+      id: usersTable.id, username: usersTable.username, avatar: usersTable.avatar,
     }).from(usersTable).where(eq(usersTable.id, w.userId)).limit(1);
-    return { ...w, user: user || null };
+    return { ...w, user: user ?? null };
   }));
 
-  res.json({ data, total: all.length, page: pageNum, limit: limitNum });
+  res.json({ data, total: Number(total), page: pageNum, limit: limitNum });
 });
 
-// Owner: approve withdrawal
-router.patch("/withdrawals/:id/approve", authenticate, requireRole("owner"), async (req, res) => {
-  const id = parseInt(req.params.id);
+// Admin/owner: approve withdrawal
+router.patch("/withdrawals/:id/approve", authenticate, requireRole("admin", "owner"), async (req, res) => {
+  const id = req.params.id;
   const adminId = req.user!.userId;
 
   const [withdrawal] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id)).limit(1);
@@ -87,44 +93,67 @@ router.patch("/withdrawals/:id/approve", authenticate, requireRole("owner"), asy
   if (withdrawal.status !== "pending") { res.status(400).json({ error: "Already processed" }); return; }
 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, withdrawal.userId)).limit(1);
-  if (!user || user.walletBalance < withdrawal.amount) {
-    res.status(400).json({ error: "Insufficient balance" }); return;
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  if (user.walletBalance < withdrawal.amount) {
+    res.status(400).json({ error: "User has insufficient balance" }); return;
   }
 
-  // Deduct balance
-  await db.update(usersTable).set({
-    walletBalance: user.walletBalance - withdrawal.amount,
-    totalSpent: user.totalSpent + withdrawal.amount,
-    updatedAt: new Date(),
-  }).where(eq(usersTable.id, withdrawal.userId));
+  const newBalance = user.walletBalance - withdrawal.amount;
 
-  const [updated] = await db.update(withdrawalsTable).set({
-    status: "approved", processedBy: adminId, processedAt: new Date(), updatedAt: new Date(),
-  }).where(eq(withdrawalsTable.id, id)).returning();
+  await db.transaction(async (tx) => {
+    await tx.update(usersTable).set({
+      walletBalance: newBalance,
+      totalSpent: sql`${usersTable.totalSpent} + ${withdrawal.amount}`,
+      updatedAt: new Date(),
+    }).where(eq(usersTable.id, withdrawal.userId));
 
-  await db.insert(transactionsTable).values({
-    userId: withdrawal.userId, type: "withdrawal", amount: -withdrawal.amount,
-    description: `Withdrawal approved - Rp ${withdrawal.amount.toLocaleString()}`,
-    referenceId: withdrawal.id,
+    await tx.update(walletsTable).set({
+      balance: newBalance,
+      totalSpent: sql`${walletsTable.totalSpent} + ${withdrawal.amount}`,
+      updatedAt: new Date(),
+      lastTransactionAt: new Date(),
+    }).where(eq(walletsTable.userId, withdrawal.userId));
+
+    await tx.update(withdrawalsTable).set({
+      status: "approved", processedBy: adminId, processedAt: new Date(), updatedAt: new Date(),
+    }).where(eq(withdrawalsTable.id, id));
+
+    await tx.insert(transactionsTable).values({
+      userId: withdrawal.userId,
+      type: "adjustment",
+      amount: -withdrawal.amount,
+      description: `Withdrawal approved: Rp ${withdrawal.amount.toLocaleString()}`,
+      referenceId: withdrawal.id,
+    });
+
+    await tx.insert(walletTransactionsTable).values({
+      userId: withdrawal.userId,
+      type: "adjustment",
+      amount: -withdrawal.amount,
+      balanceAfter: newBalance,
+      description: `Withdrawal approved: Rp ${withdrawal.amount.toLocaleString()}`,
+      referenceType: "withdrawal",
+      referenceId: withdrawal.id,
+      createdBy: adminId,
+    });
+
+    await tx.insert(notificationsTable).values({
+      userId: withdrawal.userId,
+      title: "Withdrawal Approved",
+      message: `Your withdrawal of Rp ${withdrawal.amount.toLocaleString()} was approved.`,
+      type: "system",
+    });
   });
 
-  await db.insert(notificationsTable).values({
-    userId: withdrawal.userId, title: "Withdrawal Approved",
-    message: `Your withdrawal of Rp ${withdrawal.amount.toLocaleString()} has been approved.`,
-    type: "system",
-  });
+  await invalidateUserCache(withdrawal.userId);
 
-  await db.insert(auditLogsTable).values({
-    userId: adminId, action: "approve_withdrawal", entity: "withdrawal", entityId: String(id),
-    details: JSON.stringify({ amount: withdrawal.amount }), ipAddress: req.ip,
-  });
-
+  const [updated] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id)).limit(1);
   res.json(updated);
 });
 
-// Owner: reject withdrawal
-router.patch("/withdrawals/:id/reject", authenticate, requireRole("owner"), async (req, res) => {
-  const id = parseInt(req.params.id);
+// Admin/owner: reject withdrawal
+router.patch("/withdrawals/:id/reject", authenticate, requireRole("admin", "owner"), async (req, res) => {
+  const id = req.params.id;
   const adminId = req.user!.userId;
   const { reason } = req.body;
 
@@ -143,7 +172,7 @@ router.patch("/withdrawals/:id/reject", authenticate, requireRole("owner"), asyn
   });
 
   await db.insert(auditLogsTable).values({
-    userId: adminId, action: "reject_withdrawal", entity: "withdrawal", entityId: String(id),
+    userId: adminId, action: "reject_withdrawal", entity: "withdrawal", entityId: id,
     details: JSON.stringify({ amount: withdrawal.amount, reason }), ipAddress: req.ip,
   });
 
