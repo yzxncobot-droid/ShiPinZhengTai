@@ -23,9 +23,12 @@ Other useful commands:
 | Secret | Description |
 |---|---|
 | `SESSION_SECRET` | Signs JWTs (`artifacts/api-server/src/middlewares/auth.ts`) |
+| `JWT_SECRET` | JWT verification secret |
 | `SUPABASE_URL` | Supabase project URL (e.g. `https://xxxx.supabase.co`) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key — Supabase → Project Settings → API |
-| `DATABASE_URL` | **Must use the Supabase connection pooler URL** (Transaction mode, port 6543). The direct `db.*.supabase.co` hostname is not reachable from Replit. Find it at Supabase → Project Settings → Database → Connection Pooling. |
+| `UPSTASH_REDIS_REST_URL` | Upstash Redis REST URL (from Upstash console) |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST token |
+| `DATABASE_URL` | Replit built-in PostgreSQL — provided automatically; do not set manually |
 
 Feature-flag env vars (all default to `true`): `ENABLE_WALLET`, `ENABLE_SUBSCRIPTIONS`, `ENABLE_BUNDLES`, `ENABLE_REFERRALS`, `ENABLE_MANUAL_QRIS`.
 
@@ -33,12 +36,14 @@ Storage bucket env vars (all default to `yzx`): `SUPABASE_VIDEOS_BUCKET`, `SUPAB
 
 ## Stack
 
-- pnpm workspaces, **Node.js 22**, TypeScript 5.9
+- pnpm workspaces, Node.js 20 (with `ws` polyfill for Supabase realtime), TypeScript 5.9
 - API: Express 5, esbuild bundle
-- DB: PostgreSQL (Supabase) + Drizzle ORM
+- DB: **Replit built-in PostgreSQL** + Drizzle ORM (schema pushed via `drizzle-kit push`)
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - Frontend: React 19, Vite 7, Tailwind CSS 4, Radix UI, TanStack Query, Wouter
 - API codegen: Orval (from OpenAPI spec in `lib/api-spec`)
+- File storage: Supabase Storage (videos, thumbnails, images, payment proofs)
+- Sessions/cache: Upstash Redis
 
 ## Where things live
 
@@ -54,9 +59,9 @@ Storage bucket env vars (all default to `yzx`): `SUPABASE_VIDEOS_BUCKET`, `SUPAB
 
 ## Gotchas
 
-- **Node.js 22 required** — `@supabase/realtime-js` needs native WebSocket, only available in Node 22+.
-- **Use Supabase pooler for DATABASE_URL** — the direct hostname is blocked from Replit. Use the Transaction mode pooler (port 6543) from Supabase → Settings → Database.
-- **Run `pnpm --filter @workspace/db run push` after a fresh clone** — tables start empty; the site loads with spinners until the schema is pushed and real content is uploaded.
+- **`ws` polyfill required on Node 20** — `@supabase/realtime-js` needs WebSocket. The `ws` npm package is imported and polyfilled in `artifacts/api-server/src/lib/supabase.ts` to work around this on Node.js 20.
+- **DATABASE_URL is Replit's built-in PostgreSQL** — do not manually set it; Replit injects it automatically.
+- **Run `pnpm --filter @workspace/db run push` after a fresh clone** — tables start empty; run this once to create the schema.
 - **New users default to role `meril`** — to access admin/upload features, an owner must promote the account via the admin panel.
 
 ## User preferences
