@@ -1,0 +1,401 @@
+COMPLETE HOMEPAGE REDESIGN + CATEGORY SYSTEM FIX + VIDEO/BUNDLE ACCESS FIX
+
+==================================================
+CRITICAL ISSUES TO FIX
+==================================================
+
+Current issues:
+
+1. Homepage contains duplicate sections.
+2. "Lagi Rame Ditonton" section is unnecessary.
+3. Category filter is broken.
+4. Error appears:
+
+Expected number, received NaN
+
+5. Uploaded videos exist but sometimes cannot be opened.
+6. Uploaded bundles exist but show:
+   - Video Tidak Ditemukan
+   - Bundle Tidak Ditemukan
+7. Homepage crashes after uploading videos or categories.
+8. Video loading experience is poor.
+
+Perform a complete audit and redesign.
+
+==================================================
+HOMEPAGE REDESIGN
+==================================================
+
+REMOVE COMPLETELY:
+
+- Lagi Rame Ditonton
+- Duplicate video sections
+- Any repeated content blocks
+
+Homepage structure should only contain:
+
+1. Header
+2. Search
+3. Category Filter
+4. Video Grid
+5. See More Button
+
+Keep existing purple premium theme.
+
+==================================================
+CATEGORY FILTER REDESIGN
+==================================================
+
+Remove dropdown category selector.
+
+Replace with:
+
+Horizontal Category Chips
+
+Example:
+
+[ Semua ]
+[ Edukasi ]
+[ Tutorial ]
+[ Bundle ]
+[ Premium ]
+[ Gratis ]
+
+Requirements:
+
+- First chip always "Semua"
+- Categories loaded dynamically from database
+- Smooth scrolling on mobile
+- Active category highlighted
+- No page reload
+
+==================================================
+CATEGORY SYSTEM FIX
+==================================================
+
+Current issue:
+
+Expected number, received NaN
+
+Perform complete debugging.
+
+Inspect:
+
+- Category API
+- Database category IDs
+- URL params
+- Query params
+- Zod validation
+- Form validation
+
+Requirements:
+
+- Prevent NaN values
+- Validate category IDs correctly
+- Handle null categories safely
+- Handle deleted categories safely
+
+If category is missing:
+
+Show:
+
+"Uncategorized"
+
+Never crash.
+
+==================================================
+VIDEO GRID SYSTEM
+==================================================
+
+Default homepage display:
+
+6 videos only
+
+Newest published videos first.
+
+Mobile layout:
+
+2 columns
+
+Desktop layout:
+
+Responsive grid
+
+Maintain existing premium card style.
+
+==================================================
+SEE MORE SYSTEM
+==================================================
+
+Create dynamic loading system.
+
+Initial load:
+
+6 videos
+
+When user clicks:
+
+See More
+
+Load:
+
++4 videos
+
+Example:
+
+6
+10
+14
+18
+22
+26
+
+Continue until all videos are displayed.
+
+Requirements:
+
+- Unlimited clicks until all content loaded
+- No page refresh
+- Smooth loading animation
+- Loading skeleton support
+- Hide button automatically when all videos displayed
+
+==================================================
+VIDEO ACCESS FIX
+==================================================
+
+Problem:
+
+Videos appear on homepage but cannot be opened.
+
+Investigate:
+
+Homepage
+↓
+Video Card
+↓
+Video Detail Page
+↓
+Video Player Page
+
+Verify:
+
+- Route IDs
+- UUIDs
+- Slugs
+- Database lookup
+- Visibility settings
+- Published status
+
+Check routes:
+
+/video/[id]
+/watch/[id]
+/videos/[id]
+
+Ensure route parameters match database records.
+
+==================================================
+BUNDLE ACCESS FIX
+==================================================
+
+Problem:
+
+Bundle exists but displays:
+
+"Bundle Tidak Ditemukan"
+
+Investigate:
+
+Bundle List
+↓
+Bundle Detail
+↓
+Bundle Videos
+
+Verify:
+
+- Bundle ID
+- Bundle slug
+- Bundle relations
+- bundle_videos table
+- Video references
+
+Fix all relationship issues.
+
+==================================================
+DATABASE VALIDATION
+==================================================
+
+Inspect:
+
+videos
+bundles
+categories
+bundle_videos
+
+Verify:
+
+- IDs are valid
+- Slugs are valid
+- Relations exist
+- Published content visible
+- Deleted content hidden
+
+==================================================
+API HARDENING
+==================================================
+
+Add complete error handling.
+
+Every query must use:
+
+try/catch
+
+If query fails:
+
+- Log error
+- Return safe fallback
+- Never crash page
+
+==================================================
+REACT SAFETY FIXES
+==================================================
+
+Prevent:
+
+undefined.map()
+null.map()
+undefined.length
+null.length
+
+Use:
+
+Array.isArray()
+
+before rendering lists.
+
+==================================================
+SUPABASE STORAGE AUDIT
+==================================================
+
+Verify:
+
+- Video URLs
+- Thumbnail URLs
+- Bundle thumbnails
+- Public access
+- Signed URL generation
+
+Ensure uploaded media can always be loaded.
+
+==================================================
+HOMEPAGE CRASH FIX
+==================================================
+
+Current issue:
+
+Homepage sometimes shows:
+
+"Terjadi Kesalahan"
+
+Investigate:
+
+- Server components
+- Client components
+- API failures
+- Null database values
+- Missing thumbnails
+- Missing categories
+
+Homepage must never crash.
+
+==================================================
+ERROR LOGGING
+==================================================
+
+Add logs:
+
+console.log("Video ID:", id)
+console.log("Bundle ID:", id)
+console.log("Category:", category)
+console.log("Video Found:", video)
+console.log("Bundle Found:", bundle)
+
+Log exact failure source.
+
+==================================================
+UI IMPROVEMENTS
+==================================================
+
+Improve:
+
+- Card spacing
+- Thumbnail ratio
+- Premium badges
+- Free badges
+- Bundle badges
+- Text truncation
+- Price visibility
+
+Prevent overlapping text.
+
+==================================================
+FINAL TESTING
+==================================================
+
+Test:
+
+✓ Create category
+✓ Edit category
+✓ Delete category
+✓ Upload video
+✓ Publish video
+✓ Open video
+✓ Create bundle
+✓ Open bundle
+✓ Filter category
+✓ Search videos
+✓ See More button
+✓ Mobile layout
+✓ Desktop layout
+
+==================================================
+FINAL RESULT REQUIRED
+==================================================
+
+Homepage contains:
+
+- Search
+- Category Chips
+- Video Grid
+- See More Button
+
+Only 6 videos shown initially.
+
+Each See More click loads 4 additional videos.
+
+No "Lagi Rame Ditonton" section.
+
+No duplicate sections.
+
+No NaN errors.
+
+No homepage crashes.
+
+No "Video Tidak Ditemukan" errors for valid videos.
+
+No "Bundle Tidak Ditemukan" errors for valid bundles.
+
+All uploaded videos and bundles are accessible immediately after publishing.
+
+Generate a complete report showing:
+
+- Root causes found
+- Files modified
+- APIs fixed
+- Queries fixed
+- Routes fixed
+- Validation fixes
+- Performance improvements
+- Remaining warnings

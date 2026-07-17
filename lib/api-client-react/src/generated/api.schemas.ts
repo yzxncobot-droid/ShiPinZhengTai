@@ -243,7 +243,7 @@ export interface VideoInput {
   videoUrl: string;
   type: VideoInputType;
   price?: number;
-  categoryId?: number;
+  categoryId?: string;
   downloadable?: boolean;
   isFeatured?: boolean;
   creatorId?: string;
@@ -264,7 +264,7 @@ export interface VideoUpdate {
   videoUrl?: string;
   type?: VideoUpdateType;
   price?: number;
-  categoryId?: number;
+  categoryId?: string;
   downloadable?: boolean;
   isFeatured?: boolean;
 }
@@ -592,7 +592,7 @@ limit?: number;
 
 export type ListVideosParams = {
 search?: string;
-categoryId?: number;
+categoryId?: string;
 type?: ListVideosType;
 sort?: ListVideosSort;
 page?: number;

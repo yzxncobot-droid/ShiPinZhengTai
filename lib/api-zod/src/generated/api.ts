@@ -415,7 +415,7 @@ export const GrantUserSubscriptionResponse = zod.object({
  */
 export const ListVideosQueryParams = zod.object({
   "search": zod.coerce.string().optional(),
-  "categoryId": zod.coerce.number().optional(),
+  "categoryId": zod.coerce.string().optional(),
   "type": zod.enum(['free', 'premium', 'all']).optional(),
   "sort": zod.enum(['newest', 'popular', 'trending']).optional(),
   "page": zod.coerce.number().optional(),
@@ -491,7 +491,7 @@ export const CreateVideoBody = zod.object({
   "videoUrl": zod.string(),
   "type": zod.enum(['free', 'premium']),
   "price": zod.number().optional(),
-  "categoryId": zod.number().optional(),
+  "categoryId": zod.string().optional(),
   "downloadable": zod.boolean().optional(),
   "isFeatured": zod.boolean().optional(),
   "creatorId": zod.string().optional()
@@ -783,7 +783,7 @@ export const UpdateVideoBody = zod.object({
   "videoUrl": zod.string().optional(),
   "type": zod.enum(['free', 'premium']).optional(),
   "price": zod.number().optional(),
-  "categoryId": zod.number().optional(),
+  "categoryId": zod.string().optional(),
   "downloadable": zod.boolean().optional(),
   "isFeatured": zod.boolean().optional()
 })

@@ -305,7 +305,7 @@ paths:
         - in: query
           name: categoryId
           schema:
-            type: integer
+            type: string
         - in: query
           name: type
           schema:
@@ -1530,7 +1530,7 @@ components:
         price:
           type: number
         categoryId:
-          type: integer
+          type: string
         downloadable:
           type: boolean
         isFeatured:
@@ -1555,7 +1555,7 @@ components:
         price:
           type: number
         categoryId:
-          type: integer
+          type: string
         downloadable:
           type: boolean
         isFeatured:

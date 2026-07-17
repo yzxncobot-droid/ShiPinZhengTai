@@ -10,7 +10,7 @@ import type { ListVideosType } from './listVideosType';
 
 export type ListVideosParams = {
 search?: string;
-categoryId?: number;
+categoryId?: string;
 type?: ListVideosType;
 sort?: ListVideosSort;
 page?: number;

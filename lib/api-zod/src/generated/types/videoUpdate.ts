@@ -14,7 +14,7 @@ export interface VideoUpdate {
   videoUrl?: string;
   type?: VideoUpdateType;
   price?: number;
-  categoryId?: number;
+  categoryId?: string;
   downloadable?: boolean;
   isFeatured?: boolean;
 }

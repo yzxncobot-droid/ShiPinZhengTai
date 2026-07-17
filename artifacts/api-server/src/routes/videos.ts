@@ -143,7 +143,16 @@ router.get("/videos", optionalAuth, async (req, res) => {
 
     const [{ total }] = await db.select({ total: count() }).from(videosTable).where(where);
 
-    const sortCol = (videosTable as any)[sort] ?? videosTable.createdAt;
+    // Map friendly sort names to actual columns
+    const sortColMap: Record<string, any> = {
+      newest: videosTable.createdAt,
+      popular: videosTable.views,
+      trending: videosTable.views,
+      createdAt: videosTable.createdAt,
+      views: videosTable.views,
+      likes: videosTable.likes,
+    };
+    const sortCol = sortColMap[sort] ?? videosTable.createdAt;
     const orderFn = order === "asc" ? asc : desc;
 
     const rows = await db.select().from(videosTable)

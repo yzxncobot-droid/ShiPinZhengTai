@@ -14,7 +14,7 @@ export interface VideoInput {
   videoUrl: string;
   type: VideoInputType;
   price?: number;
-  categoryId?: number;
+  categoryId?: string;
   downloadable?: boolean;
   isFeatured?: boolean;
   creatorId?: string;

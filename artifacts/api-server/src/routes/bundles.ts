@@ -134,6 +134,30 @@ router.get("/bundles/all", authenticate, requireRole("admin", "owner"), async (_
   }
 });
 
+// ── GET /bundles/my — user's purchased bundles (must be before /:id) ──────────
+router.get("/bundles/my", authenticate, async (req, res) => {
+  const userId = req.user!.userId;
+  try {
+    const purchases = await db.select({
+      id: bundlePurchasesTable.id,
+      bundleId: bundlePurchasesTable.bundleId,
+      price: bundlePurchasesTable.price,
+      createdAt: bundlePurchasesTable.createdAt,
+    }).from(bundlePurchasesTable)
+      .where(eq(bundlePurchasesTable.userId, userId));
+
+    const data = await Promise.all(purchases.map(async (p) => {
+      const [bundle] = await db.select().from(bundlesTable).where(eq(bundlesTable.id, p.bundleId)).limit(1);
+      return bundle ? { ...p, bundle: await formatBundle(bundle, { includeVideos: true, userId }) } : null;
+    }));
+
+    res.json(data.filter(Boolean));
+  } catch (err) {
+    logger.error({ err }, "GET /bundles/my failed");
+    res.json([]);
+  }
+});
+
 // ── GET /bundles/:id ──────────────────────────────────────────────────────────
 router.get("/bundles/:id", optionalAuth, async (req, res) => {
   try {
@@ -322,23 +346,5 @@ router.post("/bundles/:id/purchase", authenticate, async (req, res) => {
   }
 });
 
-// ── GET /bundles/my — user's purchased bundles ────────────────────────────────
-router.get("/bundles/my", authenticate, async (req, res) => {
-  const userId = req.user!.userId;
-  const purchases = await db.select({
-    id: bundlePurchasesTable.id,
-    bundleId: bundlePurchasesTable.bundleId,
-    price: bundlePurchasesTable.price,
-    createdAt: bundlePurchasesTable.createdAt,
-  }).from(bundlePurchasesTable)
-    .where(eq(bundlePurchasesTable.userId, userId));
-
-  const data = await Promise.all(purchases.map(async (p) => {
-    const [bundle] = await db.select().from(bundlesTable).where(eq(bundlesTable.id, p.bundleId)).limit(1);
-    return bundle ? { ...p, bundle: await formatBundle(bundle, { includeVideos: true, userId }) } : null;
-  }));
-
-  res.json(data.filter(Boolean));
-});
 
 export default router;
