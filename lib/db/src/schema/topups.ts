@@ -28,6 +28,19 @@ export const topupsTable = pgTable(
 
     status: topupStatusEnum("status").notNull().default("pending"),
 
+    /**
+     * Amount the user claims to have transferred.
+     * Recorded at submission time; compared against `amount` to derive `amountMatchStatus`.
+     */
+    transferAmount: doublePrecision("transfer_amount"),
+
+    /**
+     * Computed at submission time:
+     *  - "match"    → transferAmount === amount  (eligible for confirmation)
+     *  - "mismatch" → amounts differ (admin may only deny)
+     */
+    amountMatchStatus: text("amount_match_status").default("match"), // 'match' | 'mismatch'
+
     /** Staff who confirmed/denied. */
     reviewedBy: uuid("reviewed_by").references(() => usersTable.id, { onDelete: "set null" }),
     reviewedAt: timestamp("reviewed_at"),

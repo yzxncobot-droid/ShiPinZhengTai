@@ -32,14 +32,21 @@ router.get("/topups", authenticate, async (req, res) => {
 // ── POST /topups — submit a top-up request ────────────────────────────────────
 router.post("/topups", authenticate, async (req, res) => {
   const userId = req.user!.userId;
-  const { amount, paymentProof, paymentProofId } = req.body;
+  const { amount, paymentProof, paymentProofId, transferAmount } = req.body;
 
   if (!amount || amount <= 0) {
     res.status(400).json({ error: "Invalid amount" }); return;
   }
 
+  // Compute match status: compare selected amount vs what user claims to have transferred
+  const parsedTransfer = transferAmount != null ? Number(transferAmount) : null;
+  const amountMatchStatus =
+    parsedTransfer != null && parsedTransfer !== Number(amount) ? "mismatch" : "match";
+
   const [topup] = await db.insert(topupsTable).values({
     userId, amount, paymentProof, paymentProofId: paymentProofId ?? null,
+    transferAmount: parsedTransfer,
+    amountMatchStatus,
   }).returning();
 
   res.status(201).json(topup);
@@ -79,6 +86,10 @@ router.patch("/topups/:id/confirm", authenticate, requireRole("admin", "owner"),
   const [topup] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
   if (!topup) { res.status(404).json({ error: "Not found" }); return; }
   if (topup.status !== "pending") { res.status(400).json({ error: "Already processed" }); return; }
+  if (topup.amountMatchStatus === "mismatch") {
+    res.status(400).json({ error: "Cannot confirm: transfer amount does not match selected amount. Please deny this payment." });
+    return;
+  }
 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, topup.userId)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
