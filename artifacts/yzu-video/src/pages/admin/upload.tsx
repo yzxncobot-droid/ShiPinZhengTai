@@ -16,42 +16,104 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, UploadCloud, Video as VideoIcon, Image as ImageIcon } from "lucide-react";
+import {
+  Loader2, UploadCloud, Video as VideoIcon, Image as ImageIcon,
+  Link as LinkIcon, CheckCircle2, Globe, Sparkles,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { adminFetch } from "@/lib/admin-api";
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const VISIBILITY_OPTIONS = [
-  { value: "public",        label: "Gratis (Public)",                 description: "Semua orang bisa menonton" },
-  { value: "premium",       label: "Premium",                         description: "Butuh langganan atau pembelian" },
-  { value: "hidden_bundle", label: "Bundle Eksklusif (Hidden)",       description: "Hanya muncul di bundle, tidak di listing" },
+  { value: "public",        label: "Gratis (Public)",           description: "Semua orang bisa menonton" },
+  { value: "premium",       label: "Premium",                   description: "Butuh langganan atau pembelian" },
+  { value: "hidden_bundle", label: "Bundle Eksklusif (Hidden)", description: "Hanya muncul di bundle" },
 ] as const;
 
-type Visibility = typeof VISIBILITY_OPTIONS[number]["value"];
+type VideoSourceType = "upload" | "external_link";
+
+// ─── URL Validator ────────────────────────────────────────────────────────────
+
+function isValidVideoLink(url: string): boolean {
+  try {
+    const u = new URL(url);
+    // Direct media files
+    if (/\.(mp4|webm|mov|avi|mkv|m3u8)(\?.*)?$/i.test(u.pathname)) return true;
+    // Streaming & platform links
+    if (/youtube\.com|youtu\.be/.test(u.hostname)) return true;
+    if (/vimeo\.com/.test(u.hostname)) return true;
+    if (u.hostname === "drive.google.com") return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// ─── Schema ───────────────────────────────────────────────────────────────────
 
 const uploadSchema = z.object({
-  title: z.string().min(5, "Judul minimal 5 karakter"),
-  description: z.string().optional(),
-  categoryId: z.coerce.number().optional(),
-  visibility: z.enum(["public", "premium", "hidden_bundle"]).default("public"),
-  price: z.coerce.number().min(0).optional(),
-  downloadable: z.boolean().default(false),
-  videoUrl: z.string().min(1, "Video wajib diupload"),
-  thumbnail: z.string().optional(),
+  title:          z.string().min(3, "Judul minimal 3 karakter"),
+  description:    z.string().optional(),
+  /** UUID string – matches the DB category primary key */
+  categoryId:     z.string().min(1, "Pilih kategori"),
+  visibility:     z.enum(["public", "premium", "hidden_bundle"]).default("public"),
+  price:          z.coerce.number().min(0).optional(),
+  downloadable:   z.boolean().default(false),
+  videoSourceType: z.enum(["upload", "external_link"]).default("upload"),
+  videoUrl:       z.string().min(1, "Video wajib diisi"),
+  videoFilePath:  z.string().optional(),
+  thumbnail:      z.string().min(1, "Thumbnail wajib diupload"),
+}).superRefine((data, ctx) => {
+  if (data.videoSourceType === "external_link" && data.videoUrl && !isValidVideoLink(data.videoUrl)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["videoUrl"],
+      message: "Link tidak valid. Gunakan YouTube, Vimeo, Google Drive, atau link MP4/M3U8 langsung.",
+    });
+  }
 });
 
 type UploadForm = z.infer<typeof uploadSchema>;
+
+// ─── Section Card ─────────────────────────────────────────────────────────────
+
+function SectionCard({
+  icon, title, gradient, children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  gradient: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl overflow-hidden shadow-md border border-white/60">
+      <div className={`${gradient} px-5 py-3 flex items-center gap-2`}>
+        <span className="text-white">{icon}</span>
+        <h2 className="text-white font-bold text-base tracking-wide">{title}</h2>
+      </div>
+      <div className="bg-white p-5 space-y-4">{children}</div>
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AdminUploadVideo() {
   const { token } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const { data: categories } = useListCategories();
 
-  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
-  const [isUploadingThumb, setIsUploadingThumb] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const { data: categoriesRaw, isLoading: isLoadingCategories, refetch: refetchCategories } = useListCategories();
+  const categories: any[] = Array.isArray(categoriesRaw)
+    ? categoriesRaw
+    : (categoriesRaw as any)?.data ?? [];
+
+  const [isUploadingVideo, setIsUploadingVideo]   = useState(false);
+  const [isUploadingThumb, setIsUploadingThumb]   = useState(false);
+  const [isSubmitting, setIsSubmitting]           = useState(false);
+  const [uploadProgress, setUploadProgress]       = useState(0);
 
   const videoInputRef = useRef<HTMLInputElement>(null);
   const thumbInputRef = useRef<HTMLInputElement>(null);
@@ -59,22 +121,32 @@ export default function AdminUploadVideo() {
   const form = useForm<UploadForm>({
     resolver: zodResolver(uploadSchema),
     defaultValues: {
-      title: "", description: "",
+      title: "",
+      description: "",
+      categoryId: "",
       visibility: "public",
       price: 0,
       downloadable: false,
-      videoUrl: "", thumbnail: "",
+      videoSourceType: "upload",
+      videoUrl: "",
+      videoFilePath: "",
+      thumbnail: "",
     },
   });
 
-  const visibility = form.watch("visibility");
+  const visibility      = form.watch("visibility");
+  const videoSourceType = form.watch("videoSourceType");
+  const videoUrl        = form.watch("videoUrl");
+  const thumbnail       = form.watch("thumbnail");
 
+  // ── File upload ──────────────────────────────────────────────────────────────
   const handleFileUpload = async (file: File, type: "video" | "image") => {
-    const isVideo = type === "video";
-    const setUploading = isVideo ? setIsUploadingVideo : setIsUploadingThumb;
-    const endpoint = isVideo ? "/api/upload/video" : "/api/upload/thumbnail";
-    const fieldName: keyof UploadForm = isVideo ? "videoUrl" : "thumbnail";
-    const formKey = isVideo ? "video" : "thumbnail";
+    const isVideo        = type === "video";
+    const setUploading   = isVideo ? setIsUploadingVideo : setIsUploadingThumb;
+    const endpoint       = isVideo ? "/api/upload/video" : "/api/upload/thumbnail";
+    const urlField       = isVideo ? "videoUrl" : "thumbnail";
+    const pathField      = isVideo ? "videoFilePath" : undefined;
+    const formKey        = isVideo ? "video" : "thumbnail";
 
     setUploading(true);
     setUploadProgress(0);
@@ -83,7 +155,7 @@ export default function AdminUploadVideo() {
     fd.append(formKey, file);
 
     try {
-      const data = await new Promise<{ url: string }>((resolve, reject) => {
+      const data = await new Promise<{ url: string; path?: string }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.upload.addEventListener("progress", (e) => {
           if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100));
@@ -103,8 +175,11 @@ export default function AdminUploadVideo() {
         xhr.send(fd);
       });
 
-      form.setValue(fieldName, data.url, { shouldValidate: true });
-      toast({ title: `${type === "video" ? "Video" : "Thumbnail"} berhasil diupload.` });
+      form.setValue(urlField as keyof UploadForm, data.url, { shouldValidate: true });
+      if (pathField && data.path) {
+        form.setValue(pathField as keyof UploadForm, data.path, { shouldValidate: false });
+      }
+      toast({ title: `${isVideo ? "Video" : "Thumbnail"} berhasil diupload!` });
     } catch (err: any) {
       toast({ title: "Upload gagal", description: err.message, variant: "destructive" });
     } finally {
@@ -113,20 +188,30 @@ export default function AdminUploadVideo() {
     }
   };
 
+  // ── Switch source type ───────────────────────────────────────────────────────
+  const switchSource = (t: VideoSourceType) => {
+    form.setValue("videoSourceType", t);
+    form.setValue("videoUrl", "");
+    form.setValue("videoFilePath", "");
+    form.clearErrors("videoUrl");
+  };
+
+  // ── Submit ───────────────────────────────────────────────────────────────────
   const onSubmit = async (values: UploadForm) => {
     if (values.visibility === "public") values.price = 0;
-
     setIsSubmitting(true);
     try {
       await adminFetch("/videos", {
         method: "POST",
         body: JSON.stringify({
           ...values,
-          categoryId: values.categoryId || null,
-          thumbnail: values.thumbnail || null,
+          categoryId:     values.categoryId || null,
+          videoSourceType: values.videoSourceType,
+          videoFilePath:  values.videoFilePath || null,
+          thumbnail:      values.thumbnail || null,
         }),
       });
-      toast({ title: "Video berhasil dipublikasi!" });
+      toast({ title: "🎉 Video berhasil dipublikasi!" });
       setLocation("/admin/videos");
     } catch (err: any) {
       toast({ title: "Gagal mempublikasi", description: err.message, variant: "destructive" });
@@ -138,54 +223,115 @@ export default function AdminUploadVideo() {
   return (
     <ProtectedRoute allowedRoles={["admin", "owner"]}>
       <AdminLayout>
-        <div className="p-6 md:p-8 max-w-4xl mx-auto">
-          <div className="mb-8">
-            <h1 className="text-3xl font-heading font-bold">Upload Video Baru</h1>
-            <p className="text-muted-foreground mt-1">Publish konten ke channel kamu</p>
+        <div className="p-4 md:p-8 max-w-3xl mx-auto">
+
+          {/* ── Page Header ── */}
+          <div className="mb-7">
+            <div className="inline-flex items-center gap-2 bg-gradient-to-r from-sky-400 to-blue-500 text-white text-xs font-bold px-3 py-1 rounded-full mb-3 shadow-sm">
+              <Sparkles className="h-3 w-3" />
+              Admin Panel
+            </div>
+            <h1 className="text-3xl font-heading font-bold text-gray-800">Upload Video Baru</h1>
+            <p className="text-muted-foreground mt-1 text-sm">Publish konten baru ke platform</p>
           </div>
 
-          <div className="bg-card border border-border/50 rounded-2xl p-6 shadow-sm">
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
 
-                {/* File Uploads */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Video */}
+              {/* ══════════════════════════════════════════════
+                  1. VIDEO SOURCE
+              ══════════════════════════════════════════════ */}
+              <SectionCard
+                icon={<VideoIcon className="h-4 w-4" />}
+                title="Sumber Video"
+                gradient="bg-gradient-to-r from-sky-400 to-blue-500"
+              >
+                {/* Source toggle */}
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => switchSource("upload")}
+                    className={`flex flex-col items-center gap-2 py-4 px-3 rounded-xl border-2 transition-all font-medium text-sm
+                      ${videoSourceType === "upload"
+                        ? "border-sky-400 bg-sky-50 text-sky-700 shadow-sm"
+                        : "border-gray-200 bg-gray-50 text-gray-500 hover:border-sky-200"
+                      }`}
+                  >
+                    <UploadCloud className={`h-6 w-6 ${videoSourceType === "upload" ? "text-sky-500" : "text-gray-400"}`} />
+                    <span>Upload File</span>
+                    {videoSourceType === "upload" && (
+                      <span className="text-xs text-sky-400">✓ Dipilih</span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => switchSource("external_link")}
+                    className={`flex flex-col items-center gap-2 py-4 px-3 rounded-xl border-2 transition-all font-medium text-sm
+                      ${videoSourceType === "external_link"
+                        ? "border-orange-400 bg-orange-50 text-orange-700 shadow-sm"
+                        : "border-gray-200 bg-gray-50 text-gray-500 hover:border-orange-200"
+                      }`}
+                  >
+                    <LinkIcon className={`h-6 w-6 ${videoSourceType === "external_link" ? "text-orange-500" : "text-gray-400"}`} />
+                    <span>Link Video</span>
+                    {videoSourceType === "external_link" && (
+                      <span className="text-xs text-orange-400">✓ Dipilih</span>
+                    )}
+                  </button>
+                </div>
+
+                {/* ── Upload File ── */}
+                {videoSourceType === "upload" && (
                   <FormField control={form.control} name="videoUrl" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>File Video *</FormLabel>
+                      <FormLabel className="text-gray-700 font-semibold">File Video <span className="text-red-500">*</span></FormLabel>
                       <FormControl>
-                        <div className="mt-2">
+                        <div>
                           <input
-                            type="file" accept="video/mp4,video/x-m4v,video/*"
-                            className="hidden" ref={videoInputRef}
+                            type="file"
+                            accept="video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm,.mp4,.mov,.avi,.mkv,.webm"
+                            className="hidden"
+                            ref={videoInputRef}
                             onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], "video")}
                           />
                           {field.value ? (
-                            <div className="border border-border rounded-xl p-4 bg-muted/20 flex flex-col items-center text-center">
-                              <VideoIcon className="h-8 w-8 text-primary mb-2" />
-                              <p className="text-sm font-medium mb-2">Video siap dipublikasi</p>
-                              <Button type="button" variant="outline" size="sm" onClick={() => videoInputRef.current?.click()}>
+                            <div className="border-2 border-sky-200 bg-sky-50 rounded-xl p-4 flex flex-col items-center text-center gap-2">
+                              <CheckCircle2 className="h-8 w-8 text-sky-500" />
+                              <p className="text-sm font-semibold text-sky-700">Video siap dipublikasi</p>
+                              <Button
+                                type="button" variant="outline" size="sm"
+                                onClick={() => videoInputRef.current?.click()}
+                                className="border-sky-300 text-sky-600 hover:bg-sky-50"
+                              >
                                 Ganti Video
                               </Button>
                             </div>
                           ) : (
                             <div
                               onClick={() => !isUploadingVideo && videoInputRef.current?.click()}
-                              className={`border-2 border-dashed border-border hover:border-primary/50 transition-colors rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer bg-muted/10 h-40 ${isUploadingVideo ? "pointer-events-none" : ""}`}
+                              className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer transition-colors h-44
+                                ${isUploadingVideo
+                                  ? "border-sky-300 bg-sky-50 pointer-events-none"
+                                  : "border-gray-200 bg-gray-50 hover:border-sky-300 hover:bg-sky-50"
+                                }`}
                             >
                               {isUploadingVideo ? (
-                                <div className="w-full max-w-[200px] text-center">
-                                  <p className="text-sm font-medium mb-2">Mengupload… {uploadProgress}%</p>
-                                  <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
-                                    <div className="bg-primary h-full transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
+                                <div className="w-full max-w-xs text-center space-y-2">
+                                  <Loader2 className="h-7 w-7 animate-spin text-sky-500 mx-auto" />
+                                  <p className="text-sm font-semibold text-sky-700">Mengupload… {uploadProgress}%</p>
+                                  <div className="w-full bg-sky-100 h-2.5 rounded-full overflow-hidden">
+                                    <div
+                                      className="bg-gradient-to-r from-sky-400 to-blue-500 h-full rounded-full transition-all duration-300"
+                                      style={{ width: `${uploadProgress}%` }}
+                                    />
                                   </div>
                                 </div>
                               ) : (
                                 <>
-                                  <UploadCloud className="h-8 w-8 text-muted-foreground mb-3" />
-                                  <p className="text-sm font-medium">Pilih File Video</p>
-                                  <p className="text-xs text-muted-foreground mt-1">MP4, WebM</p>
+                                  <UploadCloud className="h-9 w-9 text-sky-400 mb-2" />
+                                  <p className="text-sm font-semibold text-gray-700">Pilih atau drag file video</p>
+                                  <p className="text-xs text-gray-400 mt-1">MP4, MOV, AVI, MKV, WebM • maks 500 MB</p>
                                 </>
                               )}
                             </div>
@@ -195,84 +341,178 @@ export default function AdminUploadVideo() {
                       <FormMessage />
                     </FormItem>
                   )} />
+                )}
 
-                  {/* Thumbnail */}
-                  <FormField control={form.control} name="thumbnail" render={({ field }) => (
+                {/* ── Video Link ── */}
+                {videoSourceType === "external_link" && (
+                  <FormField control={form.control} name="videoUrl" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Thumbnail</FormLabel>
+                      <FormLabel className="text-gray-700 font-semibold">URL Video <span className="text-red-500">*</span></FormLabel>
                       <FormControl>
-                        <div className="mt-2">
-                          <input
-                            type="file" accept="image/jpeg,image/png,image/webp"
-                            className="hidden" ref={thumbInputRef}
-                            onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], "image")}
+                        <div className="relative">
+                          <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-400" />
+                          <Input
+                            {...field}
+                            placeholder="https://youtube.com/watch?v=... atau link MP4 langsung"
+                            className="pl-9 border-orange-200 focus:border-orange-400 bg-orange-50/30"
                           />
-                          {field.value ? (
-                            <div className="relative rounded-xl overflow-hidden border border-border group w-full h-40">
-                              <img src={field.value} alt="Thumbnail" className="w-full h-full object-cover" />
-                              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                <Button type="button" variant="secondary" size="sm" onClick={() => thumbInputRef.current?.click()}>
-                                  Ganti Gambar
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div
-                              onClick={() => !isUploadingThumb && thumbInputRef.current?.click()}
-                              className={`border-2 border-dashed border-border hover:border-primary/50 transition-colors rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer bg-muted/10 h-40 ${isUploadingThumb ? "pointer-events-none" : ""}`}
-                            >
-                              {isUploadingThumb ? (
-                                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                              ) : (
-                                <>
-                                  <ImageIcon className="h-8 w-8 text-muted-foreground mb-3" />
-                                  <p className="text-sm font-medium">Pilih Thumbnail</p>
-                                  <p className="text-xs text-muted-foreground mt-1">Rasio 16:9 disarankan</p>
-                                </>
-                              )}
-                            </div>
-                          )}
                         </div>
                       </FormControl>
                       <FormMessage />
+                      {/* Supported links legend */}
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {["YouTube", "Vimeo", "Google Drive", "MP4/WebM", "M3U8/HLS"].map((lbl) => (
+                          <span
+                            key={lbl}
+                            className="text-xs bg-orange-100 text-orange-600 font-medium px-2 py-0.5 rounded-full"
+                          >
+                            {lbl}
+                          </span>
+                        ))}
+                      </div>
                     </FormItem>
                   )} />
-                </div>
+                )}
+              </SectionCard>
 
-                {/* Metadata */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <FormField control={form.control} name="title" render={({ field }) => (
-                    <FormItem className="col-span-full">
-                      <FormLabel>Judul Video *</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Judul yang menarik untuk video kamu" className="bg-background" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
+              {/* ══════════════════════════════════════════════
+                  2. THUMBNAIL
+              ══════════════════════════════════════════════ */}
+              <SectionCard
+                icon={<ImageIcon className="h-4 w-4" />}
+                title="Thumbnail"
+                gradient="bg-gradient-to-r from-violet-500 to-purple-600"
+              >
+                <FormField control={form.control} name="thumbnail" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-gray-700 font-semibold">
+                      Gambar Thumbnail <span className="text-red-500">*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <div>
+                        <input
+                          type="file" accept="image/jpeg,image/png,image/webp"
+                          className="hidden" ref={thumbInputRef}
+                          onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], "image")}
+                        />
+                        {field.value ? (
+                          <div className="relative rounded-xl overflow-hidden border-2 border-violet-200 group w-full h-44">
+                            <img src={field.value} alt="Thumbnail" className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <Button
+                                type="button" variant="secondary" size="sm"
+                                onClick={() => thumbInputRef.current?.click()}
+                              >
+                                Ganti Gambar
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            onClick={() => !isUploadingThumb && thumbInputRef.current?.click()}
+                            className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer transition-colors h-44
+                              ${isUploadingThumb
+                                ? "border-violet-300 bg-violet-50 pointer-events-none"
+                                : "border-gray-200 bg-gray-50 hover:border-violet-300 hover:bg-violet-50"
+                              }`}
+                          >
+                            {isUploadingThumb ? (
+                              <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
+                            ) : (
+                              <>
+                                <ImageIcon className="h-9 w-9 text-violet-400 mb-2" />
+                                <p className="text-sm font-semibold text-gray-700">Pilih Thumbnail</p>
+                                <p className="text-xs text-gray-400 mt-1">JPG, PNG, WebP • Rasio 16:9 disarankan</p>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              </SectionCard>
 
-                  <FormField control={form.control} name="description" render={({ field }) => (
-                    <FormItem className="col-span-full">
-                      <FormLabel>Deskripsi</FormLabel>
-                      <FormControl>
-                        <Textarea placeholder="Ceritakan tentang video ini..." className="resize-none h-32 bg-background" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
+              {/* ══════════════════════════════════════════════
+                  3. DETAIL VIDEO
+              ══════════════════════════════════════════════ */}
+              <SectionCard
+                icon={<Sparkles className="h-4 w-4" />}
+                title="Detail Video"
+                gradient="bg-gradient-to-r from-amber-400 to-orange-500"
+              >
+                {/* Title */}
+                <FormField control={form.control} name="title" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-gray-700 font-semibold">
+                      Judul Video <span className="text-red-500">*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Judul yang menarik untuk video kamu"
+                        className="bg-amber-50/30 border-amber-200 focus:border-amber-400"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
 
+                {/* Description */}
+                <FormField control={form.control} name="description" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-gray-700 font-semibold">Deskripsi</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Ceritakan tentang video ini…"
+                        className="resize-none h-28 bg-amber-50/20 border-amber-200 focus:border-amber-400"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Category */}
                   <FormField control={form.control} name="categoryId" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Kategori</FormLabel>
-                      <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString()}>
+                      <FormLabel className="text-gray-700 font-semibold">
+                        Kategori <span className="text-red-500">*</span>
+                      </FormLabel>
+                      <Select
+                        onValueChange={(v) => field.onChange(v)}
+                        value={field.value || undefined}
+                        disabled={isLoadingCategories}
+                      >
                         <FormControl>
-                          <SelectTrigger className="bg-background"><SelectValue placeholder="Pilih kategori" /></SelectTrigger>
+                          <SelectTrigger className="bg-amber-50/30 border-amber-200 focus:border-amber-400">
+                            {isLoadingCategories
+                              ? <span className="text-muted-foreground flex items-center gap-2"><Loader2 className="h-3 w-3 animate-spin" /> Memuat…</span>
+                              : <SelectValue placeholder="Pilih kategori" />
+                            }
+                          </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {(Array.isArray(categories) ? categories : []).map((cat: any) => (
-                            <SelectItem key={cat.id} value={cat.id.toString()}>{cat.name}</SelectItem>
-                          ))}
+                          {categories.length === 0 ? (
+                            <div className="py-3 px-4 text-sm text-muted-foreground text-center">
+                              Belum ada kategori
+                              <button
+                                type="button"
+                                onClick={() => refetchCategories()}
+                                className="block mx-auto mt-1 text-xs text-primary underline"
+                              >
+                                Refresh
+                              </button>
+                            </div>
+                          ) : (
+                            categories.map((cat: any) => (
+                              <SelectItem key={cat.id} value={cat.id}>
+                                {cat.name}
+                              </SelectItem>
+                            ))
+                          )}
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -282,10 +522,14 @@ export default function AdminUploadVideo() {
                   {/* Visibility */}
                   <FormField control={form.control} name="visibility" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Visibilitas</FormLabel>
+                      <FormLabel className="text-gray-700 font-semibold">
+                        Visibilitas <span className="text-red-500">*</span>
+                      </FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
-                          <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="bg-amber-50/30 border-amber-200 focus:border-amber-400">
+                            <SelectValue />
+                          </SelectTrigger>
                         </FormControl>
                         <SelectContent>
                           {VISIBILITY_OPTIONS.map((o) => (
@@ -301,51 +545,68 @@ export default function AdminUploadVideo() {
                       <FormMessage />
                     </FormItem>
                   )} />
+                </div>
 
-                  {/* Price (shown for premium + hidden_bundle) */}
-                  {(visibility === "premium" || visibility === "hidden_bundle") && (
-                    <FormField control={form.control} name="price" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Harga Pembelian Satuan (Rp)</FormLabel>
-                        <FormControl>
-                          <Input type="number" placeholder="Isi 0 jika hanya untuk pelanggan" className="bg-background" {...field} />
-                        </FormControl>
-                        <FormDescription>
-                          {visibility === "hidden_bundle"
-                            ? "Jika diisi, pengguna bisa membeli video ini langsung (selain via bundle)."
-                            : "Pengguna bisa membeli video ini tanpa langganan."}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                  )}
-
-                  {/* Downloadable */}
-                  <FormField control={form.control} name="downloadable" render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-xl border p-4 bg-background">
-                      <div className="space-y-0.5">
-                        <FormLabel className="text-base">Izinkan Download</FormLabel>
-                        <FormDescription>Apakah pengguna bisa mendownload video ini?</FormDescription>
-                      </div>
+                {/* Price (premium/hidden_bundle only) */}
+                {(visibility === "premium" || visibility === "hidden_bundle") && (
+                  <FormField control={form.control} name="price" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-gray-700 font-semibold">Harga Pembelian Satuan (Rp)</FormLabel>
                       <FormControl>
-                        <Switch checked={field.value} onCheckedChange={field.onChange} />
+                        <Input
+                          type="number"
+                          placeholder="Isi 0 jika hanya untuk pelanggan"
+                          className="bg-amber-50/20 border-amber-200 focus:border-amber-400"
+                          {...field}
+                        />
                       </FormControl>
+                      <FormDescription>
+                        {visibility === "hidden_bundle"
+                          ? "Jika diisi, pengguna bisa membeli video ini langsung (selain via bundle)."
+                          : "Pengguna bisa membeli video ini tanpa langganan."}
+                      </FormDescription>
+                      <FormMessage />
                     </FormItem>
                   )} />
-                </div>
+                )}
 
-                <div className="flex justify-end pt-4 border-t border-border/50">
-                  <Button type="button" variant="ghost" className="mr-4" onClick={() => setLocation("/admin/videos")}>
-                    Batal
-                  </Button>
-                  <Button type="submit" size="lg" disabled={isSubmitting || isUploadingVideo || isUploadingThumb}>
-                    {isSubmitting && <Loader2 className="mr-2 h-5 w-5 animate-spin" />}
-                    Publikasi Video
-                  </Button>
-                </div>
-              </form>
-            </Form>
-          </div>
+                {/* Downloadable */}
+                <FormField control={form.control} name="downloadable" render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-xl border border-amber-100 bg-amber-50/40 p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base text-gray-700 font-semibold">Izinkan Download</FormLabel>
+                      <FormDescription>Apakah pengguna bisa mendownload video ini?</FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
+                  </FormItem>
+                )} />
+              </SectionCard>
+
+              {/* ── Actions ── */}
+              <div className="flex justify-end gap-3 pt-2">
+                <Button
+                  type="button" variant="ghost"
+                  onClick={() => setLocation("/admin/videos")}
+                  className="text-gray-500"
+                >
+                  Batal
+                </Button>
+                <Button
+                  type="submit" size="lg"
+                  disabled={isSubmitting || isUploadingVideo || isUploadingThumb}
+                  className="bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-bold shadow-md px-8"
+                >
+                  {isSubmitting
+                    ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Mempublikasi…</>
+                    : "🚀 Publikasi Video"
+                  }
+                </Button>
+              </div>
+
+            </form>
+          </Form>
         </div>
       </AdminLayout>
     </ProtectedRoute>

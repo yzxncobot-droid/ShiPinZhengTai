@@ -45,6 +45,14 @@ export const videosTable = pgTable(
     tags: text("tags"),           // JSON array string
     duration: integer("duration"), // seconds
     scheduledAt: timestamp("scheduled_at"),
+    /**
+     * Where the video content lives:
+     *  - "upload"        → file uploaded to Supabase storage; videoUrl = public CDN URL
+     *  - "external_link" → YouTube / Vimeo / Drive / MP4 / M3U8 link
+     */
+    videoSourceType: text("video_source_type").notNull().default("upload"),
+    /** Supabase storage path for uploaded files (e.g. videos/abc.mp4). Null for external links. */
+    videoFilePath: text("video_file_path"),
     categoryId: uuid("category_id").references(() => categoriesTable.id, { onDelete: "set null" }),
     creatorId: uuid("creator_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
     deletedAt: timestamp("deleted_at"),

@@ -39,6 +39,13 @@ async function genCode(): Promise<string> {
 async function run() {
   console.log("🚀  Neon migration starting…\n");
 
+  // 0. Schema additions – idempotent column additions
+  await pool.query(`
+    ALTER TABLE videos ADD COLUMN IF NOT EXISTS video_source_type text NOT NULL DEFAULT 'upload';
+    ALTER TABLE videos ADD COLUMN IF NOT EXISTS video_file_path text;
+  `);
+  console.log("✅  video_source_type / video_file_path columns ensured on videos table");
+
   // 1. Back-fill referral codes
   const noCode = await db.select({ id: schema.usersTable.id })
     .from(schema.usersTable).where(isNull(schema.usersTable.referralCode));

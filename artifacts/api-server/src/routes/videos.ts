@@ -242,8 +242,8 @@ router.post("/videos/:id/view", optionalAuth, async (req, res) => {
 router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, res) => {
   const userId = req.user!.userId;
   const {
-    title, description, thumbnail, videoUrl, price, downloadable,
-    isFeatured, categoryId, tags, duration, scheduledAt, status = "published",
+    title, description, thumbnail, videoUrl, videoSourceType, videoFilePath,
+    price, downloadable, isFeatured, categoryId, tags, duration, scheduledAt, status = "published",
   } = req.body;
 
   if (!title || !videoUrl) {
@@ -255,6 +255,8 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
   const [video] = await db.insert(videosTable).values({
     title, description, thumbnail, videoUrl, price, downloadable: !!downloadable,
     isFeatured: !!isFeatured, categoryId: categoryId ?? null,
+    videoSourceType: videoSourceType ?? "upload",
+    videoFilePath: videoFilePath ?? null,
     tags: tags ? JSON.stringify(tags) : null,
     duration, scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
     status, creatorId: userId,
