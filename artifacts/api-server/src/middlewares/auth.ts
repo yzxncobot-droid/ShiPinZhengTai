@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import { getSession, getCachedUser, cacheUser } from "../lib/redis";
+import { getSession, getCachedUser, cacheUser, isRedisAvailable } from "../lib/redis";
 import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -93,8 +93,10 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     return;
   }
 
-  // Check Redis session — null means the session was invalidated (logout)
-  if (payload.jti) {
+  // Check Redis session — null means the session was invalidated (logout).
+  // Skip this check entirely when Redis is not configured so that the server
+  // works without Upstash credentials (JWT-only auth mode).
+  if (payload.jti && isRedisAvailable) {
     try {
       const session = await getSession(payload.jti);
       if (!session) {
@@ -102,7 +104,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
         return;
       }
     } catch {
-      // If Redis is unreachable, fall back to JWT-only validation
+      // If Redis is unreachable at runtime, fall back to JWT-only validation
     }
   }
 
@@ -144,7 +146,7 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
   const token = authHeader.slice(7);
   try {
     const payload = jwt.verify(token, JWT_SECRET!) as unknown as JwtPayload;
-    if (payload.jti) {
+    if (payload.jti && isRedisAvailable) {
       try {
         const session = await getSession(payload.jti);
         if (!session) {

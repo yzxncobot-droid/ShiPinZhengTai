@@ -1,12 +1,67 @@
-import { Redis } from "@upstash/redis";
+import { logger } from "./logger";
 
-if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-  throw new Error("UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be set");
+// ── Availability flag ─────────────────────────────────────────────────────────
+
+/**
+ * True only when both Upstash env vars are present.
+ * Used by the auth middleware to skip session-store checks when Redis is
+ * not configured (so the server degrades gracefully instead of crashing).
+ */
+export const isRedisAvailable =
+  !!process.env.UPSTASH_REDIS_REST_URL && !!process.env.UPSTASH_REDIS_REST_TOKEN;
+
+// ── No-op stub ────────────────────────────────────────────────────────────────
+
+/** Minimal interface that matches the Upstash Redis API surface we use. */
+interface RedisLike {
+  get<T = string>(key: string): Promise<T | null>;
+  setex(key: string, ttl: number, value: string): Promise<unknown>;
+  del(...keys: string[]): Promise<unknown>;
+  incr(key: string): Promise<number>;
 }
 
-export const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN,
+const noopRedis: RedisLike = {
+  get: async () => null,
+  setex: async () => "OK",
+  del: async () => 0,
+  incr: async () => 1,
+};
+
+// ── Real client (lazy — only instantiated when env vars are present) ───────────
+
+let _redis: RedisLike = noopRedis;
+
+if (isRedisAvailable) {
+  // Dynamic import so the module does NOT crash when the package is missing
+  // or the env vars are absent.  The import() returns a promise; we resolve
+  // it synchronously-ish by reassigning _redis inside the then handler.
+  // Because the server's listen() call is deferred to after all top-level
+  // awaits in the entry file, the assignment will complete before the first
+  // request arrives in practice.
+  import("@upstash/redis")
+    .then(({ Redis }) => {
+      _redis = new Redis({
+        url: process.env.UPSTASH_REDIS_REST_URL!,
+        token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+      });
+      logger.info("Redis connected (Upstash)");
+    })
+    .catch((err) => {
+      logger.warn({ err }, "Redis import failed — running without Redis cache");
+    });
+} else {
+  logger.warn(
+    "UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set — " +
+    "running without Redis. Session invalidation, caching, and view " +
+    "buffering are disabled. All other features work normally.",
+  );
+}
+
+/** Access the Redis client (real or no-op). */
+export const redis: RedisLike = new Proxy(noopRedis, {
+  get(_target, prop) {
+    return (_redis as any)[prop];
+  },
 });
 
 // ── TTL constants ─────────────────────────────────────────────────────────────

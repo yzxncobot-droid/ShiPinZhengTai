@@ -9,3 +9,4 @@
 - [Demo-seeding empty dev DBs](demo-seeding-empty-dev-db.md) — an empty DB makes real UI look broken (infinite spinners, blank sections); idempotent SQL seed scripts run via `pnpm --filter <pkg> exec node` are the reliable way to populate it.
 - [No self-serve role promotion (Yzu视频)](no-self-serve-role-promotion.md) — new signups default to role `meril` (was "user"); "forbidden" on admin/upload means account needs owner-issued role promotion.
 - [Yzu视频 user schema v2](user-schema-v2.md) — username+password auth (no email); meril/admin/owner roles; referralCode auto-gen; subscriptionStatus/Expiry denorm cache; wallets+walletTransactions ledger tables; paymentProofs separate from topups; referrals table.
+- [API server startup fragility](api-server-startup-fragility.md) — Redis + Supabase threw at module import time when env vars absent; fixed to graceful no-op; auth middleware skips session check when Redis unavailable.

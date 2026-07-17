@@ -241,34 +241,78 @@ router.post("/videos/:id/view", optionalAuth, async (req, res) => {
 // ── POST /videos — create video (admin/owner) ─────────────────────────────────
 router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, res) => {
   const userId = req.user!.userId;
-  const {
-    title, description, thumbnail, videoUrl, videoSourceType, videoFilePath,
-    price, downloadable, isFeatured, categoryId, tags, duration, scheduledAt, status = "published",
-  } = req.body;
+  try {
+    const {
+      title, description, thumbnail, videoUrl, videoSourceType, videoFilePath,
+      price, downloadable, isFeatured, categoryId, tags, duration, scheduledAt, status = "published",
+    } = req.body;
 
-  if (!title || !videoUrl) {
-    res.status(400).json({ error: "title and videoUrl are required" }); return;
+    if (!title?.trim()) {
+      res.status(400).json({ error: "Judul video wajib diisi" }); return;
+    }
+    if (!videoUrl?.trim()) {
+      res.status(400).json({ error: "Video wajib diupload atau link video wajib diisi" }); return;
+    }
+
+    // Sanitise categoryId — must be a non-empty UUID string or null
+    const safeCategoryId: string | null =
+      categoryId && typeof categoryId === "string" && categoryId.trim() !== ""
+        ? categoryId.trim()
+        : null;
+
+    // Validate categoryId is actually a UUID to prevent DB errors
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (safeCategoryId && !uuidPattern.test(safeCategoryId)) {
+      res.status(400).json({ error: "categoryId tidak valid" }); return;
+    }
+
+    // Validate category exists if provided
+    if (safeCategoryId) {
+      const [cat] = await db.select({ id: categoriesTable.id })
+        .from(categoriesTable).where(eq(categoriesTable.id, safeCategoryId)).limit(1);
+      if (!cat) {
+        res.status(400).json({ error: "Kategori tidak ditemukan" }); return;
+      }
+    }
+
+    const visUpdates = normalizeVisibility(req.body);
+
+    const [video] = await db.insert(videosTable).values({
+      title:           title.trim(),
+      description:     description?.trim() || null,
+      thumbnail:       thumbnail || null,
+      videoUrl:        videoUrl.trim(),
+      price:           price ? Number(price) : null,
+      downloadable:    !!downloadable,
+      isFeatured:      !!isFeatured,
+      categoryId:      safeCategoryId,
+      videoSourceType: videoSourceType ?? "upload",
+      videoFilePath:   videoFilePath || null,
+      tags:            tags ? JSON.stringify(tags) : null,
+      duration:        duration ? Number(duration) : null,
+      scheduledAt:     scheduledAt ? new Date(scheduledAt) : null,
+      status,
+      creatorId:       userId,
+      visibility:      visUpdates.visibility ?? "public",
+      type:            visUpdates.type ?? "free",
+      bundleExclusive: visUpdates.bundleExclusive ?? false,
+    }).returning();
+
+    // Invalidate analytics cache (best-effort — Redis may be unavailable)
+    await invalidateCache(keys.analytics("overview")).catch(() => {});
+
+    res.status(201).json(await formatVideo(video, userId));
+  } catch (err: any) {
+    logger.error({ err, userId, body: req.body }, "POST /videos failed");
+    const pgCode = err?.code ?? err?.cause?.code;
+    if (pgCode === "23503") {
+      res.status(400).json({ error: "Kategori tidak ditemukan (foreign key violation)" }); return;
+    }
+    if (pgCode === "23502") {
+      res.status(400).json({ error: `Field wajib kosong: ${err?.column ?? "unknown"}` }); return;
+    }
+    res.status(500).json({ error: err?.message ?? "Gagal menyimpan video ke database" });
   }
-
-  const visUpdates = normalizeVisibility(req.body);
-
-  const [video] = await db.insert(videosTable).values({
-    title, description, thumbnail, videoUrl, price, downloadable: !!downloadable,
-    isFeatured: !!isFeatured, categoryId: categoryId ?? null,
-    videoSourceType: videoSourceType ?? "upload",
-    videoFilePath: videoFilePath ?? null,
-    tags: tags ? JSON.stringify(tags) : null,
-    duration, scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
-    status, creatorId: userId,
-    visibility: visUpdates.visibility ?? "public",
-    type: visUpdates.type ?? "free",
-    bundleExclusive: visUpdates.bundleExclusive ?? false,
-  }).returning();
-
-  // Invalidate analytics cache
-  await invalidateCache(keys.analytics("overview")).catch(() => {});
-
-  res.status(201).json(await formatVideo(video, userId));
 });
 
 // ── PATCH /videos/:id — update video ─────────────────────────────────────────
