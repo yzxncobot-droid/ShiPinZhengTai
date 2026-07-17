@@ -28,7 +28,7 @@ Other useful commands:
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key — Supabase → Project Settings → API |
 | `UPSTASH_REDIS_REST_URL` | Upstash Redis REST URL (from Upstash console) |
 | `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST token |
-| `DATABASE_URL` | Replit built-in PostgreSQL — provided automatically; do not set manually |
+| `NEON_DATABASE_URL` | Neon PostgreSQL connection string (pooled/Transaction mode recommended) |
 
 Feature-flag env vars (all default to `true`): `ENABLE_WALLET`, `ENABLE_SUBSCRIPTIONS`, `ENABLE_BUNDLES`, `ENABLE_REFERRALS`, `ENABLE_MANUAL_QRIS`.
 
