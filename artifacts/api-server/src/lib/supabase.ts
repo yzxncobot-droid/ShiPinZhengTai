@@ -38,24 +38,32 @@ export const supabase = createClient(
 );
 
 /**
- * All media lives in the single "Yzu" bucket (default) unless overridden via
- * the SUPABASE_VIDEOS_BUCKET env var.  Sub-folders within the bucket:
- *   videos/      → uploaded video files
- *   thumbnails/  → video thumbnails
- *   images/      → avatars, logos, banners, QRIS
- *   payments/    → payment proof screenshots
- *
- * Set SUPABASE_VIDEOS_BUCKET to use a different bucket name.
+ * All media lives in the single "yzx" bucket (default) unless overridden via
+ * env vars. Sub-folders within the bucket:
+ *   videos/            → uploaded video files          (yzx/videos)
+ *   thumnails/         → video thumbnails              (yzx/thumnails) ← intentional typo matching Supabase bucket
+ *   images/            → avatars, logos, banners, QRIS (yzx/images)
+ *   payments/          → payment proof screenshots     (yzx/payments)
+ *   bundles/           → bundle video files            (yzx/bundles)
+ *   bundle-thumbnails/ → bundle cover images           (yzx/bundle-thumbnails)
  */
-export const MEDIA_BUCKET         = process.env.SUPABASE_VIDEOS_BUCKET    ?? "Yzu";
+export const MEDIA_BUCKET         = process.env.SUPABASE_VIDEOS_BUCKET    ?? "yzx";
 export const THUMBNAILS_BUCKET    = process.env.SUPABASE_THUMBNAILS_BUCKET ?? MEDIA_BUCKET;
 export const PAYMENTS_BUCKET_NAME = process.env.SUPABASE_PAYMENTS_BUCKET   ?? MEDIA_BUCKET;
 
 /** @deprecated alias kept for call-sites still referencing PAYMENT_BUCKET */
 export const PAYMENT_BUCKET = MEDIA_BUCKET;
 
-/** Sub-folder within MEDIA_BUCKET where payment proofs are stored. */
-export const PAYMENTS_FOLDER = "payments";
+/** Sub-folder names within MEDIA_BUCKET */
+export const FOLDER_VIDEOS            = "videos";
+export const FOLDER_THUMBNAILS        = "thumnails";   // ← matches actual Supabase bucket folder name
+export const FOLDER_IMAGES            = "images";
+export const FOLDER_PAYMENTS          = "payments";
+export const FOLDER_BUNDLES           = "bundles";
+export const FOLDER_BUNDLE_THUMBNAILS = "bundle-thumbnails";
+
+/** @deprecated use FOLDER_PAYMENTS */
+export const PAYMENTS_FOLDER = FOLDER_PAYMENTS;
 
 /** Build a public URL for a Supabase Storage object */
 export function getPublicUrl(bucket: string, path: string): string {

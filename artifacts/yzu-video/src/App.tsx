@@ -40,6 +40,7 @@ import AdminWallet from "@/pages/admin/wallet";
 import AdminSettings from "@/pages/admin/settings";
 import AdminAuditLogs from "@/pages/admin/audit-logs";
 import AdminSystem from "@/pages/admin/system";
+import AdminSystemCheck from "@/pages/admin/system-check";
 import AdminNotifications from "@/pages/admin/notifications-mgmt";
 import AdminReports from "@/pages/admin/reports";
 
@@ -87,6 +88,7 @@ function AppRouter() {
       <Route path="/admin/settings" component={AdminSettings} />
       <Route path="/admin/audit-logs" component={AdminAuditLogs} />
       <Route path="/admin/system" component={AdminSystem} />
+      <Route path="/admin/system-check" component={AdminSystemCheck} />
       <Route path="/admin/notifications-mgmt" component={AdminNotifications} />
       <Route path="/admin/reports" component={AdminReports} />
 

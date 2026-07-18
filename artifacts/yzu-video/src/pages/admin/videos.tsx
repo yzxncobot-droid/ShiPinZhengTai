@@ -380,8 +380,8 @@ export default function AdminVideos() {
                 <div>
                   <label className="text-sm font-medium">Kategori</label>
                   <Select
-                    value={String(editVideo.categoryId ?? "")}
-                    onValueChange={(v) => setEditVideo((p: any) => ({ ...p, categoryId: parseInt(v) || null }))}
+                    value={editVideo.categoryId ?? ""}
+                    onValueChange={(v) => setEditVideo((p: any) => ({ ...p, categoryId: v || null }))}
                   >
                     <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih kategori" /></SelectTrigger>
                     <SelectContent>

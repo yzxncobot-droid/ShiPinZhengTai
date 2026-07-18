@@ -391,22 +391,52 @@ router.patch("/videos/:id", authenticate, requireRole("admin", "owner"), async (
   const id = req.params.id as string;
   const userId = req.user!.userId;
 
-  const [existing] = await db.select().from(videosTable)
-    .where(and(eq(videosTable.id, id), isNull(videosTable.deletedAt))).limit(1);
-  if (!existing) { res.status(404).json({ error: "Not found" }); return; }
+  try {
+    const [existing] = await db.select().from(videosTable)
+      .where(and(eq(videosTable.id, id), isNull(videosTable.deletedAt))).limit(1);
+    if (!existing) { res.status(404).json({ error: "Video tidak ditemukan" }); return; }
 
-  const updates: any = { updatedAt: new Date() };
-  const fields = ["title","description","thumbnail","videoUrl","price","downloadable","isFeatured","categoryId","tags","duration","status"] as const;
-  for (const f of fields) {
-    if (req.body[f] !== undefined) updates[f] = req.body[f];
+    const updates: any = { updatedAt: new Date() };
+    const scalarFields = ["title","description","thumbnail","videoUrl","price","downloadable","isFeatured","tags","duration","status"] as const;
+    for (const f of scalarFields) {
+      if (req.body[f] !== undefined) updates[f] = req.body[f];
+    }
+    if (req.body.scheduledAt !== undefined) {
+      updates.scheduledAt = req.body.scheduledAt ? new Date(req.body.scheduledAt) : null;
+    }
+
+    // categoryId: must be a valid UUID string or null — never parseInt (UUIDs are not integers)
+    if (req.body.categoryId !== undefined) {
+      const catId = req.body.categoryId;
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!catId || catId === "" || catId === "null") {
+        updates.categoryId = null;
+      } else if (typeof catId === "string" && uuidRe.test(catId.trim())) {
+        updates.categoryId = catId.trim();
+      } else {
+        logger.warn({ videoId: id, categoryId: catId }, "VIDEO UPDATE: invalid categoryId rejected");
+        res.status(400).json({ error: "Format category_id tidak valid. Harus berupa UUID." }); return;
+      }
+    }
+
+    const visUpdates = normalizeVisibility(req.body);
+    Object.assign(updates, visUpdates);
+
+    logger.info({ videoId: id, userId, updates: { ...updates, updatedAt: undefined } }, "VIDEO UPDATE");
+
+    const [updated] = await db.update(videosTable).set(updates).where(eq(videosTable.id, id)).returning();
+    res.json(await formatVideo(updated, userId));
+  } catch (err: any) {
+    const pgCode = err?.code ?? err?.cause?.code;
+    logger.error({ err, videoId: id, body: req.body }, "VIDEO UPDATE FAILED");
+    if (pgCode === "23503") {
+      res.status(400).json({ error: "Kategori tidak ditemukan atau sudah dihapus." }); return;
+    }
+    if (pgCode === "42703") {
+      res.status(500).json({ error: "Skema database tidak sinkron. Hubungi administrator." }); return;
+    }
+    res.status(500).json({ error: "Gagal memperbarui video. Coba lagi atau hubungi administrator." });
   }
-  if (req.body.scheduledAt !== undefined) updates.scheduledAt = req.body.scheduledAt ? new Date(req.body.scheduledAt) : null;
-
-  const visUpdates = normalizeVisibility(req.body);
-  Object.assign(updates, visUpdates);
-
-  const [updated] = await db.update(videosTable).set(updates).where(eq(videosTable.id, id)).returning();
-  res.json(await formatVideo(updated, userId));
 });
 
 // ── DELETE /videos/:id (soft delete) ─────────────────────────────────────────
