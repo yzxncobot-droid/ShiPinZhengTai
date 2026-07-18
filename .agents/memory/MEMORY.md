@@ -1,5 +1,6 @@
 - [Yzu视频 API response shapes](yzu-video-api-shapes.md) — generated hooks return arrays vs paginated objects; must match when accessing `.data` — use optional chaining `?.data?.map` not `?.data.map`
-- [Bundle system frontend](bundle-system-frontend.md) — detail page at /bundles/:id, My Bundles at /bundles/my, success dialog in BundlePurchaseSuccess component; no /bundles/my API hook exists, filter useListBundles client-side by hasPurchased
+- [Bundle system frontend](bundle-system-frontend.md) — detail page at /bundles/:id, watch page at /bundle/watch/:videoId; BundlePurchaseSuccess now redirects to /bundles/:id; POST /admin/upload auto-links video to bundle via PATCH /bundles/:id
+- [Bundle video access control](bundle-access-control.md) — GET /bundles/video/:videoId returns bundle+hasPurchased; watch page gates on hasPurchased; public video queries all filter visibility != hidden_bundle
 - [Video visibility system](visibility-system.md) — `videos.visibility` (public/premium/hidden_bundle) is authoritative; legacy type+bundleExclusive kept in sync
 - [Storage layout (Supabase)](storage-layout.md) — single `yzx` bucket with videos/, thumnails/, images/, payments/ sub-folders; use uploadWithRetry
 - [Yzu视频 JWT secret](yzu-video-jwt.md) — SESSION_SECRET env var is required at startup (no fallback allowed)

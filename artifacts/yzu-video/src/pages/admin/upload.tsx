@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -18,7 +18,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import {
   Loader2, UploadCloud, Video as VideoIcon, Image as ImageIcon,
-  Link as LinkIcon, CheckCircle2, Globe, Sparkles,
+  Link as LinkIcon, CheckCircle2, Globe, Sparkles, Package,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
@@ -26,10 +26,31 @@ import { adminFetch } from "@/lib/admin-api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const VISIBILITY_OPTIONS = [
-  { value: "public",        label: "Gratis (Public)",           description: "Semua orang bisa menonton" },
-  { value: "premium",       label: "Premium",                   description: "Butuh langganan atau pembelian" },
-  { value: "hidden_bundle", label: "Bundle Eksklusif (Hidden)", description: "Hanya muncul di bundle" },
+const CONTENT_TYPE_OPTIONS = [
+  {
+    value: "public",
+    label: "Video Gratis",
+    icon: "🌍",
+    description: "Semua orang bisa menonton tanpa login",
+    color: "border-green-400 bg-green-50 text-green-700",
+    selectedColor: "border-green-400 bg-green-50",
+  },
+  {
+    value: "premium",
+    label: "Video Premium",
+    icon: "⭐",
+    description: "Butuh langganan atau pembelian",
+    color: "border-amber-400 bg-amber-50 text-amber-700",
+    selectedColor: "border-amber-400 bg-amber-50",
+  },
+  {
+    value: "hidden_bundle",
+    label: "Video Bundle",
+    icon: "📦",
+    description: "Eksklusif dalam paket bundle",
+    color: "border-purple-400 bg-purple-50 text-purple-700",
+    selectedColor: "border-purple-400 bg-purple-50",
+  },
 ] as const;
 
 type VideoSourceType = "upload" | "external_link";
@@ -39,9 +60,7 @@ type VideoSourceType = "upload" | "external_link";
 function isValidVideoLink(url: string): boolean {
   try {
     const u = new URL(url);
-    // Direct media files
     if (/\.(mp4|webm|mov|avi|mkv|m3u8)(\?.*)?$/i.test(u.pathname)) return true;
-    // Streaming & platform links
     if (/youtube\.com|youtu\.be/.test(u.hostname)) return true;
     if (/vimeo\.com/.test(u.hostname)) return true;
     if (u.hostname === "drive.google.com") return true;
@@ -54,23 +73,30 @@ function isValidVideoLink(url: string): boolean {
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
 const uploadSchema = z.object({
-  title:          z.string().min(3, "Judul minimal 3 karakter"),
-  description:    z.string().optional(),
-  /** UUID string – matches the DB category primary key */
-  categoryId:     z.string().min(1, "Pilih kategori"),
-  visibility:     z.enum(["public", "premium", "hidden_bundle"]).default("public"),
-  price:          z.coerce.number().min(0).optional(),
-  downloadable:   z.boolean().default(false),
+  title:           z.string().min(3, "Judul minimal 3 karakter"),
+  description:     z.string().optional(),
+  categoryId:      z.string().min(1, "Pilih kategori"),
+  visibility:      z.enum(["public", "premium", "hidden_bundle"]).default("public"),
+  bundleId:        z.string().optional(),
+  price:           z.coerce.number().min(0).optional(),
+  downloadable:    z.boolean().default(false),
   videoSourceType: z.enum(["upload", "external_link"]).default("upload"),
-  videoUrl:       z.string().min(1, "Video wajib diisi"),
-  videoFilePath:  z.string().optional(),
-  thumbnail:      z.string().min(1, "Thumbnail wajib diupload"),
+  videoUrl:        z.string().min(1, "Video wajib diisi"),
+  videoFilePath:   z.string().optional(),
+  thumbnail:       z.string().min(1, "Thumbnail wajib diupload"),
 }).superRefine((data, ctx) => {
   if (data.videoSourceType === "external_link" && data.videoUrl && !isValidVideoLink(data.videoUrl)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["videoUrl"],
       message: "Link tidak valid. Gunakan YouTube, Vimeo, Google Drive, atau link MP4/M3U8 langsung.",
+    });
+  }
+  if (data.visibility === "hidden_bundle" && !data.bundleId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["bundleId"],
+      message: "Pilih bundle tujuan untuk video bundle",
     });
   }
 });
@@ -110,6 +136,10 @@ export default function AdminUploadVideo() {
     ? categoriesRaw
     : (categoriesRaw as any)?.data ?? [];
 
+  // Bundles list for bundle selector
+  const [bundles, setBundles] = useState<any[]>([]);
+  const [isLoadingBundles, setIsLoadingBundles] = useState(false);
+
   const [isUploadingVideo, setIsUploadingVideo]   = useState(false);
   const [isUploadingThumb, setIsUploadingThumb]   = useState(false);
   const [isSubmitting, setIsSubmitting]           = useState(false);
@@ -125,6 +155,7 @@ export default function AdminUploadVideo() {
       description: "",
       categoryId: "",
       visibility: "public",
+      bundleId: "",
       price: 0,
       downloadable: false,
       videoSourceType: "upload",
@@ -138,6 +169,16 @@ export default function AdminUploadVideo() {
   const videoSourceType = form.watch("videoSourceType");
   const videoUrl        = form.watch("videoUrl");
   const thumbnail       = form.watch("thumbnail");
+
+  // Load bundles when hidden_bundle is selected
+  useEffect(() => {
+    if (visibility !== "hidden_bundle") return;
+    setIsLoadingBundles(true);
+    adminFetch("/bundles/all")
+      .then((data: any) => setBundles(Array.isArray(data) ? data : []))
+      .catch(() => setBundles([]))
+      .finally(() => setIsLoadingBundles(false));
+  }, [visibility]);
 
   // ── File upload ──────────────────────────────────────────────────────────────
   const handleFileUpload = async (file: File, type: "video" | "image") => {
@@ -201,16 +242,42 @@ export default function AdminUploadVideo() {
     if (values.visibility === "public") values.price = 0;
     setIsSubmitting(true);
     try {
-      await adminFetch("/videos", {
+      // 1. Create the video
+      const created: any = await adminFetch("/videos", {
         method: "POST",
         body: JSON.stringify({
           ...values,
-          categoryId:     values.categoryId || null,
+          categoryId:      values.categoryId || null,
           videoSourceType: values.videoSourceType,
-          videoFilePath:  values.videoFilePath || null,
-          thumbnail:      values.thumbnail || null,
+          videoFilePath:   values.videoFilePath || null,
+          thumbnail:       values.thumbnail || null,
         }),
       });
+
+      // 2. If bundle video, link it to the chosen bundle
+      if (values.visibility === "hidden_bundle" && values.bundleId && created?.id) {
+        try {
+          // Fetch existing bundle to get current videoIds
+          const existingBundle: any = await adminFetch(`/bundles/${values.bundleId}`);
+          const currentIds: string[] = (existingBundle?.videos ?? []).map((v: any) => v.id);
+          if (!currentIds.includes(created.id)) {
+            await adminFetch(`/bundles/${values.bundleId}`, {
+              method: "PATCH",
+              body: JSON.stringify({ videoIds: [...currentIds, created.id] }),
+            });
+          }
+        } catch (bundleErr: any) {
+          // Video created but bundle link failed — warn user but don't block
+          toast({
+            title: "Video dibuat, tapi gagal ditambahkan ke bundle",
+            description: bundleErr.message,
+            variant: "destructive",
+          });
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       toast({ title: "🎉 Video berhasil dipublikasi!" });
       setLocation("/admin/videos");
     } catch (err: any) {
@@ -239,7 +306,116 @@ export default function AdminUploadVideo() {
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
 
               {/* ══════════════════════════════════════════════
-                  1. VIDEO SOURCE
+                  1. CONTENT TYPE
+              ══════════════════════════════════════════════ */}
+              <SectionCard
+                icon={<Package className="h-4 w-4" />}
+                title="Tipe Konten"
+                gradient="bg-gradient-to-r from-purple-500 to-pink-500"
+              >
+                <FormField control={form.control} name="visibility" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-gray-700 font-semibold sr-only">Tipe Konten</FormLabel>
+                    <FormControl>
+                      <div className="grid grid-cols-3 gap-3">
+                        {CONTENT_TYPE_OPTIONS.map((opt) => {
+                          const isSelected = field.value === opt.value;
+                          return (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => {
+                                field.onChange(opt.value);
+                                // Reset bundle when switching away
+                                if (opt.value !== "hidden_bundle") form.setValue("bundleId", "");
+                              }}
+                              className={`flex flex-col items-center text-center gap-1.5 py-4 px-2 rounded-xl border-2 transition-all font-medium text-sm
+                                ${isSelected ? opt.color + " shadow-sm scale-[1.02]" : "border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300"}`}
+                            >
+                              <span className="text-2xl">{opt.icon}</span>
+                              <span className="font-extrabold text-[12px] leading-tight">{opt.label}</span>
+                              <span className="text-[10px] leading-tight opacity-70">{opt.description}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+
+                {/* Bundle selector (only when hidden_bundle) */}
+                {visibility === "hidden_bundle" && (
+                  <FormField control={form.control} name="bundleId" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-gray-700 font-semibold">
+                        Bundle Tujuan <span className="text-red-500">*</span>
+                      </FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value || undefined}
+                        disabled={isLoadingBundles}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="bg-purple-50/40 border-purple-200 focus:border-purple-400">
+                            {isLoadingBundles
+                              ? <span className="text-muted-foreground flex items-center gap-2"><Loader2 className="h-3 w-3 animate-spin" /> Memuat bundle…</span>
+                              : <SelectValue placeholder="Pilih bundle tujuan" />
+                            }
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {bundles.length === 0 && !isLoadingBundles ? (
+                            <div className="py-3 px-4 text-sm text-muted-foreground text-center">
+                              Belum ada bundle. Buat bundle dulu di menu Bundles.
+                            </div>
+                          ) : (
+                            bundles.map((b: any) => (
+                              <SelectItem key={b.id} value={b.id}>
+                                <div className="flex items-center gap-2">
+                                  <Package className="h-3.5 w-3.5 text-purple-500 shrink-0" />
+                                  <span>{b.title}</span>
+                                  <span className="text-xs text-muted-foreground">({b.videoCount ?? 0} video)</span>
+                                </div>
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription className="text-purple-600 text-xs font-medium">
+                        Video ini akan otomatis masuk ke bundle yang dipilih dan tidak akan muncul di Home, Explore, atau Search.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                )}
+
+                {/* Price (premium/hidden_bundle only) */}
+                {(visibility === "premium" || visibility === "hidden_bundle") && (
+                  <FormField control={form.control} name="price" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-gray-700 font-semibold">Harga Pembelian Satuan (Rp)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          placeholder="Isi 0 jika hanya via bundle/langganan"
+                          className="bg-amber-50/20 border-amber-200 focus:border-amber-400"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {visibility === "hidden_bundle"
+                          ? "Opsional: Jika diisi, pengguna bisa membeli video ini langsung selain via bundle."
+                          : "Pengguna bisa membeli video ini tanpa langganan."}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                )}
+              </SectionCard>
+
+              {/* ══════════════════════════════════════════════
+                  2. VIDEO SOURCE
               ══════════════════════════════════════════════ */}
               <SectionCard
                 icon={<VideoIcon className="h-4 w-4" />}
@@ -359,7 +535,6 @@ export default function AdminUploadVideo() {
                         </div>
                       </FormControl>
                       <FormMessage />
-                      {/* Supported links legend */}
                       <div className="flex flex-wrap gap-1.5 pt-1">
                         {["YouTube", "Vimeo", "Google Drive", "MP4/WebM", "M3U8/HLS"].map((lbl) => (
                           <span
@@ -376,7 +551,7 @@ export default function AdminUploadVideo() {
               </SectionCard>
 
               {/* ══════════════════════════════════════════════
-                  2. THUMBNAIL
+                  3. THUMBNAIL
               ══════════════════════════════════════════════ */}
               <SectionCard
                 icon={<ImageIcon className="h-4 w-4" />}
@@ -435,7 +610,7 @@ export default function AdminUploadVideo() {
               </SectionCard>
 
               {/* ══════════════════════════════════════════════
-                  3. DETAIL VIDEO
+                  4. DETAIL VIDEO
               ══════════════════════════════════════════════ */}
               <SectionCard
                 icon={<Sparkles className="h-4 w-4" />}
@@ -474,101 +649,49 @@ export default function AdminUploadVideo() {
                   </FormItem>
                 )} />
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Category */}
-                  <FormField control={form.control} name="categoryId" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-gray-700 font-semibold">
-                        Kategori <span className="text-red-500">*</span>
-                      </FormLabel>
-                      <Select
-                        onValueChange={(v) => field.onChange(v)}
-                        value={field.value || undefined}
-                        disabled={isLoadingCategories}
-                      >
-                        <FormControl>
-                          <SelectTrigger className="bg-amber-50/30 border-amber-200 focus:border-amber-400">
-                            {isLoadingCategories
-                              ? <span className="text-muted-foreground flex items-center gap-2"><Loader2 className="h-3 w-3 animate-spin" /> Memuat…</span>
-                              : <SelectValue placeholder="Pilih kategori" />
-                            }
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {categories.length === 0 ? (
-                            <div className="py-3 px-4 text-sm text-muted-foreground text-center">
-                              Belum ada kategori
-                              <button
-                                type="button"
-                                onClick={() => refetchCategories()}
-                                className="block mx-auto mt-1 text-xs text-primary underline"
-                              >
-                                Refresh
-                              </button>
-                            </div>
-                          ) : (
-                            categories.map((cat: any) => (
-                              <SelectItem key={cat.id} value={cat.id}>
-                                {cat.name}
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-
-                  {/* Visibility */}
-                  <FormField control={form.control} name="visibility" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-gray-700 font-semibold">
-                        Visibilitas <span className="text-red-500">*</span>
-                      </FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger className="bg-amber-50/30 border-amber-200 focus:border-amber-400">
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {VISIBILITY_OPTIONS.map((o) => (
-                            <SelectItem key={o.value} value={o.value}>
-                              <div>
-                                <p className="font-medium">{o.label}</p>
-                                <p className="text-xs text-muted-foreground">{o.description}</p>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                </div>
-
-                {/* Price (premium/hidden_bundle only) */}
-                {(visibility === "premium" || visibility === "hidden_bundle") && (
-                  <FormField control={form.control} name="price" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-gray-700 font-semibold">Harga Pembelian Satuan (Rp)</FormLabel>
+                {/* Category */}
+                <FormField control={form.control} name="categoryId" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-gray-700 font-semibold">
+                      Kategori <span className="text-red-500">*</span>
+                    </FormLabel>
+                    <Select
+                      onValueChange={(v) => field.onChange(v)}
+                      value={field.value || undefined}
+                      disabled={isLoadingCategories}
+                    >
                       <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="Isi 0 jika hanya untuk pelanggan"
-                          className="bg-amber-50/20 border-amber-200 focus:border-amber-400"
-                          {...field}
-                        />
+                        <SelectTrigger className="bg-amber-50/30 border-amber-200 focus:border-amber-400">
+                          {isLoadingCategories
+                            ? <span className="text-muted-foreground flex items-center gap-2"><Loader2 className="h-3 w-3 animate-spin" /> Memuat…</span>
+                            : <SelectValue placeholder="Pilih kategori" />
+                          }
+                        </SelectTrigger>
                       </FormControl>
-                      <FormDescription>
-                        {visibility === "hidden_bundle"
-                          ? "Jika diisi, pengguna bisa membeli video ini langsung (selain via bundle)."
-                          : "Pengguna bisa membeli video ini tanpa langganan."}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                )}
+                      <SelectContent>
+                        {categories.length === 0 ? (
+                          <div className="py-3 px-4 text-sm text-muted-foreground text-center">
+                            Belum ada kategori
+                            <button
+                              type="button"
+                              onClick={() => refetchCategories()}
+                              className="block mx-auto mt-1 text-xs text-primary underline"
+                            >
+                              Refresh
+                            </button>
+                          </div>
+                        ) : (
+                          categories.map((cat: any) => (
+                            <SelectItem key={cat.id} value={cat.id}>
+                              {cat.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
 
                 {/* Downloadable */}
                 <FormField control={form.control} name="downloadable" render={({ field }) => (

@@ -1,5 +1,5 @@
 import { useRoute, useLocation } from "wouter";
-import { ArrowLeft, CheckCircle2, Gift, Layers, Loader2, PlayCircle, ShieldCheck, ShoppingCart, Zap } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Gift, Layers, Loader2, PlayCircle, ShieldCheck, ShoppingCart, Zap, Lock } from "lucide-react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +26,7 @@ export default function BundleDetailPage() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const [successData, setSuccessData] = useState<{ bundleTitle: string; videoCount: number; price: number; purchasedAt: string } | null>(null);
+  const [successData, setSuccessData] = useState<{ bundleId: string; bundleTitle: string; videoCount: number; price: number; purchasedAt: string } | null>(null);
 
   const { data: bundle, isLoading } = useGetBundle(id, { query: { enabled: !!id } });
   const purchaseMutation = usePurchaseBundle();
@@ -44,6 +44,7 @@ export default function BundleDetailPage() {
         queryClient.invalidateQueries({ queryKey: getListBundlesQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetBundleQueryKey(id) });
         setSuccessData({
+          bundleId: id,
           bundleTitle: bundle?.title ?? "",
           videoCount: bundle?.videoCount ?? 0,
           price: bundle?.price ?? 0,
@@ -149,20 +150,27 @@ export default function BundleDetailPage() {
           <h2 className="font-heading font-extrabold text-slate-800 text-base mb-3">Daftar Video</h2>
           <div className="space-y-3 mb-8">
             {bundle.videos?.map((v: any, i: number) => (
-              <div key={v.id} className="flex items-center gap-3 bg-white border border-slate-100 rounded-2xl p-3 shadow-sm">
+              <div
+                key={v.id}
+                className={`flex items-center gap-3 bg-white border border-slate-100 rounded-2xl p-3 shadow-sm transition-all ${bundle.hasPurchased ? "cursor-pointer hover:border-purple-200 hover:bg-purple-50/40" : ""}`}
+                onClick={() => bundle.hasPurchased && setLocation(`/bundle/watch/${v.id}`)}
+              >
                 <div className="relative h-14 w-24 rounded-xl bg-slate-200 overflow-hidden shrink-0">
                   {v.thumbnail && <img src={v.thumbnail} alt={v.title} className="h-full w-full object-cover" />}
-                  {v.duration && (
-                    <span className="absolute bottom-1 right-1 bg-black/70 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
-                      {v.duration}
-                    </span>
+                  {bundle.hasPurchased && (
+                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                      <div className="h-8 w-8 rounded-full bg-white/90 flex items-center justify-center">
+                        <PlayCircle className="h-5 w-5 text-purple-600 fill-purple-600" />
+                      </div>
+                    </div>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-[13px] text-slate-800 line-clamp-2 leading-snug">{v.title}</p>
-                  {v.views !== undefined && (
-                    <p className="text-[11px] font-medium text-slate-400 mt-0.5">{v.views?.toLocaleString()} views</p>
-                  )}
+                  {bundle.hasPurchased
+                    ? <p className="text-[11px] font-bold text-purple-500 mt-0.5">▶ Tonton</p>
+                    : <p className="text-[11px] font-medium text-slate-400 mt-0.5">🔒 Beli bundle untuk menonton</p>
+                  }
                 </div>
                 <span className="text-[11px] font-bold text-slate-300 shrink-0">#{i + 1}</span>
               </div>
@@ -197,11 +205,12 @@ export default function BundleDetailPage() {
 
       {successData && (
         <BundlePurchaseSuccess
+          bundleId={successData.bundleId}
           bundleTitle={successData.bundleTitle}
           videoCount={successData.videoCount}
           price={successData.price}
           purchasedAt={successData.purchasedAt}
-          onOpenBundle={() => { setSuccessData(null); }}
+          onOpenBundle={() => { setSuccessData(null); setLocation(`/bundles/${successData.bundleId}`); }}
           onBack={() => setLocation("/bundles")}
         />
       )}

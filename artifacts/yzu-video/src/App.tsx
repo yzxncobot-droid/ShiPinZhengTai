@@ -41,6 +41,7 @@ import AdminSettings from "@/pages/admin/settings";
 import AdminAuditLogs from "@/pages/admin/audit-logs";
 import AdminSystem from "@/pages/admin/system";
 import AdminSystemCheck from "@/pages/admin/system-check";
+import BundleWatchPage from "@/pages/bundle/watch";
 import AdminNotifications from "@/pages/admin/notifications-mgmt";
 import AdminReports from "@/pages/admin/reports";
 
@@ -66,6 +67,7 @@ function AppRouter() {
       <Route path="/notifications" component={NotificationsPage} />
       <Route path="/leaderboard" component={LeaderboardPage} />
       <Route path="/search" component={SearchPage} />
+      <Route path="/bundle/watch/:videoId" component={BundleWatchPage} />
       <Route path="/bundles" component={BundlesPage} />
       <Route path="/bundles/my" component={MyBundlesPage} />
       <Route path="/bundles/:id" component={BundleDetailPage} />

@@ -1,9 +1,10 @@
-import { CheckCircle2, Gift } from "lucide-react";
+import { CheckCircle2, Gift, PlayCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const formatRupiah = (v: number) => `Rp ${v.toLocaleString("id-ID")}`;
 
 interface Props {
+  bundleId: string;
   bundleTitle: string;
   videoCount: number;
   price: number;
@@ -19,7 +20,6 @@ export function BundlePurchaseSuccess({ bundleTitle, videoCount, price, purchase
         {/* Confetti-style header */}
         <div className="flex justify-center mb-2">
           <div className="relative">
-            {/* decorative dots */}
             {["top-0 left-0", "top-0 right-0", "bottom-4 left-2", "bottom-4 right-2"].map((pos, i) => (
               <span key={i} className={`absolute h-2 w-2 rounded-full ${["bg-pink-400","bg-yellow-400","bg-blue-400","bg-green-400"][i]} ${pos} -translate-x-4 -translate-y-4`} />
             ))}
@@ -52,17 +52,17 @@ export function BundlePurchaseSuccess({ bundleTitle, videoCount, price, purchase
         {/* Actions */}
         <div className="space-y-2">
           <Button
-            className="w-full h-12 rounded-2xl font-extrabold bg-gradient-to-br from-pink-500 to-rose-500 text-white border-none shadow-md shadow-pink-500/20"
+            className="w-full h-12 rounded-2xl font-extrabold bg-gradient-to-br from-purple-500 to-pink-500 text-white border-none shadow-md shadow-purple-500/20 gap-2"
             onClick={onOpenBundle}
           >
-            <Gift className="h-4 w-4 mr-2" /> Buka Paket
+            <PlayCircle className="h-4 w-4" /> Tonton Video Bundle
           </Button>
           <Button
             variant="ghost"
-            className="w-full h-11 rounded-2xl font-bold text-purple-600 hover:bg-purple-50"
+            className="w-full h-11 rounded-2xl font-bold text-slate-500 hover:bg-slate-100"
             onClick={onBack}
           >
-            Kembali ke Beranda
+            Kembali ke Bundles
           </Button>
         </div>
       </div>

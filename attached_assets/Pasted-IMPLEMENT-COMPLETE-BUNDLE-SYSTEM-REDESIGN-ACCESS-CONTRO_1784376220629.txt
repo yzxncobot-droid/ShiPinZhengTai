@@ -1,0 +1,527 @@
+IMPLEMENT COMPLETE BUNDLE SYSTEM REDESIGN & ACCESS CONTROL
+
+GOAL:
+Membuat sistem Bundle yang benar-benar terpisah dari video Free dan Premium.
+
+Setelah user membeli Bundle dan menekan salah satu video di dalam bundle, user diarahkan ke halaman detail video seperti desain referensi (Fun Premium Kids Platform Style).
+
+Video bundle harus bersifat PRIVATE dan tidak boleh muncul di Home, Explore, Search, Trending, Premium, atau daftar video publik lainnya.
+
+==================================================
+BUNDLE PURCHASE FLOW
+==================================================
+
+Flow:
+
+1. User membuka halaman Bundle.
+2. User membeli Bundle.
+3. Pembayaran berhasil.
+4. User langsung diarahkan ke:
+
+/bundle/[bundleId]
+
+JANGAN arahkan ke homepage.
+
+5. Di halaman bundle tampil daftar video yang termasuk dalam bundle tersebut.
+6. Saat user menekan salah satu video:
+   Redirect ke:
+
+/bundle/watch/[videoId]
+
+atau
+
+/watch/[videoId]?bundle=true
+
+==================================================
+BUNDLE VIDEO DETAIL PAGE
+==================================================
+
+Buat halaman detail video bundle dengan desain seperti referensi.
+
+Route:
+
+/bundle/watch/[videoId]
+
+==================================================
+HEADER
+==================================================
+
+Tampilkan:
+
+- Tombol Back
+- Kembali ke halaman Bundle
+
+==================================================
+VIDEO PLAYER
+==================================================
+
+Tampilkan:
+
+- Thumbnail sebelum play
+- Full width player
+- Responsive mobile
+
+Support:
+
+- Supabase Storage Video
+- External Video URL
+
+==================================================
+VIDEO INFORMATION
+==================================================
+
+Tampilkan:
+
+- Judul Video
+- Total Views
+- Like Counter
+- Share Button
+- Save/Favorite Button
+
+JANGAN tampilkan:
+
+- Nama uploader
+- Avatar uploader
+- Channel
+- Subscriber
+- Follow Button
+- Informasi creator
+
+Karena bundle merupakan private content.
+
+==================================================
+DESCRIPTION & COMMENTS
+==================================================
+
+Di bawah video tampilkan tab:
+
+TAB 1:
+Deskripsi
+
+TAB 2:
+Komentar
+
+Default:
+Deskripsi
+
+Format:
+
+Deskripsi | Komentar (jumlah)
+
+==================================================
+DESCRIPTION
+==================================================
+
+Ambil dari database:
+
+videos.description
+
+==================================================
+COMMENTS
+==================================================
+
+Ambil dari database.
+
+Fitur:
+
+- User login dapat berkomentar
+- Menampilkan jumlah komentar
+- Menampilkan tanggal komentar
+- Realtime update jika memungkinkan
+
+==================================================
+VIDEO DALAM PAKET INI
+==================================================
+
+Di bawah Deskripsi/Komentar tampilkan:
+
+"Video Dalam Paket Ini"
+
+Query berdasarkan bundle_id.
+
+==================================================
+RULES
+==================================================
+
+Minimal:
+1 video
+
+Maksimal:
+10 video
+
+Tampilkan:
+
+- Thumbnail
+- Judul
+
+JANGAN tampilkan:
+
+- Uploader
+- Author
+- Channel
+- Subscriber
+
+==================================================
+VIDEO NAVIGATION
+==================================================
+
+Saat user menekan video lain dalam:
+
+"Video Dalam Paket Ini"
+
+Maka:
+
+- Tetap di halaman watch
+- Load video baru
+- Update URL
+- Jangan kembali ke halaman bundle
+
+==================================================
+ACCESS CONTROL
+==================================================
+
+Sebelum memutar video:
+
+1. Ambil bundle_id video
+2. Cek apakah user telah membeli bundle
+
+IF purchased:
+Allow Access
+
+IF not purchased:
+Redirect ke halaman detail bundle
+
+Tampilkan pesan:
+
+"Anda harus membeli bundle ini untuk menonton video."
+
+==================================================
+HIDE BUNDLE VIDEOS FROM PUBLIC
+==================================================
+
+Semua video bundle harus bersifat PRIVATE.
+
+Video bundle tidak boleh muncul di:
+
+==================================================
+HOME PAGE
+==================================================
+
+Jangan tampilkan pada:
+
+- Latest Videos
+- Trending Videos
+- Recommended Videos
+- Continue Watching
+- Popular Videos
+- New Uploads
+
+==================================================
+EXPLORE PAGE
+==================================================
+
+Jangan tampilkan video bundle.
+
+==================================================
+CATEGORY PAGE
+==================================================
+
+Jangan tampilkan video bundle.
+
+==================================================
+SEARCH PAGE
+==================================================
+
+Jangan tampilkan video bundle.
+
+==================================================
+SEARCH SUGGESTIONS
+==================================================
+
+Jangan tampilkan video bundle.
+
+==================================================
+TRENDING PAGE
+==================================================
+
+Jangan tampilkan video bundle.
+
+==================================================
+PREMIUM PAGE
+==================================================
+
+Jangan tampilkan video bundle.
+
+==================================================
+RELATED VIDEOS
+==================================================
+
+Jangan tampilkan video bundle sebagai rekomendasi.
+
+==================================================
+PUBLIC API
+==================================================
+
+Video bundle tidak boleh ikut terambil dalam endpoint publik.
+
+==================================================
+SHOW BUNDLE VIDEOS ONLY IN
+==================================================
+
+Video bundle hanya boleh muncul di:
+
+1.
+
+/bundle/[bundleId]
+
+2.
+
+/bundle/watch/[videoId]
+
+3.
+
+"Video Dalam Paket Ini"
+
+4.
+
+Dashboard Admin
+
+==================================================
+DATABASE UPDATE
+==================================================
+
+Tambahkan field pada tabel videos:
+
+content_type
+
+Value:
+
+- free
+- premium
+- bundle
+
+ATAU
+
+is_bundle_video BOOLEAN
+
+==================================================
+QUERY FILTERING
+==================================================
+
+Semua query video publik WAJIB menggunakan filter:
+
+WHERE content_type != 'bundle'
+
+atau
+
+WHERE is_bundle_video = false
+
+==================================================
+EXAMPLES
+==================================================
+
+Home:
+
+SELECT * FROM videos
+WHERE content_type != 'bundle'
+
+Explore:
+
+SELECT * FROM videos
+WHERE content_type != 'bundle'
+
+Trending:
+
+SELECT * FROM videos
+WHERE content_type != 'bundle'
+
+Search:
+
+SELECT * FROM videos
+WHERE content_type != 'bundle'
+
+Premium:
+
+SELECT * FROM videos
+WHERE content_type = 'premium'
+
+==================================================
+ADMIN DASHBOARD UPDATE
+==================================================
+
+Saat upload video, tambahkan pilihan:
+
+Content Type
+
+○ Free Video
+○ Premium Video
+○ Bundle Video
+
+==================================================
+IF BUNDLE VIDEO SELECTED
+==================================================
+
+Admin wajib memilih:
+
+Bundle Tujuan
+
+Dropdown:
+
+- Bundle A
+- Bundle B
+- Bundle C
+
+dst.
+
+Video otomatis:
+
+✔ Masuk ke bundle yang dipilih
+✔ Tidak muncul di Home
+✔ Tidak muncul di Explore
+✔ Tidak muncul di Search
+✔ Tidak muncul di Premium
+✔ Tidak muncul di Trending
+✔ Tidak muncul di Recommended
+
+==================================================
+DATABASE STRUCTURE
+==================================================
+
+Bundles:
+
+- id
+- title
+- description
+- price
+- thumbnail
+- created_at
+
+Bundle Videos:
+
+- id
+- bundle_id
+- video_id
+
+Videos:
+
+- id
+- title
+- description
+- thumbnail_url
+- video_url
+- content_type
+- views
+- likes
+- created_at
+
+Comments:
+
+- id
+- video_id
+- user_id
+- content
+- created_at
+
+==================================================
+BUNDLE SECURITY
+==================================================
+
+Video bundle tidak boleh dapat diakses melalui URL publik biasa.
+
+Sebelum load player:
+
+1. Ambil bundle_id video
+2. Cek ownership bundle
+3. Cek pembelian bundle user
+
+IF purchased:
+Allow
+
+IF not purchased:
+Redirect ke halaman bundle
+
+==================================================
+EXPECTED RESULT
+==================================================
+
+FREE VIDEO
+
+✔ Muncul Home
+✔ Muncul Explore
+✔ Muncul Search
+✔ Muncul Trending
+
+--------------------------------------------------
+
+PREMIUM VIDEO
+
+✔ Muncul Home
+✔ Muncul Explore
+✔ Muncul Search
+✔ Muncul Premium
+✔ Bisa dibeli
+✔ Bisa diakses subscription
+
+--------------------------------------------------
+
+BUNDLE VIDEO
+
+✖ Tidak muncul Home
+✖ Tidak muncul Explore
+✖ Tidak muncul Search
+✖ Tidak muncul Trending
+✖ Tidak muncul Premium
+✖ Tidak muncul Recommended
+✖ Tidak muncul Related Videos
+✖ Tidak muncul Public API
+
+✔ Hanya muncul di halaman Bundle
+✔ Hanya muncul setelah bundle dibeli
+✔ Hanya muncul pada "Video Dalam Paket Ini"
+✔ Hanya dapat ditonton oleh pembeli bundle
+✔ Tidak menampilkan uploader/channel
+✔ Hanya menampilkan Deskripsi dan Komentar
+
+==================================================
+UI DESIGN
+==================================================
+
+Gunakan tema:
+
+FUN PREMIUM KIDS PLATFORM
+
+Color Palette:
+
+- Light Blue
+- Light Purple
+- Soft Yellow
+- White
+
+Style:
+
+- Modern Mobile First
+- Rounded Cards
+- Large Thumbnail
+- Smooth Animation
+- Premium Kids Design
+- Clean Layout
+- Fast Loading
+
+==================================================
+QUALITY CHECK
+==================================================
+
+Lakukan pengecekan menyeluruh:
+
+- React Errors
+- API Errors
+- Query Errors
+- Access Control Bugs
+- Bundle Ownership Validation
+- Video Loading Bugs
+- Hydration Errors
+- Mobile Responsiveness
+- Infinite Loading Issues
+- Security Validation
+
+Pastikan seluruh flow Bundle berjalan tanpa bug dari pembelian hingga pemutaran video.

@@ -259,6 +259,48 @@ router.delete("/bundles/:id", authenticate, requireRole("admin", "owner"), async
   res.json({ message: "Deleted" });
 });
 
+// ── GET /bundles/video/:videoId — find bundle for a video + ownership check ───
+router.get("/bundles/video/:videoId", optionalAuth, async (req, res) => {
+  const videoId = req.params.videoId as string;
+  const userId = req.user?.userId;
+
+  // Guard against non-UUID IDs (Postgres throws on invalid UUID input)
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRe.test(videoId)) {
+    res.status(404).json({ error: "Video tidak ditemukan" });
+    return;
+  }
+
+  try {
+    // Find which bundle this video belongs to
+    const [link] = await db
+      .select({ bundleId: bundleVideosTable.bundleId })
+      .from(bundleVideosTable)
+      .where(eq(bundleVideosTable.videoId, videoId))
+      .limit(1);
+
+    if (!link) {
+      res.status(404).json({ error: "Video tidak termasuk dalam bundle manapun" });
+      return;
+    }
+
+    const [bundle] = await db.select().from(bundlesTable)
+      .where(and(eq(bundlesTable.id, link.bundleId), isNull(bundlesTable.deletedAt)))
+      .limit(1);
+
+    if (!bundle) {
+      res.status(404).json({ error: "Bundle tidak ditemukan" });
+      return;
+    }
+
+    const formatted = await formatBundle(bundle, { includeVideos: true, userId });
+    res.json(formatted);
+  } catch (err) {
+    logger.error({ err, videoId }, "GET /bundles/video/:videoId failed");
+    res.status(500).json({ error: "Gagal memuat bundle" });
+  }
+});
+
 // ── POST /bundles/:id/purchase — buy a bundle ─────────────────────────────────
 router.post("/bundles/:id/purchase", authenticate, async (req, res) => {
   const bundleId = req.params.id as string;
