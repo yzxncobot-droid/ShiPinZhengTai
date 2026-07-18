@@ -38,19 +38,18 @@ export const supabase = createClient(
 );
 
 /**
- * All media lives in the single "yzx" bucket (default) unless overridden via
- * per-folder bucket env vars.  Sub-folders within the bucket:
+ * All media lives in the single "Yzu" bucket (default) unless overridden via
+ * the SUPABASE_VIDEOS_BUCKET env var.  Sub-folders within the bucket:
  *   videos/      → uploaded video files
- *   thumnails/   → video thumbnails (typo preserved from bucket naming)
+ *   thumbnails/  → video thumbnails
  *   images/      → avatars, logos, banners, QRIS
  *   payments/    → payment proof screenshots
  *
- * If SUPABASE_VIDEOS_BUCKET / SUPABASE_THUMBNAILS_BUCKET / SUPABASE_PAYMENTS_BUCKET
- * are set to different bucket names, those are used instead.
+ * Set SUPABASE_VIDEOS_BUCKET to use a different bucket name.
  */
-export const MEDIA_BUCKET       = process.env.SUPABASE_VIDEOS_BUCKET    ?? "yzx";
-export const THUMBNAILS_BUCKET  = process.env.SUPABASE_THUMBNAILS_BUCKET ?? MEDIA_BUCKET;
-export const PAYMENTS_BUCKET_NAME = process.env.SUPABASE_PAYMENTS_BUCKET ?? MEDIA_BUCKET;
+export const MEDIA_BUCKET         = process.env.SUPABASE_VIDEOS_BUCKET    ?? "Yzu";
+export const THUMBNAILS_BUCKET    = process.env.SUPABASE_THUMBNAILS_BUCKET ?? MEDIA_BUCKET;
+export const PAYMENTS_BUCKET_NAME = process.env.SUPABASE_PAYMENTS_BUCKET   ?? MEDIA_BUCKET;
 
 /** @deprecated alias kept for call-sites still referencing PAYMENT_BUCKET */
 export const PAYMENT_BUCKET = MEDIA_BUCKET;

@@ -91,7 +91,7 @@ async function uploadToMediaBucket(folder: string, file: Express.Multer.File) {
   return uploadWithRetry(MEDIA_BUCKET, filename, file.buffer, file.mimetype, { upsert: false });
 }
 
-// ── Video upload → yzx/videos/ ────────────────────────────────────────────────
+// ── Video upload → Yzu/videos/ ───────────────────────────────────────────────
 router.post(
   "/upload/video",
   authenticate,
@@ -103,7 +103,7 @@ router.post(
     }
     try {
       const { path: storedPath, url } = await uploadToMediaBucket("videos", req.file);
-      logger.info({ path: storedPath, size: req.file.size }, "Video uploaded to Supabase yzx/videos");
+      logger.info({ path: storedPath, size: req.file.size }, "Video uploaded to Supabase Yzu/videos");
       res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size });
     } catch (err: any) {
       logger.error({ err }, "Video upload to Supabase failed");
@@ -112,7 +112,7 @@ router.post(
   },
 );
 
-// ── Thumbnail upload → yzx/thumnails/ ────────────────────────────────────────
+// ── Thumbnail upload → Yzu/thumbnails/ ───────────────────────────────────────
 router.post(
   "/upload/thumbnail",
   authenticate,
@@ -123,9 +123,8 @@ router.post(
       return;
     }
     try {
-      // Note: folder name "thumnails" (single 'n') matches the Supabase bucket path
-      const { path: storedPath, url } = await uploadToMediaBucket("thumnails", req.file);
-      logger.info({ path: storedPath, size: req.file.size }, "Thumbnail uploaded to Supabase yzx/thumnails");
+      const { path: storedPath, url } = await uploadToMediaBucket("thumbnails", req.file);
+      logger.info({ path: storedPath, size: req.file.size }, "Thumbnail uploaded to Supabase Yzu/thumbnails");
       res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size });
     } catch (err: any) {
       logger.error({ err }, "Thumbnail upload to Supabase failed");
@@ -146,7 +145,7 @@ router.post(
     }
     try {
       const { path: storedPath, url } = await uploadToMediaBucket("images", req.file);
-      logger.info({ path: storedPath, size: req.file.size }, "Image uploaded to Supabase yzx/images");
+      logger.info({ path: storedPath, size: req.file.size }, "Image uploaded to Supabase Yzu/images");
       res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size });
     } catch (err: any) {
       logger.error({ err }, "Image upload to Supabase failed");
@@ -187,7 +186,7 @@ router.post(
     // Path within the consolidated yzx bucket: payments/{userId}/{timestamp}-{random}.ext
     const storagePath = `${PAYMENTS_FOLDER}/${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
 
-    logger.info({ userId, storagePath, size: req.file.size, mimetype: req.file.mimetype }, "Uploading payment proof to Supabase yzx/payments");
+    logger.info({ userId, storagePath, size: req.file.size, mimetype: req.file.mimetype }, "Uploading payment proof to Supabase Yzu/payments");
 
     try {
       const { path: savedPath, url: publicUrl } = await uploadWithRetry(
@@ -216,7 +215,7 @@ router.post(
       if (msg.includes("bucket") && msg.includes("not found")) {
         userMessage = `Bucket "${MEDIA_BUCKET}" tidak ditemukan di Supabase. Buat bucket tersebut di dashboard Supabase Storage.`;
       } else if (msg.includes("permission") || msg.includes("policy") || msg.includes("violates")) {
-        userMessage = "Akses ditolak oleh Supabase. Periksa RLS policy pada bucket yzx.";
+        userMessage = "Akses ditolak oleh Supabase. Periksa RLS policy pada bucket Yzu.";
       } else if (msg.includes("already exists") || msg.includes("duplicate")) {
         userMessage = "File dengan nama yang sama sudah ada. Silakan coba lagi.";
       } else if (msg.includes("size") || msg.includes("too large")) {
@@ -260,7 +259,7 @@ router.get("/upload/debug", authenticate, async (req: Request, res: Response) =>
     result.listError = { message: e?.message ?? String(e) };
   }
 
-  // Test upload to yzx/payments/debug/
+  // Test upload to Yzu/payments/debug/
   const tinyPng = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==",
     "base64",

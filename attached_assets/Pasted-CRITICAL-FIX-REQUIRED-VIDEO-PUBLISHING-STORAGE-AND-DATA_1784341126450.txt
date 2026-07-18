@@ -1,0 +1,208 @@
+CRITICAL FIX REQUIRED – VIDEO PUBLISHING, STORAGE, AND DATABASE INTEGRATION
+
+Current issue:
+
+When publishing a video, the system shows:
+
+"Database schema is not synchronized"
+
+and the upload process fails.
+
+==================================================
+OBJECTIVE
+==================================================
+
+Fix the entire video publishing system WITHOUT deleting or modifying existing videos, bundles, purchases, users, subscriptions, categories, payments, or historical data.
+
+Preserve all existing production data.
+
+==================================================
+1. FIX DATABASE SCHEMA MISMATCH
+==================================================
+
+Investigate why the publish endpoint reports:
+
+"Database schema is not synchronized"
+
+Perform a full audit of:
+
+- Drizzle schema
+- Neon database schema
+- Migration files
+- API payloads
+- Insert queries
+- Required columns
+- Nullable fields
+- Default values
+- Foreign key references
+
+Find the exact mismatch and resolve it properly.
+
+DO NOT bypass the error.
+
+Synchronize:
+
+- application schema
+- migrations
+- Neon database tables
+
+Ensure video publishing works normally again.
+
+==================================================
+2. VIDEO STORAGE RULES
+==================================================
+
+Video Upload File:
+
+When admin uploads a physical video file:
+
+Store video in:
+
+Supabase Storage Bucket:
+Yzu
+
+Example path:
+
+Yzu/videos/{video-id}.mp4
+
+Save only the public URL/path reference inside Neon database.
+
+==================================================
+3. VIDEO LINK UPLOAD MODE
+==================================================
+
+Add optional upload method:
+
+Upload Method:
+
+○ Upload File
+○ External Video Link
+
+If "Upload File" selected:
+
+- upload video to Supabase bucket Yzu
+- save URL in database
+
+If "External Video Link" selected:
+
+- do NOT upload anything to Supabase
+- save video URL directly into Neon database
+- support mp4 links
+- support direct CDN links
+- support external hosted video URLs
+
+==================================================
+4. THUMBNAIL STORAGE
+==================================================
+
+Thumbnail must ALWAYS use Supabase Storage.
+
+Bucket:
+
+Yzu/thumbnails
+
+Rules:
+
+- upload thumbnail to Supabase
+- save thumbnail URL in Neon database
+
+Even if video uses external link mode.
+
+==================================================
+5. KEEP EXISTING DATA SAFE
+==================================================
+
+DO NOT:
+
+- truncate tables
+- drop tables
+- reset database
+- recreate database
+- remove existing videos
+- remove bundle videos
+- remove purchases
+
+Use migrations only.
+
+==================================================
+6. VALIDATE CATEGORY SYSTEM
+==================================================
+
+Before publishing:
+
+Verify selected category exists.
+
+Fix category validation bugs.
+
+Ensure:
+
+category_id is always valid.
+
+If category not found:
+
+show friendly UI error.
+
+Do not crash publishing.
+
+==================================================
+7. IMPROVE ERROR HANDLING
+==================================================
+
+Replace raw SQL/database errors.
+
+Instead of:
+
+"Failed query..."
+
+Show friendly messages:
+
+- Upload failed
+- Invalid category
+- Storage upload failed
+- Database save failed
+- Missing required fields
+
+Log detailed errors only on server.
+
+Never expose SQL queries to users.
+
+==================================================
+8. FULL TESTING
+==================================================
+
+Test all scenarios:
+
+✓ Free video
+✓ Premium video
+✓ Bundle-exclusive video
+✓ File upload
+✓ External link upload
+✓ Thumbnail upload
+✓ Category selection
+✓ One-time purchase videos
+✓ Subscription videos
+
+Verify every published video appears correctly:
+
+- Home
+- Explore
+- Premium
+- Bundles
+- Search
+- Watch page
+
+==================================================
+EXPECTED RESULT
+==================================================
+
+✓ Publish button works
+✓ No schema synchronization errors
+✓ File videos stored in Supabase bucket Yzu
+✓ Link videos stored directly in Neon
+✓ Thumbnails stored in Supabase
+✓ Existing videos preserved
+✓ Existing users preserved
+✓ Existing purchases preserved
+✓ Existing bundles preserved
+✓ Friendly error handling
+✓ Production-ready implementation
