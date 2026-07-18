@@ -1,0 +1,144 @@
+URGENT DATABASE INSERT FIX
+
+Video upload succeeds.
+
+Thumbnail upload succeeds.
+
+Supabase storage upload succeeds.
+
+The failure occurs during INSERT INTO videos.
+
+Perform full debugging on the videos table insert query.
+
+==================================================
+DO NOT DELETE DATA
+==================================================
+
+Preserve:
+
+- existing videos
+- existing users
+- existing bundles
+- existing purchases
+- existing categories
+
+No data loss allowed.
+
+==================================================
+DEBUG INSERT FAILURE
+==================================================
+
+Log:
+
+- SQL query
+- SQL parameters
+- database response
+- stack trace
+
+Identify exactly which column causes the insert failure.
+
+==================================================
+VERIFY TABLE STRUCTURE
+==================================================
+
+Compare:
+
+frontend payload
+
+against
+
+actual videos table schema.
+
+Check:
+
+- video_source_type
+- video_file_path
+- bundle_exclusive
+- status
+- category_id
+- creator_id
+- visibility
+- downloadable
+- is_featured
+
+Ensure every column exists.
+
+If missing:
+
+Create safe migration.
+
+Do not remove existing data.
+
+==================================================
+TYPE VALIDATION
+==================================================
+
+Validate:
+
+category_id
+
+must be integer.
+
+price
+
+must be numeric.
+
+downloadable
+
+must be boolean.
+
+is_featured
+
+must be boolean.
+
+bundle_exclusive
+
+must be boolean.
+
+creator_id
+
+must be valid UUID.
+
+==================================================
+FOREIGN KEY VALIDATION
+==================================================
+
+Verify:
+
+creator_id exists.
+
+category_id exists.
+
+bundle_id exists if bundle mode enabled.
+
+==================================================
+ERROR DISPLAY
+==================================================
+
+Never show raw SQL query to users.
+
+Replace with friendly messages:
+
+Category not found.
+
+User not found.
+
+Database schema mismatch.
+
+Invalid video data.
+
+Storage upload failed.
+
+==================================================
+SUCCESS CRITERIA
+==================================================
+
+Video can be published.
+
+No Error 500.
+
+No SQL error.
+
+No data loss.
+
+Existing videos remain intact.

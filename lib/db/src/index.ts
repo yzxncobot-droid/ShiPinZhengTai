@@ -20,6 +20,11 @@ export const pool = new Pool({
   connectionTimeoutMillis: 5_000,
 });
 
-export const db = drizzle(pool, { schema });
+export const db = drizzle(pool, {
+  schema,
+  // Log every SQL statement + parameters in development so INSERT failures
+  // show the exact query in the API server console.
+  logger: process.env.NODE_ENV === "development",
+});
 
 export * from "./schema";

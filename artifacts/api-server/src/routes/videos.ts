@@ -247,6 +247,7 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
       price, downloadable, isFeatured, categoryId, tags, duration, scheduledAt, status = "published",
     } = req.body;
 
+    // ── Required field guards ─────────────────────────────────────────────────
     if (!title?.trim()) {
       res.status(400).json({ error: "Judul video wajib diisi" }); return;
     }
@@ -254,19 +255,47 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
       res.status(400).json({ error: "Video wajib diupload atau link video wajib diisi" }); return;
     }
 
-    // Sanitise categoryId — must be a non-empty UUID string or null
+    // ── Type coercion & validation ────────────────────────────────────────────
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    // creator_id: must be a valid UUID (comes from JWT — guard against token corruption)
+    if (!userId || !uuidPattern.test(userId)) {
+      logger.error({ userId }, "POST /videos — creator_id is not a valid UUID");
+      res.status(401).json({ error: "Sesi tidak valid, silakan login ulang" }); return;
+    }
+
+    // category_id: must be a non-empty UUID string or null
     const safeCategoryId: string | null =
       categoryId && typeof categoryId === "string" && categoryId.trim() !== ""
         ? categoryId.trim()
         : null;
-
-    // Validate categoryId is actually a UUID to prevent DB errors
-    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (safeCategoryId && !uuidPattern.test(safeCategoryId)) {
-      res.status(400).json({ error: "categoryId tidak valid" }); return;
+      res.status(400).json({ error: "Format category_id tidak valid" }); return;
     }
 
-    // Validate category exists if provided
+    // price: must be a finite non-negative number when provided
+    const safePrice: number | null = price !== undefined && price !== null && price !== ""
+      ? Number(price)
+      : null;
+    if (safePrice !== null && (!Number.isFinite(safePrice) || safePrice < 0)) {
+      res.status(400).json({ error: "Harga tidak valid" }); return;
+    }
+
+    // boolean fields: coerce from string "true"/"false" that forms may send
+    const safeDownloadable = downloadable === true || downloadable === "true";
+    const safeIsFeatured   = isFeatured   === true || isFeatured   === "true";
+
+    // ── FK existence checks ───────────────────────────────────────────────────
+
+    // Verify creator exists in DB (shouldn't fail in practice but confirms FK)
+    const [creatorRow] = await db.select({ id: usersTable.id })
+      .from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+    if (!creatorRow) {
+      logger.error({ userId }, "POST /videos — creator_id not found in users table");
+      res.status(401).json({ error: "Akun tidak ditemukan, silakan login ulang" }); return;
+    }
+
+    // Verify category exists if provided
     if (safeCategoryId) {
       const [cat] = await db.select({ id: categoriesTable.id })
         .from(categoriesTable).where(eq(categoriesTable.id, safeCategoryId)).limit(1);
@@ -277,14 +306,15 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
 
     const visUpdates = normalizeVisibility(req.body);
 
-    const [video] = await db.insert(videosTable).values({
+    // ── Log every insert value before hitting the DB ──────────────────────────
+    const insertPayload = {
       title:           title.trim(),
       description:     description?.trim() || null,
       thumbnail:       thumbnail || null,
       videoUrl:        videoUrl.trim(),
-      price:           price ? Number(price) : null,
-      downloadable:    !!downloadable,
-      isFeatured:      !!isFeatured,
+      price:           safePrice,
+      downloadable:    safeDownloadable,
+      isFeatured:      safeIsFeatured,
       categoryId:      safeCategoryId,
       videoSourceType: videoSourceType ?? "upload",
       videoFilePath:   videoFilePath || null,
@@ -296,22 +326,63 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
       visibility:      visUpdates.visibility ?? "public",
       type:            visUpdates.type ?? "free",
       bundleExclusive: visUpdates.bundleExclusive ?? false,
-    }).returning();
+    };
+
+    logger.info({ insertPayload }, "POST /videos — about to INSERT");
+
+    const [video] = await db.insert(videosTable).values(insertPayload).returning();
+
+    logger.info({ videoId: video.id }, "POST /videos — INSERT succeeded");
 
     // Invalidate analytics cache (best-effort — Redis may be unavailable)
     await invalidateCache(keys.analytics("overview")).catch(() => {});
 
     res.status(201).json(await formatVideo(video, userId));
   } catch (err: any) {
-    logger.error({ err, userId, body: req.body }, "POST /videos failed");
-    const pgCode = err?.code ?? err?.cause?.code;
+    // ── Log full PG error detail for debugging ────────────────────────────────
+    const pgCode      = err?.code      ?? err?.cause?.code;
+    const pgDetail    = err?.detail    ?? err?.cause?.detail;
+    const pgHint      = err?.hint      ?? err?.cause?.hint;
+    const pgColumn    = err?.column    ?? err?.cause?.column;
+    const pgConstraint = err?.constraint ?? err?.cause?.constraint;
+    const pgTable     = err?.table     ?? err?.cause?.table;
+
+    logger.error({
+      err,
+      userId,
+      body: req.body,
+      pg: { code: pgCode, detail: pgDetail, hint: pgHint, column: pgColumn, constraint: pgConstraint, table: pgTable },
+    }, "POST /videos INSERT failed");
+
+    // ── Sanitized, user-friendly error responses (never expose raw SQL) ───────
     if (pgCode === "23503") {
-      res.status(400).json({ error: "Kategori tidak ditemukan (foreign key violation)" }); return;
+      // Foreign key violation — which FK?
+      if (pgConstraint?.includes("category")) {
+        res.status(400).json({ error: "Kategori tidak ditemukan" }); return;
+      }
+      if (pgConstraint?.includes("creator") || pgConstraint?.includes("user")) {
+        res.status(400).json({ error: "Akun tidak ditemukan" }); return;
+      }
+      res.status(400).json({ error: "Data referensi tidak ditemukan" }); return;
     }
     if (pgCode === "23502") {
-      res.status(400).json({ error: `Field wajib kosong: ${err?.column ?? "unknown"}` }); return;
+      // NOT NULL violation
+      res.status(400).json({ error: `Data video tidak lengkap: field '${pgColumn ?? "unknown"}' wajib diisi` }); return;
     }
-    res.status(500).json({ error: err?.message ?? "Gagal menyimpan video ke database" });
+    if (pgCode === "22P02") {
+      // Invalid text representation (e.g. bad UUID or enum value)
+      res.status(400).json({ error: "Format data tidak valid (tipe data salah)" }); return;
+    }
+    if (pgCode === "23514") {
+      // Check constraint violation
+      res.status(400).json({ error: "Data video tidak memenuhi syarat validasi" }); return;
+    }
+    if (pgCode === "42703") {
+      // Undefined column — schema mismatch
+      res.status(500).json({ error: "Skema database tidak sinkron. Hubungi administrator." }); return;
+    }
+    // Generic fallback — never expose err.message which may contain raw SQL
+    res.status(500).json({ error: "Gagal menyimpan video ke database. Coba lagi atau hubungi administrator." });
   }
 });
 
