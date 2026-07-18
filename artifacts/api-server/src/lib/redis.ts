@@ -18,13 +18,19 @@ interface RedisLike {
   setex(key: string, ttl: number, value: string): Promise<unknown>;
   del(...keys: string[]): Promise<unknown>;
   incr(key: string): Promise<number>;
+  /** Set expiry in seconds on an existing key. */
+  expire(key: string, seconds: number): Promise<number>;
+  /** Returns the remaining TTL in seconds, or -2 if key does not exist. */
+  ttl(key: string): Promise<number>;
 }
 
 const noopRedis: RedisLike = {
-  get: async () => null,
-  setex: async () => "OK",
-  del: async () => 0,
-  incr: async () => 1,
+  get:    async () => null,
+  setex:  async () => "OK",
+  del:    async () => 0,
+  incr:   async () => 1,
+  expire: async () => 1,   // no-op: pretend the key has a TTL set
+  ttl:    async () => 60,  // no-op: return 60 s so rate-limit Retry-After is sane
 };
 
 // ── Real client (lazy — only instantiated when env vars are present) ───────────
