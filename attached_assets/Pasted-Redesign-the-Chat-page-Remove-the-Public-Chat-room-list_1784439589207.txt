@@ -1,0 +1,146 @@
+Redesign the Chat page.
+
+Remove the "Public Chat" room list.
+
+Do NOT show chat rooms or group cards as the main page.
+
+Instead, make the Chat page behave like Instagram Direct Messages.
+
+========================================
+CHAT LIST
+========================================
+
+When the Chat menu is opened, immediately show a conversation list.
+
+Each conversation card contains:
+
+User avatar
+
+Username
+
+Role badge if Owner/Admin
+
+Last message
+
+Message status
+
+Online indicator
+
+Unread badge
+
+Time
+
+Pinned chats on top
+
+Search bar
+
+New Chat button
+
+========================================
+TOP TAB
+========================================
+
+Keep only three tabs.
+
+📢 Announcements
+💬 Chats
+✉ Direct Messages
+
+Chats tab becomes the default page.
+
+========================================
+PUBLIC CHAT
+========================================
+
+Remove the Public Chat room selection.
+
+Instead, everyone can chat together inside one global community timeline.
+
+When opening Chats, users immediately enter the public conversation.
+
+No need to join a room.
+
+No room cards.
+
+No channel list.
+
+Just one global public chat similar to Telegram Global Chat or Discord General.
+
+========================================
+CHAT SCREEN
+========================================
+
+Opening Chats immediately displays:
+
+Messages
+
+Input box
+
+Emoji picker
+
+Image upload
+
+Video upload
+
+Reply
+
+React
+
+Edit own message
+
+Delete own message
+
+Mention
+
+Typing indicator
+
+Seen status
+
+Realtime updates
+
+========================================
+DIRECT MESSAGE
+========================================
+
+Instagram-like DM.
+
+Search user.
+
+Tap profile.
+
+Start chatting immediately.
+
+Unlimited conversations.
+
+========================================
+OWNER ANNOUNCEMENT
+========================================
+
+Announcement remains separate.
+
+Only Owner can post announcements.
+
+Users can like, react and comment.
+
+========================================
+UI
+========================================
+
+Modern Instagram Messenger style.
+
+Rounded message bubbles.
+
+Gradient accent.
+
+Smooth animation.
+
+Beautiful empty state.
+
+Responsive.
+
+Dark mode support.
+
+Realtime using Supabase.
+
+Do not change the existing design language.
+Only replace the current Public Chat room list with a direct conversation interface.

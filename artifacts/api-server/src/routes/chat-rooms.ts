@@ -17,8 +17,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 router.get("/chat/rooms", optionalAuth, async (req, res) => {
   try {
     const userId = req.user?.userId;
+    const slugFilter = req.query.slug as string | undefined;
 
-    const rooms = await db
+    const query = db
       .select({
         id: chatRoomsTable.id,
         name: chatRoomsTable.name,
@@ -37,6 +38,10 @@ router.get("/chat/rooms", optionalAuth, async (req, res) => {
       ))
       .groupBy(chatRoomsTable.id)
       .orderBy(chatRoomsTable.createdAt);
+
+    const rooms = slugFilter
+      ? (await query).filter((r) => r.slug === slugFilter)
+      : await query;
 
     // Unread counts per room for the user
     let unreadMap: Record<string, number> = {};

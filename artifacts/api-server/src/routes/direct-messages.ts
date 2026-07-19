@@ -75,6 +75,7 @@ router.get("/dm/conversations", authenticate, async (req, res) => {
           userId: conversationMembersTable.userId,
           username: usersTable.username,
           avatar: usersTable.avatar,
+          role: usersTable.role,
         })
         .from(conversationMembersTable)
         .innerJoin(usersTable, eq(conversationMembersTable.userId, usersTable.id))
