@@ -1,5 +1,5 @@
 import { useState, useRef, KeyboardEvent } from "react";
-import { Send, Smile, X, Mic, Image as ImageIcon, Video } from "lucide-react";
+import { Send, Smile, X, Mic, Image as ImageIcon } from "lucide-react";
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
@@ -32,7 +32,6 @@ export function ChatInput({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const videoInputRef = useRef<HTMLInputElement>(null);
   const voiceInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -112,14 +111,6 @@ export function ChatInput({
               className="h-9 w-9 rounded-2xl hover:bg-slate-100 transition-colors flex items-center justify-center shrink-0 disabled:opacity-40 text-slate-500"
             >
               <ImageIcon className="h-5 w-5" />
-            </button>
-            <button
-              onClick={() => videoInputRef.current?.click()}
-              disabled={disabled || isUploading}
-              title="Kirim video"
-              className="h-9 w-9 rounded-2xl hover:bg-slate-100 transition-colors flex items-center justify-center shrink-0 disabled:opacity-40 text-slate-500"
-            >
-              <Video className="h-5 w-5" />
             </button>
             <button
               onClick={() => voiceInputRef.current?.click()}
