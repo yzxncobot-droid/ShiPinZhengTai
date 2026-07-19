@@ -7,10 +7,12 @@ import { MessageBubble } from "@/components/chat/MessageBubble";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BottomNav } from "@/components/layout/BottomNav";
 import {
   Megaphone, MessageSquare, Mail, Plus, Pin, MessageCircle,
   Share2, ExternalLink, Search, ArrowRight, Crown, ShieldCheck,
-  Globe, Loader2, ArrowLeft, MoreVertical,
+  Globe, Loader2, ArrowLeft, MoreVertical, Hash, Users, UserPlus,
+  ChevronRight,
 } from "lucide-react";
 import { formatDistanceToNow, isToday, isYesterday, format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
@@ -38,7 +40,7 @@ interface Message {
   fileUrl?: string; fileName?: string; replyToId?: string;
   isPinned: boolean; isDeleted: boolean; editedAt?: string;
   createdAt: string; authorId: string; authorUsername: string;
-  authorAvatar?: string; authorRole: string;
+  authorAvatar?: string; authorRole: string; authorSubscriptionStatus?: string;
   reactions: { emoji: string; count: number }[];
   myReactions: string[];
 }
@@ -53,9 +55,9 @@ interface Conversation {
 // ─── Tabs ──────────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "announcements", label: "Pengumuman", icon: Megaphone },
-  { id: "chats",         label: "Chats",      icon: MessageSquare },
-  { id: "dm",           label: "DM",          icon: Mail },
+  { id: "announcements", label: "Announcements", icon: Megaphone },
+  { id: "chats",         label: "Chats",         icon: MessageSquare },
+  { id: "dm",           label: "Direct Messages", icon: Mail },
 ] as const;
 type Tab = typeof TABS[number]["id"];
 
@@ -93,15 +95,20 @@ function AvatarEl({ username, avatar, size = "md", online }: {
   );
 }
 
-function RoleBadge({ role }: { role?: string }) {
+function RoleBadge({ role, subscriptionStatus }: { role?: string; subscriptionStatus?: string }) {
   if (role === "owner") return (
-    <span className="flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 leading-none">
+    <span className="flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 leading-none">
       <Crown className="h-2.5 w-2.5" /> Owner
     </span>
   );
   if (role === "admin") return (
     <span className="flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 leading-none">
       <ShieldCheck className="h-2.5 w-2.5" /> Admin
+    </span>
+  );
+  if (subscriptionStatus === "active") return (
+    <span className="flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 leading-none">
+      <Crown className="h-2.5 w-2.5" /> Premium
     </span>
   );
   return null;
@@ -355,9 +362,31 @@ function DMCard({ conv, currentUserId }: { conv: Conversation; currentUserId?: s
   );
 }
 
+// ─── Typing Indicator ──────────────────────────────────────────────────────────
+
+function TypingIndicator({ names }: { names: string[] }) {
+  if (names.length === 0) return null;
+  const label = names.length === 1
+    ? `${names[0]} sedang mengetik...`
+    : `${names.slice(0, 2).join(", ")} sedang mengetik...`;
+  return (
+    <div className="px-4 py-1.5 flex items-center gap-2">
+      <div className="flex items-center gap-0.5">
+        <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "0ms" }} />
+        <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "150ms" }} />
+        <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "300ms" }} />
+      </div>
+      <span className="text-xs text-slate-400">
+        <strong className="text-slate-500">{names[0]}</strong>{" "}
+        {names.length === 1 ? "sedang mengetik..." : `dan ${names.length - 1} lainnya mengetik...`}
+      </span>
+    </div>
+  );
+}
+
 // ─── Global Chat Pane ──────────────────────────────────────────────────────────
 
-function GlobalChatPane({ userId }: { userId?: string }) {
+function GlobalChatPane({ userId, username }: { userId?: string; username?: string }) {
   const [, setLocation] = useLocation();
   const qc = useQueryClient();
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -366,6 +395,8 @@ function GlobalChatPane({ userId }: { userId?: string }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [replyTo, setReplyTo] = useState<{ id: string; username: string; content: string } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch global room by slug
   const { data: roomList = [], isLoading: loadingRoom } = useQuery({
@@ -374,6 +405,15 @@ function GlobalChatPane({ userId }: { userId?: string }) {
     staleTime: 60000,
   });
   const room = roomList[0] ?? null;
+
+  // Pinned messages
+  const { data: pinnedMessages = [] } = useQuery({
+    queryKey: ["chat-pinned", room?.id],
+    queryFn: () => adminFetch<Message[]>(`/chat/rooms/${room!.id}/pinned`),
+    enabled: !!room,
+    staleTime: 30000,
+  });
+  const topPinned = pinnedMessages[0] ?? null;
 
   const loadMessages = useCallback(async (before?: string) => {
     if (!room) return [];
@@ -435,6 +475,12 @@ function GlobalChatPane({ userId }: { userId?: string }) {
       setHasMore(older.length >= 40);
     } finally { setLoadingMore(false); }
   };
+
+  // Notify typing (fire-and-forget, best-effort)
+  const notifyTyping = useCallback(() => {
+    if (!room || !userId) return;
+    adminFetch(`/chat/rooms/${room.id}/typing`, { method: "POST" }).catch(() => {});
+  }, [room?.id, userId]);
 
   const sendMsg = async (content: string) => {
     if (!userId) { setLocation("/login"); return; }
@@ -534,9 +580,54 @@ function GlobalChatPane({ userId }: { userId?: string }) {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
+
+      {/* ── Room Header Card ── */}
+      <div className="mx-3 mt-2 mb-1 bg-white rounded-2xl border border-slate-100 shadow-sm">
+        <div className="flex items-center gap-3 px-3 py-3">
+          {room.imageUrl ? (
+            <img src={room.imageUrl} alt={room.name} className="h-11 w-11 rounded-xl object-cover shrink-0" />
+          ) : (
+            <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shrink-0 shadow-sm">
+              <Hash className="h-6 w-6 text-white" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="font-extrabold text-slate-800 text-sm">{room.name || "Public Chat"}</span>
+              <span className="h-2 w-2 rounded-full bg-green-400 shrink-0" />
+              <span className="text-[11px] text-slate-400">{room.memberCount.toLocaleString()} online</span>
+            </div>
+            {room.description && (
+              <p className="text-[11px] text-slate-400 truncate mt-0.5">{room.description}</p>
+            )}
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <button className="h-8 w-8 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors">
+              <Search className="h-4 w-4 text-slate-500" />
+            </button>
+            <button className="h-8 w-8 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors">
+              <Users className="h-4 w-4 text-slate-500" />
+            </button>
+            <button className="h-8 w-8 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors">
+              <MoreVertical className="h-4 w-4 text-slate-500" />
+            </button>
+          </div>
+        </div>
+
+        {/* Pinned message banner */}
+        {topPinned && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border-t border-amber-100 rounded-b-2xl">
+            <span className="text-amber-500 shrink-0 text-sm">⭐</span>
+            <p className="flex-1 text-[11px] text-amber-800 font-medium truncate">
+              <span className="font-extrabold">Pinned: </span>{topPinned.content}
+            </p>
+            <ChevronRight className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+          </div>
+        )}
+      </div>
+
       {/* Messages scroll area */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-0.5">
-        {/* Load more button */}
+      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5">
         {hasMore && (
           <div className="flex justify-center py-2">
             <button
@@ -565,7 +656,8 @@ function GlobalChatPane({ userId }: { userId?: string }) {
             </div>
             {group.messages.map((msg, i) => {
               const prev = group.messages[i - 1];
-              const showAvatar = !prev || prev.authorId !== msg.authorId;
+              const showAvatar = !prev || prev.authorId !== msg.authorId ||
+                new Date(msg.createdAt).getTime() - new Date(prev.createdAt).getTime() > 5 * 60 * 1000;
               return (
                 <MessageBubble
                   key={msg.id}
@@ -582,6 +674,7 @@ function GlobalChatPane({ userId }: { userId?: string }) {
                   authorUsername={msg.authorUsername}
                   authorAvatar={msg.authorAvatar}
                   authorRole={msg.authorRole}
+                  authorSubscriptionStatus={msg.authorSubscriptionStatus}
                   reactions={msg.reactions}
                   myReactions={msg.myReactions}
                   isMine={msg.authorId === userId}
@@ -601,17 +694,18 @@ function GlobalChatPane({ userId }: { userId?: string }) {
         <div ref={bottomRef} />
       </div>
 
+      {/* Typing indicator */}
+      <TypingIndicator names={typingUsers} />
+
       {/* Input area */}
-      <div className="border-t border-slate-100 bg-white px-3 py-2">
-        <ChatInput
-          onSend={sendMsg}
-          onAttach={attachFile}
-          replyTo={replyTo}
-          onCancelReply={() => setReplyTo(null)}
-          disabled={isUploading || room.isLocked}
-          placeholder={room.isLocked ? "Room dikunci oleh admin" : "Kirim pesan..."}
-        />
-      </div>
+      <ChatInput
+        onSend={sendMsg}
+        onAttach={attachFile}
+        replyTo={replyTo}
+        onCancelReply={() => setReplyTo(null)}
+        disabled={isUploading || room.isLocked}
+        placeholder={room.isLocked ? "Room dikunci oleh admin" : "Ketik pesan..."}
+      />
     </div>
   );
 }
@@ -691,7 +785,8 @@ export default function ChatHomePage() {
           {/* Title row */}
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h1 className="text-xl font-extrabold text-slate-900">Chat</h1>
+              <h1 className="text-2xl font-extrabold text-slate-900">Chat</h1>
+              <p className="text-xs text-slate-400 font-medium mt-0.5">Komunitas &amp; Pesan Langsung</p>
             </div>
             {activeTab === "dm" && user && (
               <button
@@ -703,8 +798,8 @@ export default function ChatHomePage() {
             )}
           </div>
 
-          {/* Tabs */}
-          <div className="flex">
+          {/* Tabs — pill style */}
+          <div className="flex gap-1.5 pb-3">
             {TABS.map((tab) => {
               const isActive = activeTab === tab.id;
               const unread = tabUnreads[tab.id];
@@ -712,16 +807,17 @@ export default function ChatHomePage() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-extrabold border-b-2 transition-all relative
+                  className={`flex-1 flex items-center justify-center gap-1 py-2 px-2 rounded-full text-[11px] font-extrabold transition-all relative
                     ${isActive
-                      ? "text-purple-600 border-purple-500"
-                      : "text-slate-400 border-transparent hover:text-slate-600"
+                      ? "bg-purple-600 text-white shadow-md shadow-purple-300/40"
+                      : "bg-slate-100 text-slate-500 hover:bg-slate-200"
                     }`}
                 >
-                  <tab.icon className="h-3.5 w-3.5" />
-                  <span>{tab.label}</span>
+                  <tab.icon className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{tab.label}</span>
                   {unread > 0 && (
-                    <span className="absolute top-1 right-2 h-4 min-w-[16px] rounded-full bg-red-500 text-white text-[9px] font-extrabold flex items-center justify-center px-1">
+                    <span className={`h-4 min-w-[16px] rounded-full text-[9px] font-extrabold flex items-center justify-center px-1 shrink-0
+                      ${isActive ? "bg-white text-purple-600" : "bg-red-500 text-white"}`}>
                       {unread > 99 ? "99+" : unread}
                     </span>
                   )}
@@ -734,7 +830,7 @@ export default function ChatHomePage() {
 
       {/* ── Chats tab: Global Public Chat ── */}
       {isChatsTab && (
-        <GlobalChatPane userId={user?.id} />
+        <GlobalChatPane userId={user?.id} username={user?.username} />
       )}
 
       {/* ── Announcements tab ── */}

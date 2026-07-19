@@ -1,7 +1,5 @@
 import { useState, useRef, KeyboardEvent } from "react";
-import { Send, Paperclip, Smile, X, Mic, Image as ImageIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { Send, Smile, X, Mic, Image as ImageIcon, Video } from "lucide-react";
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
@@ -33,7 +31,9 @@ export function ChatInput({
   const [content, setContent] = useState("");
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [sending, setSending] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const voiceInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const canSend = content.trim().length > 0 && !disabled && !sending;
@@ -44,6 +44,10 @@ export function ChatInput({
     try {
       await onSend(content.trim());
       setContent("");
+      // reset height
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "40px";
+      }
       textareaRef.current?.focus();
     } finally {
       setSending(false);
@@ -72,7 +76,7 @@ export function ChatInput({
   };
 
   return (
-    <div className="p-3 bg-white border-t border-slate-100">
+    <div className="bg-white border-t border-slate-100 px-3 py-2.5">
       {/* Reply preview */}
       {replyTo && (
         <div className="flex items-center gap-2 mb-2 bg-purple-50 border border-purple-100 rounded-xl px-3 py-1.5">
@@ -94,32 +98,43 @@ export function ChatInput({
       )}
 
       <div className="flex items-end gap-2">
-        {/* Attach */}
+        {/* Left action buttons: image, video, mic */}
         {onAttach && (
           <>
-            <input
-              type="file"
-              ref={fileInputRef}
-              className="hidden"
-              accept="image/*,video/mp4,video/webm,application/pdf,.docx,.zip,audio/webm,audio/ogg"
-              onChange={handleFileChange}
-            />
+            <input type="file" ref={imageInputRef} className="hidden" accept="image/*" onChange={handleFileChange} />
+            <input type="file" ref={videoInputRef} className="hidden" accept="video/mp4,video/webm" onChange={handleFileChange} />
+            <input type="file" ref={voiceInputRef} className="hidden" accept="audio/webm,audio/ogg,audio/mp4" onChange={handleFileChange} />
+
             <button
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => imageInputRef.current?.click()}
               disabled={disabled || isUploading}
-              className="h-10 w-10 rounded-2xl bg-slate-100 hover:bg-slate-200 transition-colors flex items-center justify-center shrink-0 disabled:opacity-40"
+              title="Kirim gambar"
+              className="h-9 w-9 rounded-2xl hover:bg-slate-100 transition-colors flex items-center justify-center shrink-0 disabled:opacity-40 text-slate-500"
             >
-              {isUploading
-                ? <div className="h-4 w-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
-                : <Paperclip className="h-4 w-4 text-slate-500" />
-              }
+              <ImageIcon className="h-5 w-5" />
+            </button>
+            <button
+              onClick={() => videoInputRef.current?.click()}
+              disabled={disabled || isUploading}
+              title="Kirim video"
+              className="h-9 w-9 rounded-2xl hover:bg-slate-100 transition-colors flex items-center justify-center shrink-0 disabled:opacity-40 text-slate-500"
+            >
+              <Video className="h-5 w-5" />
+            </button>
+            <button
+              onClick={() => voiceInputRef.current?.click()}
+              disabled={disabled || isUploading}
+              title="Kirim pesan suara"
+              className="h-9 w-9 rounded-2xl hover:bg-slate-100 transition-colors flex items-center justify-center shrink-0 disabled:opacity-40 text-slate-500"
+            >
+              <Mic className="h-5 w-5" />
             </button>
           </>
         )}
 
-        {/* Text area + emoji */}
-        <div className="flex-1 relative">
-          <Textarea
+        {/* Text input + emoji */}
+        <div className="flex-1 flex items-end bg-slate-50 border border-slate-200 rounded-2xl focus-within:border-purple-300 transition-colors px-3 py-1.5">
+          <textarea
             ref={textareaRef}
             value={content}
             onChange={(e) => setContent(e.target.value)}
@@ -127,7 +142,7 @@ export function ChatInput({
             placeholder={placeholder}
             disabled={disabled}
             rows={1}
-            className="resize-none min-h-[40px] max-h-[120px] pr-10 rounded-2xl border-slate-200 focus:border-purple-300 bg-slate-50 text-sm py-2.5 leading-snug"
+            className="flex-1 resize-none bg-transparent text-sm leading-snug focus:outline-none min-h-[24px] max-h-[120px] py-0.5"
             style={{ height: "auto" }}
             onInput={(e) => {
               const t = e.target as HTMLTextAreaElement;
@@ -138,8 +153,8 @@ export function ChatInput({
           {/* Emoji picker */}
           <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
             <PopoverTrigger asChild>
-              <button className="absolute right-2.5 bottom-2 text-slate-400 hover:text-purple-500 transition-colors">
-                <Smile className="h-4 w-4" />
+              <button className="ml-1.5 text-slate-400 hover:text-purple-500 transition-colors shrink-0 self-end pb-0.5">
+                <Smile className="h-5 w-5" />
               </button>
             </PopoverTrigger>
             <PopoverContent className="w-64 p-2" align="end" side="top">
@@ -158,19 +173,21 @@ export function ChatInput({
           </Popover>
         </div>
 
-        {/* Send */}
+        {/* Send button - purple circle */}
         <button
           onClick={handleSend}
           disabled={!canSend}
-          className={`h-10 w-10 rounded-2xl flex items-center justify-center shrink-0 transition-all
+          className={`h-10 w-10 rounded-full flex items-center justify-center shrink-0 transition-all
             ${canSend
-              ? "bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-md shadow-purple-500/25 hover:scale-105"
+              ? "bg-purple-600 text-white shadow-md shadow-purple-500/30 hover:bg-purple-700 hover:scale-105 active:scale-95"
               : "bg-slate-100 text-slate-300"
             }`}
         >
           {sending
             ? <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            : <Send className="h-4 w-4" />
+            : isUploading
+              ? <div className="h-4 w-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+              : <Send className="h-4 w-4" />
           }
         </button>
       </div>

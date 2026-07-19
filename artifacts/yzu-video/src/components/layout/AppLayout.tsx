@@ -62,6 +62,9 @@ export function Navbar() {
             <Link href="/leaderboard" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location === '/leaderboard' ? 'text-purple-600' : 'text-slate-500'}`}>
               Leaderboard
             </Link>
+            <Link href="/chat" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location.startsWith('/chat') ? 'text-purple-600' : 'text-slate-500'}`}>
+              Chat
+            </Link>
           </nav>
         </div>
 

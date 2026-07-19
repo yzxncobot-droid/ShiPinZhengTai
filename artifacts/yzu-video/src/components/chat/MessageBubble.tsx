@@ -1,14 +1,12 @@
 import { useState } from "react";
-import { formatDistanceToNow } from "date-fns";
-import { id as localeId } from "date-fns/locale";
-import { MoreHorizontal, Reply, Trash2, Edit3, Pin, Smile } from "lucide-react";
+import { format } from "date-fns";
+import { MoreHorizontal, Reply, Trash2, Edit3, Pin, Smile, Crown, ShieldCheck } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
 
 const QUICK_EMOJIS = ["❤️", "👍", "😂", "😮", "😢", "🔥", "👏", "🎉"];
 
@@ -23,6 +21,7 @@ interface Props {
   authorUsername: string;
   authorAvatar?: string | null;
   authorRole?: string;
+  authorSubscriptionStatus?: string;
   createdAt: string | Date;
   editedAt?: string | Date | null;
   isPinned?: boolean;
@@ -41,7 +40,7 @@ interface Props {
 }
 
 function Avatar({ username, avatar, size = "sm" }: { username: string; avatar?: string | null; size?: "sm" | "md" }) {
-  const sz = size === "sm" ? "h-8 w-8 text-xs" : "h-10 w-10 text-sm";
+  const sz = size === "sm" ? "h-9 w-9 text-xs" : "h-10 w-10 text-sm";
   if (avatar) {
     return <img src={avatar} alt={username} className={`${sz} rounded-full object-cover shrink-0`} />;
   }
@@ -50,6 +49,25 @@ function Avatar({ username, avatar, size = "sm" }: { username: string; avatar?: 
       {username[0]?.toUpperCase()}
     </div>
   );
+}
+
+function RoleBadge({ role, subscriptionStatus }: { role?: string; subscriptionStatus?: string }) {
+  if (role === "owner") return (
+    <span className="flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 leading-none">
+      <Crown className="h-2.5 w-2.5" /> Owner
+    </span>
+  );
+  if (role === "admin") return (
+    <span className="flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 leading-none">
+      <ShieldCheck className="h-2.5 w-2.5" /> Admin
+    </span>
+  );
+  if (subscriptionStatus === "active") return (
+    <span className="flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 leading-none">
+      <Crown className="h-2.5 w-2.5" /> Premium
+    </span>
+  );
+  return null;
 }
 
 function MediaContent({ fileUrl, fileName, messageType }: { fileUrl: string; fileName?: string | null; messageType: string }) {
@@ -61,14 +79,10 @@ function MediaContent({ fileUrl, fileName, messageType }: { fileUrl: string; fil
     );
   }
   if (messageType === "video") {
-    return (
-      <video src={fileUrl} controls className="max-w-[280px] rounded-xl border border-slate-100" />
-    );
+    return <video src={fileUrl} controls className="max-w-[280px] rounded-xl border border-slate-100" />;
   }
   if (messageType === "voice") {
-    return (
-      <audio src={fileUrl} controls className="w-full max-w-[240px]" />
-    );
+    return <audio src={fileUrl} controls className="w-full max-w-[240px]" />;
   }
   if (messageType === "file") {
     return (
@@ -84,34 +98,31 @@ function MediaContent({ fileUrl, fileName, messageType }: { fileUrl: string; fil
 
 export function MessageBubble({
   id, content, messageType = "text", fileUrl, fileName,
-  authorUsername, authorAvatar, authorRole,
+  authorUsername, authorAvatar, authorRole, authorSubscriptionStatus,
   createdAt, editedAt, isPinned, isDeleted, isMine = false,
   reactions = [], myReactions = [], replyToId,
   showAvatar = true, onReact, onReply, onEdit, onDelete, onDeleteForAll, canModerate,
 }: Props) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
-  const timeAgo = formatDistanceToNow(new Date(createdAt), { addSuffix: true, locale: localeId });
-
-  const roleColors: Record<string, string> = {
-    owner: "text-amber-500",
-    admin: "text-purple-500",
-    moderator: "text-blue-500",
-  };
+  const timeStr = format(new Date(createdAt), "HH:mm");
 
   const bubbleBase = isMine
     ? "bg-gradient-to-br from-purple-500 to-pink-500 text-white rounded-t-2xl rounded-bl-2xl rounded-br-md"
     : "bg-white border border-slate-100 text-slate-800 rounded-t-2xl rounded-br-2xl rounded-bl-md shadow-sm";
 
   return (
-    <div className={`flex gap-2.5 group ${isMine ? "flex-row-reverse" : ""}`}>
+    <div className={`flex gap-2.5 group ${isMine ? "flex-row-reverse" : ""} py-0.5`}>
       {/* Avatar */}
       {showAvatar ? (
         <div className="shrink-0 mt-auto">
-          <Avatar username={authorUsername} avatar={authorAvatar} />
+          <div className="relative">
+            <Avatar username={authorUsername} avatar={authorAvatar} />
+            <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-green-400 border-2 border-white" />
+          </div>
         </div>
       ) : (
-        <div className="w-8 shrink-0" />
+        <div className="w-9 shrink-0" />
       )}
 
       {/* Bubble */}
@@ -119,18 +130,11 @@ export function MessageBubble({
         {/* Author + time */}
         {showAvatar && (
           <div className={`flex items-center gap-1.5 mb-1 ${isMine ? "flex-row-reverse" : ""}`}>
-            <span className={`text-[11px] font-extrabold ${roleColors[authorRole ?? ""] ?? "text-slate-600"}`}>
+            <span className="text-[12px] font-extrabold text-slate-800">
               {authorUsername}
             </span>
-            {authorRole && !["user", "meril"].includes(authorRole) && (
-              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase ${
-                authorRole === "owner" ? "bg-amber-100 text-amber-600" :
-                authorRole === "admin" ? "bg-purple-100 text-purple-600" :
-                "bg-blue-100 text-blue-600"
-              }`}>
-                {authorRole}
-              </span>
-            )}
+            <RoleBadge role={authorRole} subscriptionStatus={authorSubscriptionStatus} />
+            <span className="text-[10px] text-slate-400">{timeStr}</span>
           </div>
         )}
 
@@ -171,11 +175,10 @@ export function MessageBubble({
           </div>
         )}
 
-        {/* Time + edited */}
-        <div className={`flex items-center gap-1.5 mt-0.5 ${isMine ? "flex-row-reverse" : ""}`}>
-          <span className="text-[10px] text-slate-400">{timeAgo}</span>
-          {editedAt && <span className="text-[9px] text-slate-400 italic">(edited)</span>}
-        </div>
+        {/* Edited marker */}
+        {editedAt && (
+          <span className="text-[9px] text-slate-400 italic mt-0.5">(diedit)</span>
+        )}
       </div>
 
       {/* Action buttons (appear on hover) */}

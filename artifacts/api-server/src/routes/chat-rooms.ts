@@ -244,6 +244,7 @@ router.get("/chat/rooms/:id/messages", optionalAuth, async (req, res) => {
         authorUsername: usersTable.username,
         authorAvatar: usersTable.avatar,
         authorRole: usersTable.role,
+        authorSubscriptionStatus: usersTable.subscriptionStatus,
       })
       .from(chatMessagesTable)
       .innerJoin(usersTable, eq(chatMessagesTable.userId, usersTable.id))
@@ -342,10 +343,10 @@ router.post("/chat/rooms/:id/messages", authenticate, async (req, res) => {
     }).returning();
 
     const [author] = await db
-      .select({ username: usersTable.username, avatar: usersTable.avatar, role: usersTable.role })
+      .select({ username: usersTable.username, avatar: usersTable.avatar, role: usersTable.role, subscriptionStatus: usersTable.subscriptionStatus })
       .from(usersTable).where(eq(usersTable.id, userId));
 
-    res.status(201).json({ ...created, authorUsername: author.username, authorAvatar: author.avatar, authorRole: author.role, reactions: [], myReactions: [] });
+    res.status(201).json({ ...created, authorUsername: author.username, authorAvatar: author.avatar, authorRole: author.role, authorSubscriptionStatus: author.subscriptionStatus, reactions: [], myReactions: [] });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -603,6 +604,40 @@ router.get("/chat/unread", authenticate, async (req, res) => {
     res.json({ unread: Math.min(total, 99) });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Typing indicator ─────────────────────────────────────────────────────────
+// Uses Redis with a 5-second TTL per user. Gracefully no-ops when Redis is unavailable.
+
+router.post("/chat/rooms/:id/typing", authenticate, async (req, res) => {
+  try {
+    const roomId = req.params.id;
+    const username = req.user!.username;
+    const { redis } = await import("../lib/redis");
+    if (redis) {
+      await (redis as any).set(`typing:${roomId}:${username}`, "1", { ex: 5 });
+    }
+    res.status(204).end();
+  } catch {
+    res.status(204).end(); // always succeed silently
+  }
+});
+
+router.get("/chat/rooms/:id/typing", optionalAuth, async (req, res) => {
+  try {
+    const roomId = req.params.id;
+    const myUsername = req.user?.username;
+    const { redis } = await import("../lib/redis");
+    if (!redis) { res.json({ users: [] }); return; }
+    // Scan for keys matching typing:<roomId>:*
+    const keys: string[] = await (redis as any).keys(`typing:${roomId}:*`);
+    const users = keys
+      .map((k) => k.split(":").slice(2).join(":"))
+      .filter((u) => u !== myUsername);
+    res.json({ users });
+  } catch {
+    res.json({ users: [] });
   }
 });
 
