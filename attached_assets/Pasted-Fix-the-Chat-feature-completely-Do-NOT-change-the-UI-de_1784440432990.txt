@@ -1,0 +1,203 @@
+Fix the Chat feature completely.
+
+Do NOT change the UI design.
+Only fix the bugs and improve the navigation.
+
+========================================
+BUG 1
+========================================
+
+Currently opening the Chat page shows:
+
+"Terjadi kesalahan
+Halaman mengalami error saat ditampilkan"
+
+Find the root cause and fix it.
+
+Check every possible issue including:
+
+React rendering errors
+
+Missing imports
+
+Undefined variables
+
+Supabase query errors
+
+RLS permission errors
+
+Null data
+
+Missing tables
+
+Missing columns
+
+Realtime subscription errors
+
+API route errors
+
+Hydration errors
+
+Context Provider errors
+
+Authentication errors
+
+Infinite render loops
+
+Routing errors
+
+State management errors
+
+Promise rejection
+
+404 routes
+
+500 server errors
+
+Every page must always render successfully.
+
+Never crash.
+
+========================================
+ERROR HANDLING
+========================================
+
+Replace crashes with proper loading states.
+
+If database data is empty:
+
+Show an Empty State.
+
+Never throw an exception.
+
+If Supabase fails:
+
+Retry automatically.
+
+Show friendly error.
+
+Log detailed errors to console.
+
+========================================
+BUG 2
+========================================
+
+When entering:
+
+Chats
+
+Direct Messages
+
+Hide the Bottom Navigation completely.
+
+Do NOT display:
+
+Home
+
+Chat
+
+Bundles
+
+Premium
+
+Profile
+
+The bottom navigation must only appear on the Chat List page.
+
+Once the user opens:
+
+Public Chat
+
+Announcement
+
+Direct Message
+
+Bottom Navigation disappears.
+
+Instead show a modern top bar containing:
+
+Back button
+
+Chat title
+
+Online status
+
+Search
+
+Menu (⋮)
+
+This should behave exactly like Instagram Messenger, WhatsApp and Telegram.
+
+Back returns to Chat List.
+
+========================================
+CHAT EXPERIENCE
+========================================
+
+Opening any conversation should be full screen.
+
+Input bar fixed at bottom.
+
+Messages scroll smoothly.
+
+Keyboard should not cover input.
+
+Support:
+
+Reply
+
+Emoji
+
+Image
+
+Video
+
+Voice
+
+Typing indicator
+
+Seen status
+
+Realtime messages
+
+========================================
+QUALITY CHECK
+========================================
+
+Verify every Chat page.
+
+Verify every API.
+
+Verify every database query.
+
+Verify every Supabase policy.
+
+Verify every route.
+
+Verify every import.
+
+Verify every component.
+
+Fix every compile error.
+
+Fix every runtime error.
+
+Fix every TypeScript error.
+
+Fix every hydration issue.
+
+Fix every React warning.
+
+Return a report containing:
+
+Root cause of the crash
+
+Files modified
+
+Components modified
+
+Database changes
+
+API changes
+
+Remaining issues (if any)

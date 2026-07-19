@@ -3,7 +3,6 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { adminFetch } from "@/lib/admin-api";
-import { BottomNav } from "@/components/layout/BottomNav";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { Button } from "@/components/ui/button";
@@ -11,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Megaphone, MessageSquare, Mail, Plus, Pin, MessageCircle,
   Share2, ExternalLink, Search, ArrowRight, Crown, ShieldCheck,
-  Globe, Loader2,
+  Globe, Loader2, ArrowLeft, MoreVertical,
 } from "lucide-react";
 import { formatDistanceToNow, isToday, isYesterday, format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
@@ -570,13 +569,30 @@ function GlobalChatPane({ userId }: { userId?: string }) {
               return (
                 <MessageBubble
                   key={msg.id}
-                  message={msg}
+                  id={msg.id}
+                  content={msg.content}
+                  messageType={msg.messageType}
+                  fileUrl={msg.fileUrl}
+                  fileName={msg.fileName}
+                  replyToId={msg.replyToId}
+                  isPinned={msg.isPinned}
+                  isDeleted={msg.isDeleted}
+                  editedAt={msg.editedAt}
+                  createdAt={msg.createdAt}
+                  authorUsername={msg.authorUsername}
+                  authorAvatar={msg.authorAvatar}
+                  authorRole={msg.authorRole}
+                  reactions={msg.reactions}
+                  myReactions={msg.myReactions}
                   isMine={msg.authorId === userId}
                   showAvatar={showAvatar}
                   onReply={() => setReplyTo({ id: msg.id, username: msg.authorUsername, content: msg.content })}
                   onReact={(emoji) => reactMsg(msg.id, emoji)}
-                  onEdit={(content) => editMsg(msg.id, content)}
-                  onDelete={(type) => deleteMsg(msg.id, type)}
+                  onEdit={() => {
+                    const newContent = prompt("Edit pesan:", msg.content);
+                    if (newContent?.trim()) editMsg(msg.id, newContent.trim());
+                  }}
+                  onDelete={() => deleteMsg(msg.id, "soft")}
                 />
               );
             })}
