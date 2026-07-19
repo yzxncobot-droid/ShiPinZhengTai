@@ -17,6 +17,10 @@ import uploadRouter from "./upload";
 import withdrawalsRouter from "./withdrawals";
 import auditLogsRouter from "./audit-logs";
 import systemRouter from "./system";
+import announcementsRouter from "./announcements";
+import chatRoomsRouter from "./chat-rooms";
+import directMessagesRouter from "./direct-messages";
+import chatUploadRouter from "./chat-upload";
 
 const router: IRouter = Router();
 
@@ -38,5 +42,9 @@ router.use(uploadRouter);
 router.use(withdrawalsRouter);
 router.use(auditLogsRouter);
 router.use(systemRouter);
+router.use(announcementsRouter);
+router.use(chatRoomsRouter);
+router.use(directMessagesRouter);
+router.use(chatUploadRouter);
 
 export default router;

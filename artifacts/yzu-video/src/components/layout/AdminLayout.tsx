@@ -72,7 +72,11 @@ const useNavGroups = (pendingPayments: number = 0, unreadNotifs: number = 0): Na
   },
   {
     section: "Komunikasi",
-    items: [{ label: "Notifikasi", href: "/admin/notifications-mgmt", icon: Bell, badge: unreadNotifs || null }],
+    items: [
+      { label: "Notifikasi", href: "/admin/notifications-mgmt", icon: Bell, badge: unreadNotifs || null },
+      { label: "Pengumuman", href: "/admin/announcements", icon: Bell },
+      { label: "Chat Rooms", href: "/admin/chat-rooms", icon: LayoutDashboard },
+    ],
   },
   {
     section: "Sistem",
@@ -100,6 +104,8 @@ const PATH_LABELS: Record<string, string> = {
   "/admin/analytics": "Analytics",
   "/admin/reports": "Laporan",
   "/admin/notifications-mgmt": "Notifikasi",
+  "/admin/announcements": "Pengumuman",
+  "/admin/chat-rooms": "Chat Rooms",
   "/admin/settings": "Pengaturan",
   "/admin/audit-logs": "Audit Log",
   "/admin/system": "Sistem",

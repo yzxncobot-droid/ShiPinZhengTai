@@ -18,3 +18,4 @@ export * from "./referrals";
 export * from "./payment-proofs";
 export * from "./login-history";
 export * from "./user-settings";
+export * from "./chat";

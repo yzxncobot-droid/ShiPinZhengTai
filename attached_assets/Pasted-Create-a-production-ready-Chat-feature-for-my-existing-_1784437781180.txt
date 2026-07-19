@@ -1,0 +1,524 @@
+Create a production-ready Chat feature for my existing platform.
+
+The new feature must match the current UI design exactly.
+Use the same colors, spacing, rounded cards, shadows, typography, navbar, bottom navigation and responsive layout.
+
+DO NOT replace existing pages.
+Only add the new Chat feature.
+
+========================================
+NEW MENU
+========================================
+
+Add a new bottom navigation item:
+
+Chats
+
+Icon:
+Message Circle
+
+The badge must show unread messages.
+
+========================================
+CHAT HOME
+========================================
+
+Create a modern chat page similar to Instagram + Discord.
+
+Top Tabs:
+
+1. Announcements
+2. Public Chats
+3. Direct Messages
+
+Use smooth animations.
+
+========================================
+1. OWNER ANNOUNCEMENTS
+========================================
+
+Only Owner can create announcements.
+
+Features
+
+Create announcement
+
+Edit
+
+Delete
+
+Pin announcement
+
+Add image
+
+Add video
+
+Add link
+
+Add emoji
+
+Rich text editor
+
+Everyone can:
+
+Like
+
+React
+
+Comment
+
+Share
+
+Save
+
+Unread badge
+
+Announcement notification
+
+Pinned announcement always on top.
+
+========================================
+DATABASE
+========================================
+
+announcement_channels
+
+id
+
+title
+
+content
+
+image_url
+
+video_url
+
+created_by
+
+created_at
+
+updated_at
+
+is_pinned
+
+visibility
+
+announcement_reactions
+
+announcement_comments
+
+========================================
+2. PUBLIC CHAT
+========================================
+
+Create Discord-like public communities.
+
+Owner can create unlimited public rooms.
+
+Example
+
+General
+
+Gaming
+
+Anime
+
+Music
+
+Movies
+
+Education
+
+News
+
+Trading
+
+Programming
+
+Marketplace
+
+Each room has
+
+Name
+
+Description
+
+Image
+
+Member count
+
+Online count
+
+Rules
+
+Pinned messages
+
+Search messages
+
+Search members
+
+Message reactions
+
+Reply
+
+Forward
+
+Delete own message
+
+Edit own message
+
+Mention user
+
+Emoji picker
+
+GIF
+
+Image upload
+
+Video upload
+
+File upload
+
+Voice message
+
+Typing indicator
+
+Read receipt
+
+Seen status
+
+Infinite scroll
+
+Lazy loading
+
+Realtime updates
+
+Message timestamp
+
+Unread counter
+
+========================================
+OWNER MODERATION
+========================================
+
+Owner
+
+Admin
+
+Moderator
+
+Can
+
+Mute user
+
+Kick user
+
+Ban user
+
+Delete message
+
+Pin message
+
+Slow mode
+
+Lock room
+
+Manage members
+
+Manage room
+
+========================================
+DATABASE
+========================================
+
+chat_rooms
+
+chat_room_members
+
+chat_messages
+
+chat_reactions
+
+chat_reads
+
+chat_files
+
+chat_reports
+
+========================================
+3. DIRECT MESSAGES
+========================================
+
+Build Instagram-like private messaging.
+
+Features
+
+Search user
+
+Start conversation
+
+Unlimited chats
+
+Text
+
+Emoji
+
+GIF
+
+Sticker
+
+Image
+
+Video
+
+File
+
+Voice note
+
+Reply
+
+Forward
+
+Delete for me
+
+Delete for everyone
+
+Edit message
+
+Seen
+
+Delivered
+
+Typing indicator
+
+Online status
+
+Last seen
+
+Block user
+
+Report user
+
+Archive chat
+
+Mute notification
+
+Pin chat
+
+Favorite chat
+
+Unread badge
+
+Realtime updates
+
+========================================
+DATABASE
+========================================
+
+conversations
+
+conversation_members
+
+direct_messages
+
+message_reads
+
+message_reactions
+
+message_files
+
+========================================
+NOTIFICATIONS
+========================================
+
+Realtime notifications for
+
+New announcement
+
+New direct message
+
+Mention
+
+Reply
+
+Reaction
+
+Public chat message
+
+Unread counter
+
+Browser notification
+
+Mobile notification ready
+
+========================================
+SEARCH
+========================================
+
+Global search
+
+Search users
+
+Search chats
+
+Search announcements
+
+Search messages
+
+========================================
+REALTIME
+========================================
+
+Use Supabase Realtime.
+
+Messages must appear instantly.
+
+No page refresh.
+
+========================================
+SUPABASE STORAGE
+========================================
+
+Create Storage folders
+
+chat-images
+
+chat-videos
+
+chat-files
+
+voice-notes
+
+Validate upload
+
+Image
+
+jpg
+
+jpeg
+
+png
+
+webp
+
+Video
+
+mp4
+
+mov
+
+webm
+
+File
+
+pdf
+
+docx
+
+zip
+
+Maximum upload size
+
+100MB
+
+Generate unique filename.
+
+Save public URL into database.
+
+========================================
+SECURITY
+========================================
+
+Use Row Level Security.
+
+Only conversation members can read private messages.
+
+Only Owner/Admin/Moderator can moderate public chats.
+
+Prevent SQL Injection.
+
+Validate every request.
+
+Rate limit spam.
+
+Flood protection.
+
+Profanity filter.
+
+========================================
+UI
+========================================
+
+Use modern Instagram style.
+
+Rounded cards
+
+Smooth animations
+
+Message bubble
+
+Avatar
+
+Online indicator
+
+Unread badge
+
+Pinned message
+
+Reaction popup
+
+Dark mode support
+
+Mobile first
+
+Responsive
+
+Loading skeleton
+
+Empty state
+
+Error state
+
+========================================
+PERFORMANCE
+========================================
+
+Pagination
+
+Virtual scrolling
+
+Realtime subscriptions
+
+Optimized queries
+
+Caching
+
+Lazy loading
+
+========================================
+SUMMARY
+========================================
+
+After implementation return:
+
+Pages created
+
+Components created
+
+Supabase tables
+
+RLS policies
+
+Storage buckets
+
+Realtime channels
+
+API routes
+
+Files modified
+
+Database migrations
+
+Role permissions
+
+Any remaining tasks

@@ -44,6 +44,11 @@ import AdminSystemCheck from "@/pages/admin/system-check";
 import BundleWatchPage from "@/pages/bundle/watch";
 import AdminNotifications from "@/pages/admin/notifications-mgmt";
 import AdminReports from "@/pages/admin/reports";
+import AdminAnnouncementsPage from "@/pages/admin/announcements";
+import AdminChatRoomsPage from "@/pages/admin/chat-rooms";
+import ChatHomePage from "@/pages/chat/index";
+import ChatRoomPage from "@/pages/chat/room";
+import DMPage from "@/pages/chat/dm";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -67,6 +72,9 @@ function AppRouter() {
       <Route path="/notifications" component={NotificationsPage} />
       <Route path="/leaderboard" component={LeaderboardPage} />
       <Route path="/search" component={SearchPage} />
+      <Route path="/chat" component={ChatHomePage} />
+      <Route path="/chat/room/:id" component={ChatRoomPage} />
+      <Route path="/chat/dm/:id" component={DMPage} />
       <Route path="/bundle/watch/:videoId" component={BundleWatchPage} />
       <Route path="/bundles" component={BundlesPage} />
       <Route path="/bundles/my" component={MyBundlesPage} />
@@ -93,6 +101,8 @@ function AppRouter() {
       <Route path="/admin/system-check" component={AdminSystemCheck} />
       <Route path="/admin/notifications-mgmt" component={AdminNotifications} />
       <Route path="/admin/reports" component={AdminReports} />
+      <Route path="/admin/announcements" component={AdminAnnouncementsPage} />
+      <Route path="/admin/chat-rooms" component={AdminChatRoomsPage} />
 
       {/* Legacy /owner/* → redirect to /admin/* equivalents */}
       <Route path="/owner" component={AdminDashboard} />
