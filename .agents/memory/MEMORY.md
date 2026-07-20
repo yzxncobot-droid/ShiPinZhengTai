@@ -11,3 +11,4 @@
 - [No self-serve role promotion (Yzu视频)](no-self-serve-role-promotion.md) — new signups default to role `meril` (was "user"); "forbidden" on admin/upload means account needs owner-issued role promotion.
 - [Yzu视频 user schema v2](user-schema-v2.md) — username+password auth (no email); meril/admin/owner roles; referralCode auto-gen; subscriptionStatus/Expiry denorm cache; wallets+walletTransactions ledger tables; paymentProofs separate from topups; referrals table.
 - [API server startup fragility](api-server-startup-fragility.md) — Redis + Supabase threw at module import time when env vars absent; fixed to graceful no-op; auth middleware skips session check when Redis unavailable.
+- [Chat groups architecture](chat-groups-architecture.md) — DM feature removed; public chat replaced with multi-group system; /chat/groups is the enhanced rooms endpoint with latestMessage+unreadCount; chatRoomsTable has category/isPinnedGroup/isPublic/sortOrder/memberLimit columns.

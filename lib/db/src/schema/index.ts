@@ -19,3 +19,5 @@ export * from "./payment-proofs";
 export * from "./login-history";
 export * from "./user-settings";
 export * from "./chat";
+export * from "./verifications";
+export * from "./drops";

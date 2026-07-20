@@ -16,17 +16,29 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Hash, Plus, Edit3, Trash2, MoreVertical, Loader2, Lock, Users,
+  Hash, Plus, Edit3, Trash2, MoreVertical, Loader2, Lock, Users, Pin, Globe, EyeOff,
 } from "lucide-react";
+
+const GROUP_CATEGORIES = [
+  "General","Gaming","Minecraft","Roblox","Anime","Movies",
+  "Music","Programming","Trading","Education","Marketplace",
+  "Technology","Sports","Memes","Photography",
+];
 import { useToast } from "@/hooks/use-toast";
 
 interface ChatRoom {
   id: string; name: string; slug: string; description?: string;
   imageUrl?: string; rules?: string; isLocked: boolean;
   slowModeSeconds: number; memberCount: number; createdAt: string;
+  category?: string; isPinnedGroup: boolean; isPublic: boolean;
+  sortOrder: number; memberLimit?: number;
 }
 
-const EMPTY: Partial<ChatRoom> = { name: "", slug: "", description: "", imageUrl: "", rules: "", isLocked: false, slowModeSeconds: 0 };
+const EMPTY: Partial<ChatRoom> = {
+  name: "", slug: "", description: "", imageUrl: "", rules: "",
+  isLocked: false, slowModeSeconds: 0,
+  category: "", isPinnedGroup: false, isPublic: true, sortOrder: 0, memberLimit: undefined,
+};
 
 function toSlug(name: string) {
   return name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
@@ -68,6 +80,12 @@ export default function AdminChatRoomsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-chat-rooms"] }),
   });
 
+  const pinMutation = useMutation({
+    mutationFn: ({ id, isPinnedGroup }: { id: string; isPinnedGroup: boolean }) =>
+      adminFetch(`/chat/rooms/${id}/group-settings`, { method: "PATCH", body: JSON.stringify({ isPinnedGroup }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-chat-rooms"] }),
+  });
+
   const openCreate = () => { setEditing(EMPTY); setIsEditMode(false); setModalOpen(true); };
   const openEdit = (room: ChatRoom) => { setEditing({ ...room }); setIsEditMode(true); setModalOpen(true); };
 
@@ -82,6 +100,11 @@ export default function AdminChatRoomsPage() {
       rules: editing.rules?.trim() || null,
       isLocked: editing.isLocked ?? false,
       slowModeSeconds: editing.slowModeSeconds ?? 0,
+      category: editing.category?.trim() || null,
+      isPinnedGroup: editing.isPinnedGroup ?? false,
+      isPublic: editing.isPublic ?? true,
+      sortOrder: editing.sortOrder ?? 0,
+      memberLimit: editing.memberLimit ? Number(editing.memberLimit) : null,
     };
     if (isEditMode && editing.id) {
       updateMutation.mutate({ id: editing.id, data });
@@ -137,14 +160,25 @@ export default function AdminChatRoomsPage() {
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <p className="font-extrabold text-slate-800 truncate">{room.name}</p>
+                        {room.isPinnedGroup && <Pin className="h-3.5 w-3.5 text-purple-400 shrink-0" />}
                         {room.isLocked && <Lock className="h-3.5 w-3.5 text-red-400 shrink-0" />}
+                        {!room.isPublic && <EyeOff className="h-3.5 w-3.5 text-slate-400 shrink-0" />}
                       </div>
-                      {room.description && <p className="text-xs text-slate-500 truncate">{room.description}</p>}
+                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                        {room.category && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-500 border border-purple-100">
+                            {room.category}
+                          </span>
+                        )}
+                        {room.description && <p className="text-xs text-slate-500 truncate">{room.description}</p>}
+                      </div>
                       <p className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
                         <Users className="h-3 w-3" /> {(room.memberCount ?? 0).toLocaleString()} anggota
-                        {room.slowModeSeconds > 0 && <span className="ml-2 text-amber-500">⏳ Slow {room.slowModeSeconds}s</span>}
+                        {room.memberLimit && <span className="text-slate-300"> / {room.memberLimit}</span>}
+                        {room.slowModeSeconds > 0 && <span className="ml-2 text-amber-500">⏳ {room.slowModeSeconds}s</span>}
+                        {room.sortOrder > 0 && <span className="ml-2 text-blue-400">↕ {room.sortOrder}</span>}
                       </p>
                     </div>
                     <DropdownMenu>
@@ -159,6 +193,9 @@ export default function AdminChatRoomsPage() {
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => lockMutation.mutate({ id: room.id, isLocked: !room.isLocked })} className="gap-2">
                           <Lock className="h-3.5 w-3.5" /> {room.isLocked ? "Buka Kunci" : "Kunci Room"}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => pinMutation.mutate({ id: room.id, isPinnedGroup: !room.isPinnedGroup })} className="gap-2">
+                          <Pin className="h-3.5 w-3.5" /> {room.isPinnedGroup ? "Lepas Pin" : "Pin di Atas"}
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setDeleteId(room.id)} className="gap-2 text-red-600 focus:text-red-600">
                           <Trash2 className="h-3.5 w-3.5" /> Hapus Room
@@ -237,21 +274,70 @@ export default function AdminChatRoomsPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex items-center gap-3">
+              {/* Category */}
+              <div>
+                <Label className="font-semibold text-sm">Kategori Grup</Label>
+                <select
+                  value={editing.category ?? ""}
+                  onChange={(e) => setEditing((p) => ({ ...p, category: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white focus:outline-none focus:border-purple-300"
+                >
+                  <option value="">— Pilih kategori —</option>
+                  {GROUP_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              {/* Toggles row */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="flex items-center gap-2.5">
                   <Switch
                     checked={editing.isLocked ?? false}
                     onCheckedChange={(v) => setEditing((p) => ({ ...p, isLocked: v }))}
                   />
-                  <Label className="font-semibold text-sm">Kunci Room</Label>
+                  <Label className="font-semibold text-xs">Kunci</Label>
                 </div>
+                <div className="flex items-center gap-2.5">
+                  <Switch
+                    checked={editing.isPinnedGroup ?? false}
+                    onCheckedChange={(v) => setEditing((p) => ({ ...p, isPinnedGroup: v }))}
+                  />
+                  <Label className="font-semibold text-xs">Pin Atas</Label>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <Switch
+                    checked={editing.isPublic ?? true}
+                    onCheckedChange={(v) => setEditing((p) => ({ ...p, isPublic: v }))}
+                  />
+                  <Label className="font-semibold text-xs">Publik</Label>
+                </div>
+              </div>
+
+              {/* Numbers row */}
+              <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <Label className="font-semibold text-xs">Slow Mode (detik)</Label>
+                  <Label className="font-semibold text-xs">Slow Mode (s)</Label>
                   <Input
-                    type="number"
-                    min="0"
+                    type="number" min="0"
                     value={editing.slowModeSeconds ?? 0}
                     onChange={(e) => setEditing((p) => ({ ...p, slowModeSeconds: parseInt(e.target.value) || 0 }))}
+                    className="mt-1 rounded-xl text-sm h-8"
+                  />
+                </div>
+                <div>
+                  <Label className="font-semibold text-xs">Urutan Sort</Label>
+                  <Input
+                    type="number" min="0"
+                    value={editing.sortOrder ?? 0}
+                    onChange={(e) => setEditing((p) => ({ ...p, sortOrder: parseInt(e.target.value) || 0 }))}
+                    className="mt-1 rounded-xl text-sm h-8"
+                  />
+                </div>
+                <div>
+                  <Label className="font-semibold text-xs">Max Anggota</Label>
+                  <Input
+                    type="number" min="0" placeholder="∞"
+                    value={editing.memberLimit ?? ""}
+                    onChange={(e) => setEditing((p) => ({ ...p, memberLimit: e.target.value ? parseInt(e.target.value) : undefined }))}
                     className="mt-1 rounded-xl text-sm h-8"
                   />
                 </div>

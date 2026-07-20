@@ -19,8 +19,10 @@ import auditLogsRouter from "./audit-logs";
 import systemRouter from "./system";
 import announcementsRouter from "./announcements";
 import chatRoomsRouter from "./chat-rooms";
-import directMessagesRouter from "./direct-messages";
+// DM feature removed — routes/direct-messages.ts kept on disk but not registered
 import chatUploadRouter from "./chat-upload";
+import verificationsRouter from "./verifications";
+import dropsRouter from "./drops";
 
 const router: IRouter = Router();
 
@@ -44,7 +46,9 @@ router.use(auditLogsRouter);
 router.use(systemRouter);
 router.use(announcementsRouter);
 router.use(chatRoomsRouter);
-router.use(directMessagesRouter);
+// DM router removed
 router.use(chatUploadRouter);
+router.use(verificationsRouter);
+router.use(dropsRouter);
 
 export default router;

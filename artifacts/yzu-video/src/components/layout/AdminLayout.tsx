@@ -18,6 +18,7 @@ import {
   ArrowUpFromLine, TrendingUp, Star, BarChart3, FileBarChart, Bell,
   Settings, ShieldCheck, Server, Upload, LogOut, Home, ChevronLeft,
   ChevronRight, Menu, PlaySquare, Search, User as UserIcon, X, Gift,
+  CheckCircle2,
 } from "lucide-react";
 
 // ── Navigation Config ──────────────────────────────────────────────────────────
@@ -76,6 +77,14 @@ const useNavGroups = (pendingPayments: number = 0, unreadNotifs: number = 0): Na
       { label: "Notifikasi", href: "/admin/notifications-mgmt", icon: Bell, badge: unreadNotifs || null },
       { label: "Pengumuman", href: "/admin/announcements", icon: Bell },
       { label: "Chat Rooms", href: "/admin/chat-rooms", icon: LayoutDashboard },
+      { label: "Drop System", href: "/admin/drops", icon: Gift },
+    ],
+  },
+  {
+    section: "Kreator",
+    ownerOnly: true,
+    items: [
+      { label: "Verifikasi", href: "/admin/verifications", icon: CheckCircle2 },
     ],
   },
   {
@@ -106,6 +115,8 @@ const PATH_LABELS: Record<string, string> = {
   "/admin/notifications-mgmt": "Notifikasi",
   "/admin/announcements": "Pengumuman",
   "/admin/chat-rooms": "Chat Rooms",
+  "/admin/drops": "Drop System",
+  "/admin/verifications": "Verifikasi Creator",
   "/admin/settings": "Pengaturan",
   "/admin/audit-logs": "Audit Log",
   "/admin/system": "Sistem",

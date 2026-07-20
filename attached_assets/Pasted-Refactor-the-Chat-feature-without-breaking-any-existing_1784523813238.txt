@@ -1,0 +1,324 @@
+Refactor the Chat feature without breaking any existing functionality.
+
+Keep the current UI style, colors and animations.
+
+========================================
+REMOVE DIRECT MESSAGE
+========================================
+
+Remove the Direct Messages feature completely.
+
+Delete:
+
+Direct Messages tab
+
+New Message button
+
+Private conversation pages
+
+Direct Message API
+
+Direct Message database tables
+
+Direct Message notifications
+
+Direct Message search
+
+Direct Message routes
+
+Any unused components
+
+The Chat page must now only contain two tabs:
+
+📢 Announcements
+💬 Chats
+
+Announcements remains for Owner announcements.
+
+Chats becomes the community section.
+
+========================================
+CHAT GROUP SYSTEM
+========================================
+
+Replace the single Public Chat with multiple community groups.
+
+Each group has:
+
+Group Image
+
+Group Name
+
+Description
+
+Category
+
+Member Count
+
+Online Count
+
+Latest Message
+
+Unread Count
+
+Pinned Badge
+
+Verified Badge (optional)
+
+Search Group
+
+Owner can create unlimited groups.
+
+Example groups:
+
+General
+
+Gaming
+
+Minecraft
+
+Roblox
+
+Anime
+
+Movies
+
+Music
+
+Programming
+
+Trading
+
+Education
+
+Marketplace
+
+Technology
+
+Sports
+
+Memes
+
+Photography
+
+========================================
+GROUP CHAT
+========================================
+
+When a user taps a group, open a full-screen chat room.
+
+Inside the group:
+
+Realtime messages
+
+Reply
+
+Emoji
+
+Image upload
+
+Video upload
+
+File upload
+
+Voice message
+
+Reaction
+
+Mention
+
+Pinned message
+
+Typing indicator
+
+Seen status
+
+Unread counter
+
+Online members
+
+Group info
+
+Search messages
+
+========================================
+NAVIGATION
+========================================
+
+When entering a group chat:
+
+Hide the Bottom Navigation completely.
+
+Hide:
+
+Home
+
+Chat
+
+Bundles
+
+Premium
+
+Profile
+
+Show only a Top Navigation Bar containing:
+
+← Back Button
+
+Group Avatar
+
+Group Name
+
+Online Members
+
+Search
+
+More Menu
+
+This should behave like Telegram or Discord.
+
+When the user presses Back:
+
+Return to the Chat Group List.
+
+Restore the Bottom Navigation automatically.
+
+Bottom Navigation must NEVER appear while inside a chat room.
+
+========================================
+GROUP MANAGEMENT
+========================================
+
+Owner can:
+
+Create Group
+
+Edit Group
+
+Delete Group
+
+Lock Group
+
+Pin Group
+
+Change Group Image
+
+Change Description
+
+Set Public or Private
+
+Assign Moderators
+
+Mute Members
+
+Ban Members
+
+View Member List
+
+========================================
+DATABASE
+========================================
+
+Create tables:
+
+chat_groups
+
+chat_group_members
+
+chat_group_messages
+
+chat_group_reactions
+
+chat_group_reads
+
+chat_group_files
+
+chat_group_roles
+
+chat_group_logs
+
+========================================
+REALTIME
+========================================
+
+Use Supabase Realtime.
+
+Messages must appear instantly.
+
+Member count updates automatically.
+
+Online status updates automatically.
+
+Unread badge updates automatically.
+
+========================================
+SEARCH
+========================================
+
+Search Groups
+
+Search Messages
+
+Search Members
+
+========================================
+PERFORMANCE
+========================================
+
+Pagination
+
+Lazy Loading
+
+Infinite Scroll
+
+Optimized Queries
+
+Caching
+
+========================================
+SECURITY
+========================================
+
+Use Row Level Security.
+
+Only group members can access private groups.
+
+Prevent spam.
+
+Prevent duplicate messages.
+
+Validate uploads.
+
+========================================
+FINAL CHECK
+========================================
+
+Verify there are no React errors.
+
+Verify there are no TypeScript errors.
+
+Verify there are no Supabase errors.
+
+Verify every route works.
+
+Verify every button works.
+
+Verify Bottom Navigation hides correctly inside group chat and reappears after leaving the group.
+
+Return a complete report containing:
+
+Pages modified
+
+Components modified
+
+Database changes
+
+API changes
+
+RLS policies
+
+Realtime channels
+
+Files modified
+
+Remaining issues

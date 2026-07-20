@@ -48,7 +48,8 @@ import AdminAnnouncementsPage from "@/pages/admin/announcements";
 import AdminChatRoomsPage from "@/pages/admin/chat-rooms";
 import ChatHomePage from "@/pages/chat/index";
 import ChatRoomPage from "@/pages/chat/room";
-import DMPage from "@/pages/chat/dm";
+import AdminVerificationsPage from "@/pages/admin/verifications";
+import AdminDropsPage from "@/pages/admin/drops";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -74,7 +75,7 @@ function AppRouter() {
       <Route path="/search" component={SearchPage} />
       <Route path="/chat" component={ChatHomePage} />
       <Route path="/chat/room/:id" component={ChatRoomPage} />
-      <Route path="/chat/dm/:id" component={DMPage} />
+      {/* DM routes removed */}
       <Route path="/bundle/watch/:videoId" component={BundleWatchPage} />
       <Route path="/bundles" component={BundlesPage} />
       <Route path="/bundles/my" component={MyBundlesPage} />
@@ -103,6 +104,8 @@ function AppRouter() {
       <Route path="/admin/reports" component={AdminReports} />
       <Route path="/admin/announcements" component={AdminAnnouncementsPage} />
       <Route path="/admin/chat-rooms" component={AdminChatRoomsPage} />
+      <Route path="/admin/verifications" component={AdminVerificationsPage} />
+      <Route path="/admin/drops" component={AdminDropsPage} />
 
       {/* Legacy /owner/* → redirect to /admin/* equivalents */}
       <Route path="/owner" component={AdminDashboard} />
@@ -112,6 +115,8 @@ function AppRouter() {
       <Route path="/owner/payments" component={AdminPayments} />
       <Route path="/owner/subscriptions" component={AdminSubscriptions} />
       <Route path="/owner/settings" component={AdminSettings} />
+      <Route path="/owner/verifications" component={AdminVerificationsPage} />
+      <Route path="/owner/drops" component={AdminDropsPage} />
 
       <Route component={NotFound} />
     </Switch>

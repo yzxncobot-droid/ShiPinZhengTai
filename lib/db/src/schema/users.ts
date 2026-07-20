@@ -45,6 +45,10 @@ export const usersTable = pgTable(
     /** UTC expiry of the current subscription (null when none/expired). */
     subscriptionExpiry: timestamp("subscription_expiry"),
 
+    // ── Verification badge (denormalised for fast JOIN-free reads) ─────
+    /** "blue" | "gold" | "sulthan" | null — kept in sync by verification routes */
+    verificationBadge: text("verification_badge"),
+
     // ── Referral ──────────────────────────────────────────────────────
     /** Unique code that users can share to earn credits. Auto-generated on insert. */
     referralCode: text("referral_code").unique(),

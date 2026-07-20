@@ -97,6 +97,11 @@ export const chatRoomsTable = pgTable(
     description:      text("description"),
     imageUrl:         text("image_url"),
     rules:            text("rules"),
+    category:         text("category"),                                            // "General" | "Gaming" | "Anime" | etc.
+    isPinnedGroup:    boolean("is_pinned_group").notNull().default(false),         // pinned at top of groups list
+    isPublic:         boolean("is_public").notNull().default(true),                // public vs private
+    sortOrder:        integer("sort_order").notNull().default(0),                  // manual sort order
+    memberLimit:      integer("member_limit"),                                     // optional max members
     isLocked:         boolean("is_locked").notNull().default(false),
     slowModeSeconds:  integer("slow_mode_seconds").notNull().default(0),
     createdBy:        uuid("created_by").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
@@ -107,6 +112,8 @@ export const chatRoomsTable = pgTable(
     slugIdx:      uniqueIndex("chat_rooms_slug_idx").on(t.slug),
     createdByIdx: index("chat_rooms_created_by_idx").on(t.createdBy),
     createdAtIdx: index("chat_rooms_created_at_idx").on(t.createdAt),
+    categoryIdx:  index("chat_rooms_category_idx").on(t.category),
+    pinnedIdx:    index("chat_rooms_pinned_idx").on(t.isPinnedGroup),
   }),
 );
 
@@ -184,100 +191,11 @@ export const chatReadsTable = pgTable(
   }),
 );
 
-// ─── Direct Messages ─────────────────────────────────────────────────────────
-
-export const conversationsTable = pgTable(
-  "conversations",
-  {
-    id:        uuid("id").defaultRandom().primaryKey(),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
-  },
-);
-
-export const conversationMembersTable = pgTable(
-  "conversation_members",
-  {
-    id:             uuid("id").defaultRandom().primaryKey(),
-    conversationId: uuid("conversation_id").notNull().references(() => conversationsTable.id, { onDelete: "cascade" }),
-    userId:         uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
-    isPinned:       boolean("is_pinned").notNull().default(false),
-    isArchived:     boolean("is_archived").notNull().default(false),
-    isFavorite:     boolean("is_favorite").notNull().default(false),
-    isMuted:        boolean("is_muted").notNull().default(false),
-    isBlocked:      boolean("is_blocked").notNull().default(false),
-    joinedAt:       timestamp("joined_at").notNull().defaultNow(),
-  },
-  (t) => ({
-    unique:   uniqueIndex("conversation_members_unique_idx").on(t.conversationId, t.userId),
-    convIdx:  index("conversation_members_conv_idx").on(t.conversationId),
-    userIdx:  index("conversation_members_user_idx").on(t.userId),
-  }),
-);
-
-export const directMessagesTable = pgTable(
-  "direct_messages",
-  {
-    id:               uuid("id").defaultRandom().primaryKey(),
-    conversationId:   uuid("conversation_id").notNull().references(() => conversationsTable.id, { onDelete: "cascade" }),
-    senderId:         uuid("sender_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
-    content:          text("content").notNull().default(""),
-    messageType:      chatMessageTypeEnum("message_type").notNull().default("text"),
-    fileUrl:          text("file_url"),
-    fileName:         text("file_name"),
-    replyToId:        uuid("reply_to_id"),
-    isDeletedSender:  boolean("is_deleted_sender").notNull().default(false),
-    isDeletedAll:     boolean("is_deleted_all").notNull().default(false),
-    editedAt:         timestamp("edited_at"),
-    createdAt:        timestamp("created_at").notNull().defaultNow(),
-  },
-  (t) => ({
-    convIdx:    index("direct_messages_conv_idx").on(t.conversationId),
-    senderIdx:  index("direct_messages_sender_idx").on(t.senderId),
-    createdIdx: index("direct_messages_created_idx").on(t.createdAt),
-    convCreatedIdx: index("direct_messages_conv_created_idx").on(t.conversationId, t.createdAt),
-  }),
-);
-
-export const dmReactionsTable = pgTable(
-  "dm_reactions",
-  {
-    id:        uuid("id").defaultRandom().primaryKey(),
-    messageId: uuid("message_id").notNull().references(() => directMessagesTable.id, { onDelete: "cascade" }),
-    userId:    uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
-    emoji:     text("emoji").notNull(),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-  },
-  (t) => ({
-    unique:   uniqueIndex("dm_reactions_unique_idx").on(t.messageId, t.userId, t.emoji),
-    msgIdx:   index("dm_reactions_msg_idx").on(t.messageId),
-    userIdx:  index("dm_reactions_user_idx").on(t.userId),
-  }),
-);
-
-export const dmReadsTable = pgTable(
-  "dm_reads",
-  {
-    id:             uuid("id").defaultRandom().primaryKey(),
-    conversationId: uuid("conversation_id").notNull().references(() => conversationsTable.id, { onDelete: "cascade" }),
-    userId:         uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
-    lastReadAt:     timestamp("last_read_at").notNull().defaultNow(),
-  },
-  (t) => ({
-    unique:  uniqueIndex("dm_reads_unique_idx").on(t.conversationId, t.userId),
-    convIdx: index("dm_reads_conv_idx").on(t.conversationId),
-    userIdx: index("dm_reads_user_idx").on(t.userId),
-  }),
-);
-
 // ─── Types ────────────────────────────────────────────────────────────────────
-export type Announcement        = typeof announcementsTable.$inferSelect;
+export type Announcement         = typeof announcementsTable.$inferSelect;
 export type AnnouncementReaction = typeof announcementReactionsTable.$inferSelect;
-export type AnnouncementComment = typeof announcementCommentsTable.$inferSelect;
-export type ChatRoom            = typeof chatRoomsTable.$inferSelect;
-export type ChatRoomMember      = typeof chatRoomMembersTable.$inferSelect;
-export type ChatMessage         = typeof chatMessagesTable.$inferSelect;
-export type ChatReaction        = typeof chatReactionsTable.$inferSelect;
-export type Conversation        = typeof conversationsTable.$inferSelect;
-export type ConversationMember  = typeof conversationMembersTable.$inferSelect;
-export type DirectMessage       = typeof directMessagesTable.$inferSelect;
+export type AnnouncementComment  = typeof announcementCommentsTable.$inferSelect;
+export type ChatRoom             = typeof chatRoomsTable.$inferSelect;
+export type ChatRoomMember       = typeof chatRoomMembersTable.$inferSelect;
+export type ChatMessage          = typeof chatMessagesTable.$inferSelect;
+export type ChatReaction         = typeof chatReactionsTable.$inferSelect;

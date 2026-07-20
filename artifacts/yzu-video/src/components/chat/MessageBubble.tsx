@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { format } from "date-fns";
 import { MoreHorizontal, Reply, Trash2, Edit3, Pin, Smile, Crown, ShieldCheck } from "lucide-react";
+import { VerificationBadge } from "@/components/ui/VerificationBadge";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -22,6 +23,7 @@ interface Props {
   authorAvatar?: string | null;
   authorRole?: string;
   authorSubscriptionStatus?: string;
+  authorVerificationBadge?: string | null;
   createdAt: string | Date;
   editedAt?: string | Date | null;
   isPinned?: boolean;
@@ -98,7 +100,7 @@ function MediaContent({ fileUrl, fileName, messageType }: { fileUrl: string; fil
 
 export function MessageBubble({
   id, content, messageType = "text", fileUrl, fileName,
-  authorUsername, authorAvatar, authorRole, authorSubscriptionStatus,
+  authorUsername, authorAvatar, authorRole, authorSubscriptionStatus, authorVerificationBadge,
   createdAt, editedAt, isPinned, isDeleted, isMine = false,
   reactions = [], myReactions = [], replyToId,
   showAvatar = true, onReact, onReply, onEdit, onDelete, onDeleteForAll, canModerate,
@@ -133,6 +135,7 @@ export function MessageBubble({
             <span className="text-[12px] font-extrabold text-slate-800">
               {authorUsername}
             </span>
+            <VerificationBadge verificationBadge={authorVerificationBadge} size="xs" showTooltip={false} />
             <RoleBadge role={authorRole} subscriptionStatus={authorSubscriptionStatus} />
             <span className="text-[10px] text-slate-400">{timeStr}</span>
           </div>

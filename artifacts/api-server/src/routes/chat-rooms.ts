@@ -4,7 +4,7 @@ import {
   chatRoomsTable, chatRoomMembersTable, chatMessagesTable,
   chatReactionsTable, chatReadsTable,
 } from "@workspace/db";
-import { eq, desc, and, sql, inArray, gt, lt, lte } from "drizzle-orm";
+import { eq, desc, asc, and, sql, inArray, gt, lt, lte, ilike, or } from "drizzle-orm";
 import { usersTable } from "@workspace/db";
 import { authenticate, optionalAuth, requireRole } from "../middlewares/auth";
 
@@ -245,6 +245,7 @@ router.get("/chat/rooms/:id/messages", optionalAuth, async (req, res) => {
         authorAvatar: usersTable.avatar,
         authorRole: usersTable.role,
         authorSubscriptionStatus: usersTable.subscriptionStatus,
+        authorVerificationBadge: usersTable.verificationBadge,
       })
       .from(chatMessagesTable)
       .innerJoin(usersTable, eq(chatMessagesTable.userId, usersTable.id))
@@ -343,10 +344,10 @@ router.post("/chat/rooms/:id/messages", authenticate, async (req, res) => {
     }).returning();
 
     const [author] = await db
-      .select({ username: usersTable.username, avatar: usersTable.avatar, role: usersTable.role, subscriptionStatus: usersTable.subscriptionStatus })
+      .select({ username: usersTable.username, avatar: usersTable.avatar, role: usersTable.role, subscriptionStatus: usersTable.subscriptionStatus, verificationBadge: usersTable.verificationBadge })
       .from(usersTable).where(eq(usersTable.id, userId));
 
-    res.status(201).json({ ...created, authorUsername: author.username, authorAvatar: author.avatar, authorRole: author.role, authorSubscriptionStatus: author.subscriptionStatus, reactions: [], myReactions: [] });
+    res.status(201).json({ ...created, authorUsername: author.username, authorAvatar: author.avatar, authorRole: author.role, authorSubscriptionStatus: author.subscriptionStatus, authorVerificationBadge: author.verificationBadge ?? null, reactions: [], myReactions: [] });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -641,4 +642,129 @@ router.get("/chat/rooms/:id/typing", optionalAuth, async (req, res) => {
   }
 });
 
+// ── Groups list (enhanced rooms list with latest message + unread count) ───────
+
+router.get("/chat/groups", optionalAuth, async (req, res) => {
+  try {
+    const userId  = req.user?.userId;
+    const search  = String(req.query.search  ?? "").trim();
+    const category = String(req.query.category ?? "").trim();
+
+    const whereConditions = [];
+    if (search)   whereConditions.push(ilike(chatRoomsTable.name, `%${search}%`));
+    if (category) whereConditions.push(eq(chatRoomsTable.category, category));
+    const whereClause = whereConditions.length ? and(...whereConditions) : undefined;
+
+    const rooms = await db
+      .select({
+        id:            chatRoomsTable.id,
+        name:          chatRoomsTable.name,
+        slug:          chatRoomsTable.slug,
+        description:   chatRoomsTable.description,
+        imageUrl:      chatRoomsTable.imageUrl,
+        isLocked:      chatRoomsTable.isLocked,
+        slowModeSeconds: chatRoomsTable.slowModeSeconds,
+        category:      chatRoomsTable.category,
+        isPinnedGroup: chatRoomsTable.isPinnedGroup,
+        isPublic:      chatRoomsTable.isPublic,
+        sortOrder:     chatRoomsTable.sortOrder,
+        createdAt:     chatRoomsTable.createdAt,
+        memberCount:   sql<number>`cast(count(distinct ${chatRoomMembersTable.userId}) filter (where ${chatRoomMembersTable.isBanned} = false) as int)`,
+      })
+      .from(chatRoomsTable)
+      .leftJoin(chatRoomMembersTable, eq(chatRoomMembersTable.roomId, chatRoomsTable.id))
+      .where(whereClause)
+      .groupBy(chatRoomsTable.id)
+      .orderBy(
+        desc(chatRoomsTable.isPinnedGroup),
+        asc(chatRoomsTable.sortOrder),
+        desc(chatRoomsTable.createdAt),
+      );
+
+    if (rooms.length === 0) { res.json([]); return; }
+
+    const roomIds = rooms.map((r) => r.id);
+
+    // Latest message per room (one batch query, then pick latest per roomId)
+    const recentMsgs = await db
+      .select({
+        roomId:         chatMessagesTable.roomId,
+        content:        chatMessagesTable.content,
+        messageType:    chatMessagesTable.messageType,
+        createdAt:      chatMessagesTable.createdAt,
+        authorUsername: usersTable.username,
+      })
+      .from(chatMessagesTable)
+      .innerJoin(usersTable, eq(chatMessagesTable.userId, usersTable.id))
+      .where(and(
+        inArray(chatMessagesTable.roomId, roomIds),
+        eq(chatMessagesTable.isDeleted, false),
+      ))
+      .orderBy(desc(chatMessagesTable.createdAt))
+      .limit(roomIds.length * 5); // enough to get ≥1 per room
+
+    const latestByRoom = new Map<string, typeof recentMsgs[number]>();
+    for (const m of recentMsgs) {
+      if (!latestByRoom.has(m.roomId)) latestByRoom.set(m.roomId, m);
+    }
+
+    // Unread count per room for authenticated user
+    const unreadMap = new Map<string, number>();
+    if (userId) {
+      const reads = await db
+        .select({ roomId: chatReadsTable.roomId, lastReadAt: chatReadsTable.lastReadAt })
+        .from(chatReadsTable)
+        .where(and(eq(chatReadsTable.userId, userId), inArray(chatReadsTable.roomId, roomIds)));
+      const readMap = new Map<string, Date>(reads.map((r) => [r.roomId, new Date(r.lastReadAt)]));
+
+      await Promise.all(
+        roomIds.map(async (roomId) => {
+          const lastRead = readMap.get(roomId) ?? new Date(0);
+          const [row] = await db
+            .select({ cnt: sql<number>`cast(count(*) as int)` })
+            .from(chatMessagesTable)
+            .where(and(
+              eq(chatMessagesTable.roomId, roomId),
+              eq(chatMessagesTable.isDeleted, false),
+              gt(chatMessagesTable.createdAt, lastRead),
+            ));
+          unreadMap.set(roomId, row?.cnt ?? 0);
+        }),
+      );
+    }
+
+    res.json(rooms.map((r) => ({
+      ...r,
+      latestMessage: latestByRoom.get(r.id) ?? null,
+      unreadCount:   unreadMap.get(r.id) ?? 0,
+    })));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Admin: update room group settings (pin, category, public/private) ─────────
+
+router.patch("/chat/rooms/:id/group-settings", authenticate, requireRole("owner"), async (req, res) => {
+  try {
+    const { category, isPinnedGroup, isPublic, sortOrder, memberLimit } = req.body;
+    const updates: Record<string, any> = { updatedAt: new Date() };
+    if (category     !== undefined) updates.category     = category     ?? null;
+    if (isPinnedGroup !== undefined) updates.isPinnedGroup = Boolean(isPinnedGroup);
+    if (isPublic     !== undefined) updates.isPublic     = Boolean(isPublic);
+    if (sortOrder    !== undefined) updates.sortOrder    = Number(sortOrder);
+    if (memberLimit  !== undefined) updates.memberLimit  = memberLimit ? Number(memberLimit) : null;
+
+    const [updated] = await db.update(chatRoomsTable)
+      .set(updates)
+      .where(eq(chatRoomsTable.id, req.params.id))
+      .returning();
+    if (!updated) { res.status(404).json({ error: "Room not found" }); return; }
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
+

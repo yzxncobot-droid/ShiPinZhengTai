@@ -1,23 +1,20 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { adminFetch } from "@/lib/admin-api";
-import { MessageBubble } from "@/components/chat/MessageBubble";
-import { ChatInput } from "@/components/chat/ChatInput";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BottomNav } from "@/components/layout/BottomNav";
 import {
-  Megaphone, MessageSquare, Mail, Plus, Pin, MessageCircle,
-  Share2, ExternalLink, Search, ArrowRight, Crown, ShieldCheck,
-  Globe, Loader2, ArrowLeft, MoreVertical, Hash, Users, UserPlus,
-  ChevronRight,
+  Megaphone, MessageSquare, Search, Pin, ExternalLink, MessageCircle,
+  Share2, Users, Hash, Lock, Globe, Crown, ShieldCheck, ChevronRight,
+  X, Loader2, Plus, CheckCircle2,
 } from "lucide-react";
 import { formatDistanceToNow, isToday, isYesterday, format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 
-// ─── Types ─────────────────────────────────────────────────────────────────────
+// ─── Types ──────────────────────────────────────────────────────────────────────
 
 interface Announcement {
   id: string; title: string; content: string;
@@ -29,39 +26,32 @@ interface Announcement {
   myReactions: string[];
 }
 
-interface GlobalRoom {
+interface Group {
   id: string; name: string; slug: string; description?: string;
   imageUrl?: string; isLocked: boolean; slowModeSeconds: number;
-  memberCount: number;
+  category?: string; isPinnedGroup: boolean; isPublic: boolean; sortOrder: number;
+  memberCount: number; createdAt: string;
+  latestMessage: { content: string; messageType: string; authorUsername: string; createdAt: string } | null;
+  unreadCount: number;
 }
 
-interface Message {
-  id: string; roomId: string; content: string; messageType: string;
-  fileUrl?: string; fileName?: string; replyToId?: string;
-  isPinned: boolean; isDeleted: boolean; editedAt?: string;
-  createdAt: string; authorId: string; authorUsername: string;
-  authorAvatar?: string; authorRole: string; authorSubscriptionStatus?: string;
-  reactions: { emoji: string; count: number }[];
-  myReactions: string[];
-}
-
-interface Conversation {
-  conversationId: string; isPinned: boolean; isFavorite: boolean; isMuted: boolean;
-  unread: number;
-  otherUser: { userId: string; username: string; avatar?: string; role?: string } | null;
-  lastMessage: { content: string; messageType: string; createdAt: string; senderId: string } | null;
-}
-
-// ─── Tabs ──────────────────────────────────────────────────────────────────────
+// ─── Tabs ───────────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "announcements", label: "Announcements", icon: Megaphone },
-  { id: "chats",         label: "Chats",         icon: MessageSquare },
-  { id: "dm",           label: "Direct Messages", icon: Mail },
-] as const;
-type Tab = typeof TABS[number]["id"];
+  { id: "chats" as const,          label: "Chats",         icon: MessageSquare },
+  { id: "announcements" as const,  label: "Announcements", icon: Megaphone },
+];
+type Tab = "chats" | "announcements";
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
+// ─── Category list ──────────────────────────────────────────────────────────────
+
+const ALL_CATEGORIES = [
+  "General","Gaming","Minecraft","Roblox","Anime","Movies",
+  "Music","Programming","Trading","Education","Marketplace",
+  "Technology","Sports","Memes","Photography",
+];
+
+// ─── Helpers ────────────────────────────────────────────────────────────────────
 
 function timeAgo(date: string | Date) {
   return formatDistanceToNow(new Date(date), { addSuffix: true, locale: localeId });
@@ -69,52 +59,223 @@ function timeAgo(date: string | Date) {
 
 function shortTime(date: string | Date) {
   const d = new Date(date);
-  if (isToday(d)) return format(d, "HH:mm");
+  if (isToday(d))     return format(d, "HH:mm");
   if (isYesterday(d)) return "Kemarin";
   return format(d, "dd/MM");
 }
 
+function formatMsgPreview(msg: Group["latestMessage"] | null, description?: string): string {
+  if (!msg) return description ?? "Belum ada pesan";
+  const prefix = `${msg.authorUsername}: `;
+  if (msg.messageType === "image")  return `${prefix}🖼️ Gambar`;
+  if (msg.messageType === "video")  return `${prefix}🎬 Video`;
+  if (msg.messageType === "voice")  return `${prefix}🎤 Pesan suara`;
+  if (msg.messageType === "file")   return `${prefix}📎 File`;
+  if (msg.messageType === "gif")    return `${prefix}GIF`;
+  return `${prefix}${msg.content}`;
+}
+
+// ─── Avatar ──────────────────────────────────────────────────────────────────────
+
 function AvatarEl({ username, avatar, size = "md", online }: {
   username: string; avatar?: string | null; size?: "sm" | "md" | "lg"; online?: boolean;
 }) {
-  const sz = { sm: "h-8 w-8 text-xs", md: "h-11 w-11 text-sm", lg: "h-12 w-12 text-base" }[size];
+  const sz = { sm: "h-8 w-8 text-xs", md: "h-12 w-12 text-sm", lg: "h-14 w-14 text-base" }[size];
   return (
     <div className="relative shrink-0">
       {avatar
-        ? <img src={avatar} alt={username} className={`${sz} rounded-full object-cover`} />
+        ? <img src={avatar} alt={username} className={`${sz} rounded-2xl object-cover`} />
         : (
-          <div className={`${sz} rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-extrabold`}>
+          <div className={`${sz} rounded-2xl bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-extrabold`}>
             {username[0]?.toUpperCase()}
           </div>
         )
       }
       {online && (
-        <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-green-400 border-2 border-white" />
+        <span className="absolute bottom-0.5 right-0.5 h-3 w-3 rounded-full bg-green-400 border-2 border-white" />
       )}
     </div>
   );
 }
 
-function RoleBadge({ role, subscriptionStatus }: { role?: string; subscriptionStatus?: string }) {
-  if (role === "owner") return (
-    <span className="flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 leading-none">
-      <Crown className="h-2.5 w-2.5" /> Owner
-    </span>
+function GroupAvatar({ group }: { group: Group }) {
+  if (group.imageUrl) {
+    return <img src={group.imageUrl} alt={group.name} className="h-12 w-12 rounded-2xl object-cover shrink-0" />;
+  }
+  // Generate color from name
+  const colors = [
+    "from-purple-500 to-pink-500",
+    "from-blue-500 to-cyan-500",
+    "from-green-500 to-teal-500",
+    "from-orange-500 to-red-500",
+    "from-indigo-500 to-purple-500",
+    "from-amber-500 to-orange-500",
+  ];
+  const color = colors[group.name.charCodeAt(0) % colors.length];
+  return (
+    <div className={`h-12 w-12 rounded-2xl bg-gradient-to-br ${color} flex items-center justify-center shrink-0 shadow-sm`}>
+      <Hash className="h-6 w-6 text-white" />
+    </div>
   );
-  if (role === "admin") return (
-    <span className="flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 leading-none">
-      <ShieldCheck className="h-2.5 w-2.5" /> Admin
-    </span>
-  );
-  if (subscriptionStatus === "active") return (
-    <span className="flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 leading-none">
-      <Crown className="h-2.5 w-2.5" /> Premium
-    </span>
-  );
-  return null;
 }
 
-// ─── Announcement Card ─────────────────────────────────────────────────────────
+// ─── Group Card ──────────────────────────────────────────────────────────────────
+
+function GroupCard({ group, onClick }: { group: Group; onClick: () => void }) {
+  const timeRef = group.latestMessage?.createdAt ?? group.createdAt;
+  const preview = formatMsgPreview(group.latestMessage, group.description);
+
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-slate-50 active:bg-slate-100 transition-colors text-left"
+    >
+      <GroupAvatar group={group} />
+
+      <div className="flex-1 min-w-0">
+        {/* Name row */}
+        <div className="flex items-center gap-1.5 mb-0.5">
+          {group.isPinnedGroup && <Pin className="h-3 w-3 text-purple-400 shrink-0" />}
+          <span className={`font-extrabold text-sm truncate ${group.unreadCount > 0 ? "text-slate-900" : "text-slate-700"}`}>
+            {group.name}
+          </span>
+          {group.isLocked && <Lock className="h-3 w-3 text-slate-300 shrink-0" />}
+          {group.category && (
+            <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-500 border border-purple-100 shrink-0 hidden sm:inline">
+              {group.category}
+            </span>
+          )}
+        </div>
+        {/* Preview */}
+        <p className={`text-xs truncate ${group.unreadCount > 0 ? "font-semibold text-slate-700" : "text-slate-400"}`}>
+          {preview}
+        </p>
+        {/* Members */}
+        <div className="flex items-center gap-1 mt-0.5">
+          <Users className="h-3 w-3 text-slate-300" />
+          <span className="text-[10px] text-slate-400">{group.memberCount.toLocaleString()} anggota</span>
+        </div>
+      </div>
+
+      {/* Right side */}
+      <div className="flex flex-col items-end gap-1 shrink-0 ml-1">
+        <span className={`text-[11px] ${group.unreadCount > 0 ? "text-purple-500 font-bold" : "text-slate-400"}`}>
+          {shortTime(timeRef)}
+        </span>
+        {group.unreadCount > 0 && (
+          <span className="h-5 min-w-[20px] rounded-full bg-purple-500 text-white text-[10px] font-extrabold flex items-center justify-center px-1.5">
+            {group.unreadCount > 99 ? "99+" : group.unreadCount}
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
+// ─── Groups Pane ─────────────────────────────────────────────────────────────────
+
+function GroupsPane({ userId }: { userId?: string }) {
+  const [, setLocation] = useLocation();
+  const [search,   setSearch]   = useState("");
+  const [category, setCategory] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const { data: groups = [], isLoading } = useQuery({
+    queryKey: ["chat-groups", debouncedSearch, category],
+    queryFn: () => adminFetch<Group[]>(
+      `/chat/groups?search=${encodeURIComponent(debouncedSearch)}&category=${encodeURIComponent(category)}`
+    ),
+    refetchInterval: 8000,
+    staleTime: 4000,
+  });
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Search bar */}
+      <div className="px-3 pt-2 pb-1 bg-white border-b border-slate-50">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Cari grup..."
+            className="w-full pl-9 pr-9 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:border-purple-300 focus:bg-white transition-all"
+          />
+          {search && (
+            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2">
+              <X className="h-4 w-4 text-slate-400" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Category filter pills */}
+      <div className="flex gap-2 px-3 py-2 overflow-x-auto bg-white border-b border-slate-50" style={{ scrollbarWidth: "none" }}>
+        {["Semua", ...ALL_CATEGORIES].map((cat) => {
+          const active = cat === "Semua" ? category === "" : category === cat;
+          return (
+            <button
+              key={cat}
+              onClick={() => setCategory(cat === "Semua" ? "" : cat)}
+              className={`shrink-0 text-xs font-bold px-3 py-1.5 rounded-full border transition-all ${
+                active
+                  ? "bg-purple-500 text-white border-purple-500 shadow-sm"
+                  : "bg-white border-slate-200 text-slate-500 hover:border-purple-200 hover:text-purple-500"
+              }`}
+            >
+              {cat}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Groups list */}
+      <div className="flex-1 overflow-y-auto bg-white">
+        {isLoading ? (
+          <div className="divide-y divide-slate-50">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3.5">
+                <Skeleton className="h-12 w-12 rounded-2xl shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-3 w-48" />
+                  <Skeleton className="h-3 w-20" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : groups.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24 text-center px-6">
+            <Globe className="h-12 w-12 text-slate-200 mb-3" />
+            <p className="font-extrabold text-slate-500 text-base">
+              {search || category ? "Tidak ada grup yang cocok" : "Belum ada grup"}
+            </p>
+            <p className="text-sm text-slate-400 mt-1">
+              {search || category ? "Coba kata kunci lain" : "Owner bisa membuat grup baru di panel admin"}
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-50">
+            {groups.map((group) => (
+              <GroupCard
+                key={group.id}
+                group={group}
+                onClick={() => setLocation(`/chat/room/${group.id}`)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Announcement Card ────────────────────────────────────────────────────────────
 
 function AnnouncementCard({ ann, userId, onReact, onComment }: {
   ann: Announcement; userId?: string;
@@ -137,7 +298,9 @@ function AnnouncementCard({ ann, userId, onReact, onComment }: {
       {ann.imageUrl && <img src={ann.imageUrl} alt="" className="w-full h-40 object-cover" />}
       <div className="p-4">
         <div className="flex items-center gap-2.5 mb-3">
-          <AvatarEl username={ann.authorUsername} avatar={ann.authorAvatar} size="sm" />
+          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold text-xs shrink-0">
+            {ann.authorUsername[0]?.toUpperCase()}
+          </div>
           <div>
             <p className="text-[11px] font-extrabold text-amber-600">Yzu视频</p>
             <p className="text-[10px] text-slate-400">{timeAgo(ann.createdAt)}</p>
@@ -186,7 +349,7 @@ function AnnouncementCard({ ann, userId, onReact, onComment }: {
   );
 }
 
-// ─── Comment Modal ─────────────────────────────────────────────────────────────
+// ─── Comment Modal ─────────────────────────────────────────────────────────────────
 
 function CommentModal({ ann, userId, onClose }: { ann: Announcement; userId?: string; onClose: () => void }) {
   const qc = useQueryClient();
@@ -218,7 +381,9 @@ function CommentModal({ ann, userId, onClose }: { ann: Announcement; userId?: st
           ) : (
             comments.map((c: any) => (
               <div key={c.id} className="flex gap-2.5">
-                <AvatarEl username={c.authorUsername} avatar={c.authorAvatar} size="sm" />
+                <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold text-xs shrink-0">
+                  {c.authorUsername?.[0]?.toUpperCase()}
+                </div>
                 <div>
                   <p className="text-[11px] font-bold text-slate-600">{c.authorUsername}</p>
                   <p className="text-sm text-slate-700 mt-0.5">{c.content}</p>
@@ -245,685 +410,101 @@ function CommentModal({ ann, userId, onClose }: { ann: Announcement; userId?: st
   );
 }
 
-// ─── New DM Modal ──────────────────────────────────────────────────────────────
+// ─── Announcements Pane ───────────────────────────────────────────────────────────
 
-function NewDMModal({ onClose }: { onClose: () => void }) {
-  const [, setLocation] = useLocation();
-  const [query, setQuery] = useState("");
+function AnnouncementsPane({ userId }: { userId?: string }) {
   const qc = useQueryClient();
+  const [commentTarget, setCommentTarget] = useState<Announcement | null>(null);
 
-  const { data: users = [] } = useQuery({
-    queryKey: ["dm-user-search", query],
-    queryFn: () => adminFetch<any[]>(`/dm/search-users?q=${encodeURIComponent(query)}`),
-    enabled: query.length >= 2,
-  });
-
-  const startDM = useMutation({
-    mutationFn: (targetUserId: string) =>
-      adminFetch<{ conversationId: string }>("/dm/conversations/start", {
-        method: "POST", body: JSON.stringify({ targetUserId }),
-      }),
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ["dm-conversations"] });
-      setLocation(`/chat/dm/${data.conversationId}`);
-      onClose();
-    },
-  });
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center" onClick={onClose}>
-      <div className="bg-white w-full max-w-lg rounded-t-3xl p-5 max-h-[75vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-        <div className="w-10 h-1 rounded-full bg-slate-200 mx-auto mb-4" />
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-extrabold text-slate-800 text-lg">Pesan Baru</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
-        </div>
-        <div className="relative mb-4">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)}
-            placeholder="Cari username..." autoFocus
-            className="w-full pl-9 pr-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:border-purple-300" />
-        </div>
-        <div className="flex-1 overflow-y-auto space-y-1">
-          {query.length < 2 ? (
-            <p className="text-center text-sm text-slate-400 py-10">Ketik minimal 2 karakter untuk mencari</p>
-          ) : users.length === 0 ? (
-            <p className="text-center text-sm text-slate-400 py-10">Pengguna tidak ditemukan</p>
-          ) : (
-            users.map((u: any) => (
-              <button key={u.id} onClick={() => startDM.mutate(u.id)}
-                className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-purple-50 transition-colors active:scale-[0.98]">
-                <AvatarEl username={u.username} avatar={u.avatar} size="md" />
-                <div className="text-left flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <p className="font-bold text-sm text-slate-800">{u.username}</p>
-                    <RoleBadge role={u.role} />
-                  </div>
-                  <p className="text-[11px] text-slate-400 capitalize">{u.role}</p>
-                </div>
-                {startDM.isPending ? <Loader2 className="h-4 w-4 animate-spin text-purple-400" /> : <ArrowRight className="h-4 w-4 text-slate-300" />}
-              </button>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── DM Conversation Card ──────────────────────────────────────────────────────
-
-function DMCard({ conv, currentUserId }: { conv: Conversation; currentUserId?: string }) {
-  const [, setLocation] = useLocation();
-  const isMine = conv.lastMessage?.senderId === currentUserId;
-
-  return (
-    <button
-      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 active:bg-slate-100 transition-colors"
-      onClick={() => setLocation(`/chat/dm/${conv.conversationId}`)}
-    >
-      <AvatarEl
-        username={conv.otherUser?.username ?? "?"}
-        avatar={conv.otherUser?.avatar}
-        size="md"
-      />
-      <div className="flex-1 min-w-0 text-left">
-        <div className="flex items-center justify-between gap-1 mb-0.5">
-          <div className="flex items-center gap-1.5 min-w-0">
-            {conv.isPinned && <Pin className="h-3 w-3 text-purple-400 shrink-0" />}
-            <p className={`font-bold text-sm truncate ${conv.unread > 0 ? "text-slate-900" : "text-slate-700"}`}>
-              {conv.otherUser?.username ?? "Pengguna"}
-            </p>
-            <RoleBadge role={conv.otherUser?.role} />
-          </div>
-          <span className={`text-[11px] shrink-0 ${conv.unread > 0 ? "text-purple-500 font-bold" : "text-slate-400"}`}>
-            {conv.lastMessage ? shortTime(conv.lastMessage.createdAt) : ""}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {conv.isMuted && <span className="text-[10px]">🔇</span>}
-          <p className={`text-xs truncate flex-1 ${conv.unread > 0 ? "font-semibold text-slate-700" : "text-slate-400"}`}>
-            {conv.lastMessage
-              ? isMine
-                ? `Kamu: ${conv.lastMessage.messageType !== "text" ? `[${conv.lastMessage.messageType}]` : conv.lastMessage.content}`
-                : conv.lastMessage.messageType !== "text"
-                  ? `[${conv.lastMessage.messageType}]`
-                  : conv.lastMessage.content
-              : "Belum ada pesan"}
-          </p>
-          {conv.unread > 0 && (
-            <span className="h-5 min-w-[20px] rounded-full bg-purple-500 text-white text-[10px] font-extrabold flex items-center justify-center px-1.5 shrink-0">
-              {conv.unread > 99 ? "99+" : conv.unread}
-            </span>
-          )}
-        </div>
-      </div>
-    </button>
-  );
-}
-
-// ─── Typing Indicator ──────────────────────────────────────────────────────────
-
-function TypingIndicator({ names }: { names: string[] }) {
-  if (names.length === 0) return null;
-  const label = names.length === 1
-    ? `${names[0]} sedang mengetik...`
-    : `${names.slice(0, 2).join(", ")} sedang mengetik...`;
-  return (
-    <div className="px-4 py-1.5 flex items-center gap-2">
-      <div className="flex items-center gap-0.5">
-        <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "0ms" }} />
-        <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "150ms" }} />
-        <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "300ms" }} />
-      </div>
-      <span className="text-xs text-slate-400">
-        <strong className="text-slate-500">{names[0]}</strong>{" "}
-        {names.length === 1 ? "sedang mengetik..." : `dan ${names.length - 1} lainnya mengetik...`}
-      </span>
-    </div>
-  );
-}
-
-// ─── Global Chat Pane ──────────────────────────────────────────────────────────
-
-function GlobalChatPane({ userId, username }: { userId?: string; username?: string }) {
-  const [, setLocation] = useLocation();
-  const qc = useQueryClient();
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [hasMore, setHasMore] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [replyTo, setReplyTo] = useState<{ id: string; username: string; content: string } | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [typingUsers, setTypingUsers] = useState<string[]>([]);
-  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Fetch global room by slug
-  const { data: roomList = [], isLoading: loadingRoom } = useQuery({
-    queryKey: ["chat-room-global"],
-    queryFn: () => adminFetch<GlobalRoom[]>("/chat/rooms?slug=global"),
-    staleTime: 60000,
-  });
-  const room = roomList[0] ?? null;
-
-  // Pinned messages
-  const { data: pinnedMessages = [] } = useQuery({
-    queryKey: ["chat-pinned", room?.id],
-    queryFn: () => adminFetch<Message[]>(`/chat/rooms/${room!.id}/pinned`),
-    enabled: !!room,
-    staleTime: 30000,
-  });
-  const topPinned = pinnedMessages[0] ?? null;
-
-  const loadMessages = useCallback(async (before?: string) => {
-    if (!room) return [];
-    const url = `/chat/rooms/${room.id}/messages?limit=40${before ? `&before=${encodeURIComponent(before)}` : ""}`;
-    return adminFetch<Message[]>(url);
-  }, [room?.id]);
-
-  // Initial load
-  useEffect(() => {
-    if (!room) return;
-    let cancelled = false;
-    adminFetch<Message[]>(`/chat/rooms/${room.id}/messages?limit=40`).then((data) => {
-      if (!cancelled) {
-        setMessages(data);
-        setHasMore(data.length >= 40);
-        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "instant" }), 50);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [room?.id]);
-
-  // Polling
-  useEffect(() => {
-    if (!room) return;
-    const interval = setInterval(async () => {
-      try {
-        const latest = await adminFetch<Message[]>(`/chat/rooms/${room.id}/messages?limit=40`);
-        setMessages((prev) => {
-          const existingIds = new Set(prev.map((m) => m.id));
-          const newMsgs = latest.filter((m) => !existingIds.has(m.id));
-          const updated = prev.map((m) => {
-            const u = latest.find((l) => l.id === m.id);
-            return u ? { ...m, ...u } : m;
-          });
-          if (newMsgs.length === 0) return updated;
-          const atBottom = bottomRef.current &&
-            bottomRef.current.getBoundingClientRect().bottom <= window.innerHeight + 200;
-          if (atBottom) setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
-          return [...updated, ...newMsgs];
-        });
-      } catch {}
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [room?.id]);
-
-  // Mark read
-  useEffect(() => {
-    if (userId && room) {
-      adminFetch(`/chat/rooms/${room.id}/read`, { method: "POST" }).catch(() => {});
-    }
-  }, [room?.id, userId]);
-
-  const loadMore = async () => {
-    if (loadingMore || !hasMore || !room || messages.length === 0) return;
-    setLoadingMore(true);
-    try {
-      const older = await adminFetch<Message[]>(`/chat/rooms/${room.id}/messages?limit=40&before=${encodeURIComponent(messages[0].createdAt)}`);
-      setMessages((prev) => [...older, ...prev]);
-      setHasMore(older.length >= 40);
-    } finally { setLoadingMore(false); }
-  };
-
-  // Notify typing (fire-and-forget, best-effort)
-  const notifyTyping = useCallback(() => {
-    if (!room || !userId) return;
-    adminFetch(`/chat/rooms/${room.id}/typing`, { method: "POST" }).catch(() => {});
-  }, [room?.id, userId]);
-
-  const sendMsg = async (content: string) => {
-    if (!userId) { setLocation("/login"); return; }
-    if (!room) return;
-    try {
-      const msg = await adminFetch<Message>(`/chat/rooms/${room.id}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ content, messageType: "text", replyToId: replyTo?.id ?? null }),
-      });
-      setMessages((prev) => [...prev, msg]);
-      setReplyTo(null);
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
-    } catch (err: any) { alert(err.message); }
-  };
-
-  const attachFile = async (file: File) => {
-    if (!userId) { setLocation("/login"); return; }
-    if (!room) return;
-    setIsUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const token = localStorage.getItem("yzu_token");
-      const res = await fetch("/api/chat/upload", {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: fd,
-      });
-      const upload = await res.json();
-      if (!res.ok) throw new Error(upload.error ?? "Upload failed");
-      const type = upload.folder === "chat-images" ? "image"
-        : upload.folder === "chat-videos" ? "video"
-        : upload.folder === "voice-notes" ? "voice" : "file";
-      const msg = await adminFetch<Message>(`/chat/rooms/${room.id}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ content: "", messageType: type, fileUrl: upload.url, fileName: upload.originalName }),
-      });
-      setMessages((prev) => [...prev, msg]);
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
-    } catch (err: any) { alert(err.message); } finally { setIsUploading(false); }
-  };
-
-  const deleteMsg = async (msgId: string, deleteType: "soft" | "hard") => {
-    if (!room) return;
-    await adminFetch(`/chat/rooms/${room.id}/messages/${msgId}`, { method: "DELETE" });
-    setMessages((prev) => prev.filter((m) => m.id !== msgId));
-  };
-
-  const editMsg = async (msgId: string, content: string) => {
-    if (!room) return;
-    const updated = await adminFetch<Message>(`/chat/rooms/${room.id}/messages/${msgId}`, {
-      method: "PATCH", body: JSON.stringify({ content }),
-    });
-    setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, ...updated } : m));
-  };
-
-  const reactMsg = async (msgId: string, emoji: string) => {
-    if (!room) return;
-    await adminFetch(`/chat/rooms/${room.id}/messages/${msgId}/react`, {
-      method: "POST", body: JSON.stringify({ emoji }),
-    });
-    const latest = await adminFetch<Message[]>(`/chat/rooms/${room.id}/messages?limit=40`);
-    setMessages(latest);
-  };
-
-  // Group messages by date
-  function groupMessages(msgs: Message[]) {
-    const groups: { date: string; messages: Message[] }[] = [];
-    for (const m of msgs) {
-      const d = format(new Date(m.createdAt), "d MMMM yyyy", { locale: localeId });
-      const last = groups[groups.length - 1];
-      if (last?.date === d) last.messages.push(m);
-      else groups.push({ date: d, messages: [m] });
-    }
-    return groups;
-  }
-
-  if (loadingRoom) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-purple-400" />
-      </div>
-    );
-  }
-
-  if (!room) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-        <Globe className="h-12 w-12 text-slate-200 mb-3" />
-        <p className="font-bold text-slate-500">Global chat belum tersedia</p>
-        <p className="text-sm text-slate-400 mt-1">Owner perlu membuat room chat komunitas</p>
-      </div>
-    );
-  }
-
-  const groups = groupMessages(messages);
-
-  return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-
-      {/* ── Room Header Card ── */}
-      <div className="mx-3 mt-2 mb-1 bg-white rounded-2xl border border-slate-100 shadow-sm">
-        <div className="flex items-center gap-3 px-3 py-3">
-          {room.imageUrl ? (
-            <img src={room.imageUrl} alt={room.name} className="h-11 w-11 rounded-xl object-cover shrink-0" />
-          ) : (
-            <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shrink-0 shadow-sm">
-              <Hash className="h-6 w-6 text-white" />
-            </div>
-          )}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className="font-extrabold text-slate-800 text-sm">{room.name || "Public Chat"}</span>
-              <span className="h-2 w-2 rounded-full bg-green-400 shrink-0" />
-              <span className="text-[11px] text-slate-400">{room.memberCount.toLocaleString()} online</span>
-            </div>
-            {room.description && (
-              <p className="text-[11px] text-slate-400 truncate mt-0.5">{room.description}</p>
-            )}
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <button className="h-8 w-8 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors">
-              <Search className="h-4 w-4 text-slate-500" />
-            </button>
-            <button className="h-8 w-8 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors">
-              <Users className="h-4 w-4 text-slate-500" />
-            </button>
-            <button className="h-8 w-8 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors">
-              <MoreVertical className="h-4 w-4 text-slate-500" />
-            </button>
-          </div>
-        </div>
-
-        {/* Pinned message banner */}
-        {topPinned && (
-          <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border-t border-amber-100 rounded-b-2xl">
-            <span className="text-amber-500 shrink-0 text-sm">⭐</span>
-            <p className="flex-1 text-[11px] text-amber-800 font-medium truncate">
-              <span className="font-extrabold">Pinned: </span>{topPinned.content}
-            </p>
-            <ChevronRight className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-          </div>
-        )}
-      </div>
-
-      {/* Messages scroll area */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5">
-        {hasMore && (
-          <div className="flex justify-center py-2">
-            <button
-              onClick={loadMore}
-              disabled={loadingMore}
-              className="text-xs text-purple-500 font-bold bg-purple-50 px-4 py-1.5 rounded-full hover:bg-purple-100 transition-colors"
-            >
-              {loadingMore ? <Loader2 className="h-3.5 w-3.5 animate-spin inline" /> : "Muat pesan lama"}
-            </button>
-          </div>
-        )}
-
-        {messages.length === 0 && !loadingMore && (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <Globe className="h-10 w-10 text-slate-200 mb-2" />
-            <p className="font-bold text-slate-400 text-sm">Jadilah yang pertama memulai obrolan!</p>
-          </div>
-        )}
-
-        {groups.map((group) => (
-          <div key={group.date}>
-            <div className="flex items-center gap-2 my-3">
-              <div className="flex-1 h-px bg-slate-100" />
-              <span className="text-[10px] font-bold text-slate-400 px-2">{group.date}</span>
-              <div className="flex-1 h-px bg-slate-100" />
-            </div>
-            {group.messages.map((msg, i) => {
-              const prev = group.messages[i - 1];
-              const showAvatar = !prev || prev.authorId !== msg.authorId ||
-                new Date(msg.createdAt).getTime() - new Date(prev.createdAt).getTime() > 5 * 60 * 1000;
-              return (
-                <MessageBubble
-                  key={msg.id}
-                  id={msg.id}
-                  content={msg.content}
-                  messageType={msg.messageType}
-                  fileUrl={msg.fileUrl}
-                  fileName={msg.fileName}
-                  replyToId={msg.replyToId}
-                  isPinned={msg.isPinned}
-                  isDeleted={msg.isDeleted}
-                  editedAt={msg.editedAt}
-                  createdAt={msg.createdAt}
-                  authorUsername={msg.authorUsername}
-                  authorAvatar={msg.authorAvatar}
-                  authorRole={msg.authorRole}
-                  authorSubscriptionStatus={msg.authorSubscriptionStatus}
-                  reactions={msg.reactions}
-                  myReactions={msg.myReactions}
-                  isMine={msg.authorId === userId}
-                  showAvatar={showAvatar}
-                  onReply={() => setReplyTo({ id: msg.id, username: msg.authorUsername, content: msg.content })}
-                  onReact={(emoji) => reactMsg(msg.id, emoji)}
-                  onEdit={() => {
-                    const newContent = prompt("Edit pesan:", msg.content);
-                    if (newContent?.trim()) editMsg(msg.id, newContent.trim());
-                  }}
-                  onDelete={() => deleteMsg(msg.id, "soft")}
-                />
-              );
-            })}
-          </div>
-        ))}
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Typing indicator */}
-      <TypingIndicator names={typingUsers} />
-
-      {/* Input area */}
-      <ChatInput
-        onSend={sendMsg}
-        onAttach={attachFile}
-        replyTo={replyTo}
-        onCancelReply={() => setReplyTo(null)}
-        disabled={isUploading || room.isLocked}
-        placeholder={room.isLocked ? "Room dikunci oleh admin" : "Ketik pesan..."}
-      />
-    </div>
-  );
-}
-
-// ─── Main Page ─────────────────────────────────────────────────────────────────
-
-export default function ChatHomePage() {
-  const { user } = useAuth();
-  const qc = useQueryClient();
-  const [activeTab, setActiveTab] = useState<Tab>("chats");
-  const [commentAnn, setCommentAnn] = useState<Announcement | null>(null);
-  const [showNewDM, setShowNewDM] = useState(false);
-  const [dmSearch, setDmSearch] = useState("");
-
-  // ── Queries ──────────────────────────────────────────────────────────────────
-
-  const { data: announcements = [], isLoading: loadingAnn } = useQuery({
+  const { data: announcements = [], isLoading } = useQuery({
     queryKey: ["announcements"],
-    queryFn: () => adminFetch<Announcement[]>("/announcements?limit=30"),
+    queryFn: () => adminFetch<Announcement[]>("/announcements"),
     refetchInterval: 30000,
-    enabled: activeTab === "announcements",
+    staleTime: 15000,
   });
 
-  const { data: conversations = [], isLoading: loadingDMs } = useQuery({
-    queryKey: ["dm-conversations"],
-    queryFn: () => adminFetch<Conversation[]>("/dm/conversations"),
-    refetchInterval: 6000,
-    enabled: activeTab === "dm" && !!user,
-  });
-
-  const { data: chatUnread } = useQuery({
-    queryKey: ["chat-unread"],
-    queryFn: () => adminFetch<{ unread: number }>("/chat/unread"),
-    refetchInterval: 10000,
-    enabled: !!user,
-  });
-  const { data: dmUnread } = useQuery({
-    queryKey: ["dm-unread"],
-    queryFn: () => adminFetch<{ unread: number }>("/dm/unread"),
-    refetchInterval: 6000,
-    enabled: !!user,
-  });
-  const { data: annUnread } = useQuery({
-    queryKey: ["announcements-unread"],
-    queryFn: () => adminFetch<{ unread: number }>("/announcements-unread"),
-    refetchInterval: 30000,
-    enabled: !!user,
-  });
-
-  const reactToAnn = useMutation({
-    mutationFn: ({ id, emoji }: { id: string; emoji: string }) =>
-      adminFetch(`/announcements/${id}/react`, { method: "POST", body: JSON.stringify({ emoji }) }),
+  const reactMutation = useMutation({
+    mutationFn: ({ annId, emoji }: { annId: string; emoji: string }) =>
+      adminFetch(`/announcements/${annId}/react`, { method: "POST", body: JSON.stringify({ emoji }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["announcements"] }),
   });
 
-  // ── Filtered DMs ─────────────────────────────────────────────────────────────
-
-  const filteredConvs = conversations.filter((c) =>
-    !dmSearch || c.otherUser?.username?.toLowerCase().includes(dmSearch.toLowerCase())
+  return (
+    <div className="flex-1 overflow-y-auto bg-slate-50">
+      {commentTarget && (
+        <CommentModal ann={commentTarget} userId={userId} onClose={() => setCommentTarget(null)} />
+      )}
+      <div className="p-3 space-y-3">
+        {isLoading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="bg-white rounded-2xl p-4 space-y-3">
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+            </div>
+          ))
+        ) : announcements.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <Megaphone className="h-12 w-12 text-slate-200 mb-3" />
+            <p className="font-extrabold text-slate-500">Belum ada pengumuman</p>
+          </div>
+        ) : (
+          announcements.map((ann) => (
+            <AnnouncementCard
+              key={ann.id}
+              ann={ann}
+              userId={userId}
+              onReact={(id, emoji) => reactMutation.mutate({ annId: id, emoji })}
+              onComment={setCommentTarget}
+            />
+          ))
+        )}
+      </div>
+    </div>
   );
+}
 
-  const tabUnreads: Record<Tab, number> = {
-    announcements: annUnread?.unread ?? 0,
-    chats:         chatUnread?.unread ?? 0,
-    dm:            dmUnread?.unread ?? 0,
-  };
+// ─── Main Page ────────────────────────────────────────────────────────────────────
 
-  const isChatsTab = activeTab === "chats";
+export default function ChatHomePage() {
+  const { user } = useAuth();
+  const [tab, setTab] = useState<Tab>("chats");
 
   return (
-    <div className={isChatsTab ? "h-[100dvh] flex flex-col overflow-hidden" : "min-h-screen bg-gradient-to-b from-slate-50 to-white pb-24"}>
-
-      {/* ── Sticky Header ── */}
-      <div className="sticky top-0 z-40 bg-white border-b border-slate-100 shrink-0">
-        <div className="max-w-lg mx-auto px-4 pt-4 pb-0">
-
-          {/* Title row */}
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h1 className="text-2xl font-extrabold text-slate-900">Chat</h1>
-              <p className="text-xs text-slate-400 font-medium mt-0.5">Komunitas &amp; Pesan Langsung</p>
-            </div>
-            {activeTab === "dm" && user && (
-              <button
-                onClick={() => setShowNewDM(true)}
-                className="h-9 px-4 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 text-white text-sm font-bold flex items-center gap-1.5 shadow-md shadow-purple-200"
-              >
-                <Plus className="h-3.5 w-3.5" /> Pesan
-              </button>
-            )}
+    <div className="flex flex-col h-[100dvh] bg-slate-50">
+      {/* Header */}
+      <div className="bg-white border-b border-slate-100 shadow-sm">
+        <div className="flex items-center justify-between px-4 h-14">
+          <h1 className="font-extrabold text-xl text-slate-800 tracking-tight">Chat</h1>
+          <div className="flex items-center gap-1">
+            <button className="h-9 w-9 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors">
+              <Search className="h-4.5 w-4.5 text-slate-500" />
+            </button>
           </div>
+        </div>
 
-          {/* Tabs — pill style */}
-          <div className="flex gap-1.5 pb-3">
-            {TABS.map((tab) => {
-              const isActive = activeTab === tab.id;
-              const unread = tabUnreads[tab.id];
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex-1 flex items-center justify-center gap-1 py-2 px-2 rounded-full text-[11px] font-extrabold transition-all relative
-                    ${isActive
-                      ? "bg-purple-600 text-white shadow-md shadow-purple-300/40"
-                      : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                    }`}
-                >
-                  <tab.icon className="h-3 w-3 shrink-0" />
-                  <span className="truncate">{tab.label}</span>
-                  {unread > 0 && (
-                    <span className={`h-4 min-w-[16px] rounded-full text-[9px] font-extrabold flex items-center justify-center px-1 shrink-0
-                      ${isActive ? "bg-white text-purple-600" : "bg-red-500 text-white"}`}>
-                      {unread > 99 ? "99+" : unread}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+        {/* Pill tabs */}
+        <div className="flex gap-1.5 px-4 pb-3">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-extrabold transition-all ${
+                tab === t.id
+                  ? "bg-purple-500 text-white shadow-sm"
+                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+              }`}
+            >
+              <t.icon className={`h-3.5 w-3.5 ${tab === t.id ? "text-white" : "text-slate-400"}`} />
+              {t.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* ── Chats tab: Global Public Chat ── */}
-      {isChatsTab && (
-        <GlobalChatPane userId={user?.id} username={user?.username} />
-      )}
-
-      {/* ── Announcements tab ── */}
-      {activeTab === "announcements" && (
-        <div className="max-w-lg mx-auto px-4 py-4 space-y-3">
-          {loadingAnn ? (
-            Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                <Skeleton className="h-4 w-2/3 mb-2" />
-                <Skeleton className="h-20 w-full" />
-              </div>
-            ))
-          ) : announcements.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <Megaphone className="h-12 w-12 text-slate-200 mb-3" />
-              <p className="font-bold text-slate-500">Belum ada pengumuman</p>
-              <p className="text-sm text-slate-400 mt-1">Pengumuman dari owner akan muncul di sini</p>
-            </div>
-          ) : (
-            announcements.map((ann) => (
-              <AnnouncementCard key={ann.id} ann={ann} userId={user?.id}
-                onReact={(id, emoji) => reactToAnn.mutate({ id, emoji })}
-                onComment={setCommentAnn} />
-            ))
-          )}
-        </div>
-      )}
-
-      {/* ── DM tab: Instagram-style conversation list ── */}
-      {activeTab === "dm" && (
-        <div className="max-w-lg mx-auto w-full">
-          {/* Search bar */}
-          <div className="sticky top-[105px] z-30 bg-white/95 backdrop-blur-sm px-4 py-3 border-b border-slate-50">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
-              <input
-                value={dmSearch}
-                onChange={(e) => setDmSearch(e.target.value)}
-                placeholder="Cari percakapan..."
-                className="w-full pl-9 pr-4 py-2.5 rounded-full border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:border-purple-300 focus:ring-1 focus:ring-purple-200"
-              />
-            </div>
-          </div>
-
-          {!user ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center px-6">
-              <Mail className="h-12 w-12 text-slate-200 mb-3" />
-              <p className="font-bold text-slate-500">Login untuk melihat pesan</p>
-              <p className="text-sm text-slate-400 mt-1">Masuk ke akun untuk mulai chat</p>
-            </div>
-          ) : loadingDMs ? (
-            <div className="divide-y divide-slate-50">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-3 px-4 py-3">
-                  <Skeleton className="h-11 w-11 rounded-full shrink-0" />
-                  <div className="flex-1 space-y-1.5">
-                    <Skeleton className="h-3.5 w-28" />
-                    <Skeleton className="h-3 w-40" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : filteredConvs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center px-6">
-              <Mail className="h-12 w-12 text-slate-200 mb-3" />
-              <p className="font-bold text-slate-500">
-                {dmSearch ? "Percakapan tidak ditemukan" : "Belum ada percakapan"}
-              </p>
-              {!dmSearch && (
-                <>
-                  <p className="text-sm text-slate-400 mt-1 mb-5">Mulai obrolan baru dengan seseorang</p>
-                  <button
-                    onClick={() => setShowNewDM(true)}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 text-white font-bold text-sm shadow-md shadow-purple-200"
-                  >
-                    <Plus className="h-4 w-4" /> Pesan Baru
-                  </button>
-                </>
-              )}
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-50">
-              {filteredConvs.map((conv) => (
-                <DMCard key={conv.conversationId} conv={conv} currentUserId={user?.id} />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Modals */}
-      {commentAnn && <CommentModal ann={commentAnn} userId={user?.id} onClose={() => setCommentAnn(null)} />}
-      {showNewDM && <NewDMModal onClose={() => setShowNewDM(false)} />}
+      {/* Content */}
+      {tab === "chats"         && <GroupsPane userId={user?.id} />}
+      {tab === "announcements" && <AnnouncementsPane userId={user?.id} />}
 
       <BottomNav />
     </div>
