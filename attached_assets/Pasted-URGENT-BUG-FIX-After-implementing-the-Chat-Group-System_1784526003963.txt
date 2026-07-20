@@ -1,0 +1,193 @@
+URGENT BUG FIX
+
+After implementing the Chat Group System, Authentication is now broken.
+
+Users cannot Login or Register.
+
+DO NOT remove any Chat features.
+
+Find the root cause and fix it.
+
+========================================
+AUTHENTICATION
+========================================
+
+Restore the existing authentication.
+
+Register must work.
+
+Login must work.
+
+Logout must work.
+
+Forgot Password must work.
+
+Email Verification must work.
+
+Session must persist after refresh.
+
+Owner account must still work.
+
+========================================
+CHECK EVERYTHING
+========================================
+
+Inspect every authentication related file.
+
+Check:
+
+Supabase Auth
+
+Middleware
+
+Session Provider
+
+Auth Context
+
+Protected Routes
+
+Server Actions
+
+API Routes
+
+Cookies
+
+JWT
+
+Redirects
+
+Environment Variables
+
+RLS Policies
+
+Database Triggers
+
+Foreign Keys
+
+Database Migrations
+
+========================================
+DATABASE
+========================================
+
+Verify all required tables still exist.
+
+profiles
+
+users
+
+creator_verifications
+
+chat_groups
+
+chat_group_members
+
+chat_group_messages
+
+Do NOT delete existing user data.
+
+Do NOT recreate auth.users.
+
+Repair missing relationships if necessary.
+
+========================================
+RLS
+========================================
+
+Verify Row Level Security.
+
+Authenticated users must be able to:
+
+Register
+
+Login
+
+Create Profile
+
+Read Own Profile
+
+Update Own Profile
+
+Join Chat Groups
+
+Send Messages
+
+========================================
+CHAT
+========================================
+
+The new Chat feature must continue working.
+
+Do not remove:
+
+Announcements
+
+Group Chats
+
+Realtime
+
+Verification Badge
+
+Drop System
+
+========================================
+ERROR HANDLING
+========================================
+
+If Login or Register fails,
+
+display the real error message instead of a generic error.
+
+Log detailed errors to the console.
+
+========================================
+FINAL VERIFICATION
+========================================
+
+Test these scenarios:
+
+New user registration
+
+Existing user login
+
+Owner login
+
+Logout
+
+Session restore
+
+Create profile
+
+Join chat group
+
+Send message
+
+Refresh page
+
+Mobile
+
+Desktop
+
+========================================
+REPORT
+========================================
+
+Return:
+
+Root cause of the bug
+
+Files modified
+
+Database changes
+
+RLS changes
+
+Middleware changes
+
+Auth changes
+
+API changes
+
+Any remaining issues
+
+Do not stop until Login and Register both work correctly again.
