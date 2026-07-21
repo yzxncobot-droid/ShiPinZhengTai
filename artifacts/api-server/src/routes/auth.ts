@@ -87,64 +87,97 @@ async function generateReferralCode(): Promise<string> {
 }
 
 // ── POST /auth/register ───────────────────────────────────────────────────────
-router.post("/auth/register", authRateLimit, async (req, res) => {
-  const { username, password, email, referralCode } = req.body;
+router.post("/auth/register", authRateLimit, async (req, res, next) => {
+  try {
+    const { username, password, email, referralCode } = req.body;
 
-  if (!username?.trim() || !password) {
-    res.status(400).json({ error: "Username dan password wajib diisi" });
-    return;
-  }
-  if (password.length < 6) {
-    res.status(400).json({ error: "Password minimal 6 karakter" });
-    return;
-  }
-  if (username.trim().length < 3) {
-    res.status(400).json({ error: "Username minimal 3 karakter" });
-    return;
-  }
-  if (!/^[a-zA-Z0-9_]+$/.test(username.trim())) {
-    res.status(400).json({ error: "Username hanya boleh mengandung huruf, angka, dan underscore" });
-    return;
-  }
+    logger.info({ username, hasEmail: !!email, hasReferral: !!referralCode }, "Registration attempt");
 
-  const [existingUsername] = await db.select({ id: usersTable.id })
-    .from(usersTable).where(ilike(usersTable.username, username.trim())).limit(1);
-  if (existingUsername) {
-    res.status(409).json({ error: "Username sudah digunakan" });
-    return;
-  }
-
-  if (email) {
-    const [existingEmail] = await db.select({ id: usersTable.id })
-      .from(usersTable).where(eq(usersTable.email, email.toLowerCase().trim())).limit(1);
-    if (existingEmail) {
-      res.status(409).json({ error: "Email sudah terdaftar" });
+    // ── Input validation ─────────────────────────────────────────────────────
+    if (!username?.trim() || !password) {
+      res.status(400).json({ success: false, code: "MISSING_FIELDS", message: "Username dan password wajib diisi" });
       return;
     }
-  }
+    if (username.trim().length < 3) {
+      res.status(400).json({ success: false, code: "USERNAME_TOO_SHORT", message: "Username minimal 3 karakter" });
+      return;
+    }
+    if (username.trim().length > 30) {
+      res.status(400).json({ success: false, code: "USERNAME_TOO_LONG", message: "Username maksimal 30 karakter" });
+      return;
+    }
+    if (!/^[a-zA-Z0-9_]+$/.test(username.trim())) {
+      res.status(400).json({ success: false, code: "USERNAME_INVALID_FORMAT", message: "Username hanya boleh mengandung huruf, angka, dan underscore" });
+      return;
+    }
+    if (password.length < 6) {
+      res.status(400).json({ success: false, code: "PASSWORD_TOO_SHORT", message: "Password minimal 6 karakter" });
+      return;
+    }
 
-  // Resolve referrer
-  let referrerId: string | null = null;
-  if (referralCode) {
-    const [referrer] = await db.select({ id: usersTable.id, referralCode: usersTable.referralCode })
-      .from(usersTable).where(eq(usersTable.referralCode, referralCode.toUpperCase())).limit(1);
-    if (referrer) referrerId = referrer.id;
-  }
+    // ── Uniqueness checks ────────────────────────────────────────────────────
+    const [existingUsername] = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(ilike(usersTable.username, username.trim()))
+      .limit(1);
+    if (existingUsername) {
+      logger.info({ username }, "Registration rejected: username taken");
+      res.status(409).json({ success: false, code: "USERNAME_ALREADY_EXISTS", message: "Username sudah digunakan" });
+      return;
+    }
 
-  const passwordHash = await bcrypt.hash(password, 12);
-  const newReferralCode = await generateReferralCode();
+    if (email) {
+      const [existingEmail] = await db
+        .select({ id: usersTable.id })
+        .from(usersTable)
+        .where(eq(usersTable.email, email.toLowerCase().trim()))
+        .limit(1);
+      if (existingEmail) {
+        res.status(409).json({ success: false, code: "EMAIL_ALREADY_EXISTS", message: "Email sudah terdaftar" });
+        return;
+      }
+    }
 
-  try {
-    const [user] = await db.insert(usersTable).values({
-      username: username.trim(),
-      email: email ? email.toLowerCase().trim() : undefined,
-      passwordHash,
-      role: "meril",
-      referralCode: newReferralCode,
-      referredBy: referrerId ?? undefined,
-    }).returning();
+    // ── Resolve referrer ─────────────────────────────────────────────────────
+    let referrerId: string | null = null;
+    if (referralCode) {
+      const [referrer] = await db
+        .select({ id: usersTable.id })
+        .from(usersTable)
+        .where(eq(usersTable.referralCode, referralCode.toUpperCase()))
+        .limit(1);
+      if (referrer) referrerId = referrer.id;
+    }
 
-    await ensureWallet(user.id);
+    const passwordHash = await bcrypt.hash(password, 12);
+    const newReferralCode = await generateReferralCode();
+
+    // ── Create user ──────────────────────────────────────────────────────────
+    let user: typeof usersTable.$inferSelect;
+    try {
+      const [inserted] = await db.insert(usersTable).values({
+        username: username.trim(),
+        email: email ? email.toLowerCase().trim() : undefined,
+        passwordHash,
+        role: "meril",
+        referralCode: newReferralCode,
+        referredBy: referrerId ?? undefined,
+      }).returning();
+      user = inserted;
+    } catch (insertErr: any) {
+      const pgCode = insertErr?.code ?? insertErr?.cause?.code;
+      logger.error({ insertErr, pgCode }, "Registration: DB insert failed");
+      if (pgCode === "23505") {
+        res.status(409).json({ success: false, code: "USERNAME_ALREADY_EXISTS", message: "Username atau email sudah digunakan" });
+      } else {
+        res.status(500).json({ success: false, code: "DB_INSERT_FAILED", message: `Database insert failed: ${insertErr?.message ?? pgCode ?? "unknown"}` });
+      }
+      return;
+    }
+
+    // ── Post-registration side-effects (non-fatal) ───────────────────────────
+    await ensureWallet(user.id).catch((err) => logger.error({ err }, "ensureWallet failed"));
 
     if (referrerId) {
       await db.insert(referralsTable).values({
@@ -152,7 +185,7 @@ router.post("/auth/register", authRateLimit, async (req, res) => {
         referredId: user.id,
         codeUsed: referralCode.toUpperCase(),
         status: "pending",
-      }).onConflictDoNothing();
+      }).onConflictDoNothing().catch((err) => logger.error({ err }, "referral insert failed"));
     }
 
     await db.insert(notificationsTable).values({
@@ -160,19 +193,13 @@ router.post("/auth/register", authRateLimit, async (req, res) => {
       title: "Selamat Datang! 🎉",
       message: `Halo ${user.username}! Akun kamu berhasil dibuat. Selamat menikmati konten kami!`,
       type: "system",
-    });
+    }).catch((err) => logger.error({ err }, "welcome notification failed"));
 
+    // ── Issue token & session ─────────────────────────────────────────────────
     const { token, jti } = signToken(user.id, user.role);
+    await createSession(jti, { userId: user.id, role: user.role, username: user.username, createdAt: Date.now() })
+      .catch((err) => logger.warn({ err }, "createSession failed — JWT-only auth active"));
 
-    // Store session in Redis
-    await createSession(jti, {
-      userId: user.id,
-      role: user.role,
-      username: user.username,
-      createdAt: Date.now(),
-    });
-
-    // Record login history
     await db.insert(loginHistoryTable).values({
       userId: user.id,
       identifier: user.username,
@@ -180,121 +207,118 @@ router.post("/auth/register", authRateLimit, async (req, res) => {
       userAgent: req.headers["user-agent"] ?? null,
       success: true,
       sessionId: jti,
-    });
+    }).catch(() => {});
 
-    logger.info({ userId: user.id, username: user.username }, "New user registered");
-    res.status(201).json({ token, user: formatUser(user) });
-  } catch (err: any) {
-    const pgCode = err?.code ?? err?.cause?.code;
-    if (pgCode === "23505") {
-      res.status(409).json({ error: "Username atau email sudah digunakan" });
-      return;
-    }
-    logger.error({ err }, "Registration failed");
-    res.status(500).json({ error: "Registrasi gagal, coba lagi" });
+    logger.info({ userId: user.id, username: user.username }, "New user registered successfully");
+    res.status(201).json({ success: true, message: "Akun berhasil dibuat", token, user: formatUser(user) });
+  } catch (err) {
+    next(err);
   }
 });
 
 // ── POST /auth/login ──────────────────────────────────────────────────────────
-router.post("/auth/login", authRateLimit, async (req, res) => {
-  const { username, email, password } = req.body;
-  const identifier = (username ?? email ?? "").trim();
+router.post("/auth/login", authRateLimit, async (req, res, next) => {
+  try {
+    const { username, email, password } = req.body;
+    const identifier = (username ?? email ?? "").trim();
 
-  if (!identifier || !password) {
-    res.status(400).json({ error: "Username dan password wajib diisi" });
-    return;
-  }
+    logger.info({ identifier }, "Login attempt");
 
-  const [user] = await db.select().from(usersTable)
-    .where(
-      or(
-        ilike(usersTable.username, identifier),
-        eq(usersTable.email, identifier.toLowerCase()),
-      ),
-    )
-    .limit(1);
+    if (!identifier || !password) {
+      res.status(400).json({ success: false, code: "MISSING_FIELDS", message: "Username dan password wajib diisi" });
+      return;
+    }
 
-  if (!user) {
-    // Record failed attempt (user not found)
+    // ── Look up user ─────────────────────────────────────────────────────────
+    let user: typeof usersTable.$inferSelect | undefined;
+    try {
+      const [found] = await db.select().from(usersTable)
+        .where(or(
+          ilike(usersTable.username, identifier),
+          eq(usersTable.email, identifier.toLowerCase()),
+        ))
+        .limit(1);
+      user = found;
+    } catch (dbErr: any) {
+      logger.error({ dbErr }, "Login: DB lookup failed");
+      res.status(500).json({ success: false, code: "DB_LOOKUP_FAILED", message: `Database lookup failed: ${dbErr?.message ?? "unknown"}` });
+      return;
+    }
+
+    if (!user) {
+      await db.insert(loginHistoryTable).values({
+        identifier, ipAddress: req.ip ?? null,
+        userAgent: req.headers["user-agent"] ?? null,
+        success: false, failureReason: "not_found",
+      }).catch(() => {});
+      logger.info({ identifier }, "Login failed: user not found");
+      res.status(401).json({ success: false, code: "USER_NOT_FOUND", message: "Username atau password salah" });
+      return;
+    }
+
+    if (user.isBanned) {
+      await db.insert(loginHistoryTable).values({
+        userId: user.id, identifier, ipAddress: req.ip ?? null,
+        userAgent: req.headers["user-agent"] ?? null,
+        success: false, failureReason: "banned",
+      }).catch(() => {});
+      logger.info({ userId: user.id }, "Login failed: account banned");
+      res.status(403).json({ success: false, code: "ACCOUNT_BANNED", message: "Akun kamu diblokir. Hubungi admin untuk info lebih lanjut." });
+      return;
+    }
+
+    // ── Password check ────────────────────────────────────────────────────────
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      await db.insert(loginHistoryTable).values({
+        userId: user.id, identifier, ipAddress: req.ip ?? null,
+        userAgent: req.headers["user-agent"] ?? null,
+        success: false, failureReason: "invalid_password",
+      }).catch(() => {});
+      logger.info({ userId: user.id }, "Login failed: invalid password");
+      res.status(401).json({ success: false, code: "INVALID_PASSWORD", message: "Username atau password salah" });
+      return;
+    }
+
+    await ensureWallet(user.id).catch((err) => logger.error({ err }, "ensureWallet failed"));
+
+    // ── Sync subscription cache ───────────────────────────────────────────────
+    const activeSub = await getActiveSubscription(user.id).catch(() => null);
+    const now = new Date();
+    const subStatus = activeSub && new Date(activeSub.endDate) > now ? "active"
+      : user.subscriptionExpiry && new Date(user.subscriptionExpiry) < now ? "expired"
+      : "none";
+
+    if (user.subscriptionStatus !== subStatus) {
+      await db.update(usersTable)
+        .set({ subscriptionStatus: subStatus as any, updatedAt: new Date() })
+        .where(eq(usersTable.id, user.id))
+        .catch((err) => logger.error({ err }, "subscription sync failed"));
+    }
+
+    // ── Issue token & session ─────────────────────────────────────────────────
+    const { token, jti } = signToken(user.id, user.role);
+    await createSession(jti, { userId: user.id, role: user.role, username: user.username, createdAt: Date.now() })
+      .catch((err) => logger.warn({ err }, "createSession failed — JWT-only auth active"));
+
     await db.insert(loginHistoryTable).values({
-      identifier,
-      ipAddress: req.ip ?? null,
+      userId: user.id, identifier, ipAddress: req.ip ?? null,
       userAgent: req.headers["user-agent"] ?? null,
-      success: false,
-      failureReason: "not_found",
+      success: true, sessionId: jti,
     }).catch(() => {});
-    res.status(401).json({ error: "Username atau password salah" });
-    return;
+
+    await invalidateUserCache(user.id).catch(() => {});
+
+    logger.info({ userId: user.id, username: user.username }, "User logged in successfully");
+    res.json({
+      success: true,
+      message: "Login berhasil",
+      token,
+      user: formatUser({ ...user, subscriptionStatus: subStatus as any }, activeSub),
+    });
+  } catch (err) {
+    next(err);
   }
-
-  if (user.isBanned) {
-    await db.insert(loginHistoryTable).values({
-      userId: user.id,
-      identifier,
-      ipAddress: req.ip ?? null,
-      userAgent: req.headers["user-agent"] ?? null,
-      success: false,
-      failureReason: "banned",
-    }).catch(() => {});
-    res.status(403).json({ error: "Akun kamu diblokir. Hubungi admin untuk info lebih lanjut." });
-    return;
-  }
-
-  const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) {
-    await db.insert(loginHistoryTable).values({
-      userId: user.id,
-      identifier,
-      ipAddress: req.ip ?? null,
-      userAgent: req.headers["user-agent"] ?? null,
-      success: false,
-      failureReason: "invalid_password",
-    }).catch(() => {});
-    res.status(401).json({ error: "Username atau password salah" });
-    return;
-  }
-
-  await ensureWallet(user.id);
-
-  // Sync subscription cache
-  const activeSub = await getActiveSubscription(user.id);
-  const now = new Date();
-  const subStatus = activeSub && new Date(activeSub.endDate) > now ? "active"
-    : user.subscriptionExpiry && new Date(user.subscriptionExpiry) < now ? "expired"
-    : "none";
-
-  if (user.subscriptionStatus !== subStatus) {
-    await db.update(usersTable).set({
-      subscriptionStatus: subStatus as any,
-      updatedAt: new Date(),
-    }).where(eq(usersTable.id, user.id));
-  }
-
-  const { token, jti } = signToken(user.id, user.role);
-
-  // Store session in Redis
-  await createSession(jti, {
-    userId: user.id,
-    role: user.role,
-    username: user.username,
-    createdAt: Date.now(),
-  });
-
-  // Record successful login
-  await db.insert(loginHistoryTable).values({
-    userId: user.id,
-    identifier,
-    ipAddress: req.ip ?? null,
-    userAgent: req.headers["user-agent"] ?? null,
-    success: true,
-    sessionId: jti,
-  }).catch(() => {});
-
-  // Invalidate any stale user cache
-  await invalidateUserCache(user.id);
-
-  logger.info({ userId: user.id, username: user.username }, "User logged in");
-  res.json({ token, user: formatUser({ ...user, subscriptionStatus: subStatus as any }, activeSub) });
 });
 
 // ── GET /auth/me ──────────────────────────────────────────────────────────────

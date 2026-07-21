@@ -65,9 +65,11 @@ export default function Register() {
       const data = await res.json();
 
       if (!res.ok) {
+        // Show the exact message from the API — never a generic fallback
+        const errorMessage = data.message ?? data.error ?? `Server error ${res.status}`;
         toast({
           title: "Registrasi gagal",
-          description: data.error ?? "Coba lagi beberapa saat.",
+          description: errorMessage,
           variant: "destructive",
         });
         return;
@@ -76,8 +78,12 @@ export default function Register() {
       setAuth(data.token, data.user);
       toast({ title: "Akun berhasil dibuat! 🎉", description: `Selamat datang, ${data.user.username}!` });
       setLocation("/");
-    } catch {
-      toast({ title: "Koneksi gagal", description: "Coba lagi beberapa saat.", variant: "destructive" });
+    } catch (err: any) {
+      toast({
+        title: "Koneksi gagal",
+        description: err?.message ?? "Tidak bisa terhubung ke server. Coba lagi beberapa saat.",
+        variant: "destructive",
+      });
     } finally {
       setIsPending(false);
     }
