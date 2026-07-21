@@ -39,12 +39,17 @@ Both services start automatically via their configured workflows:
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `DATABASE_URL` | ✅ Auto (Replit managed) | PostgreSQL connection string |
-| `SESSION_SECRET` | ✅ Set | JWT signing secret |
+| `NEON_DATABASE_URL` | ✅ Set (Secret) | Primary PostgreSQL connection string (external Neon/Supabase DB with existing data) |
+| `DATABASE_URL` | Fallback only | Replit-managed PostgreSQL — NOT used; `NEON_DATABASE_URL` takes priority |
+| `SESSION_SECRET` | ✅ Set (Secret) | JWT signing secret |
 | `SUPABASE_URL` | ⚠️ Optional | Supabase project URL — file uploads disabled without it |
 | `SUPABASE_SERVICE_ROLE_KEY` | ⚠️ Optional | Supabase service key |
 | `UPSTASH_REDIS_REST_URL` | ⚠️ Optional | Upstash Redis URL — sessions/caching disabled without it |
 | `UPSTASH_REDIS_REST_TOKEN` | ⚠️ Optional | Upstash Redis token |
+
+> **Database note:** This project connects to an **external database** via `NEON_DATABASE_URL` to preserve existing data.
+> The Replit-managed `DATABASE_URL` is intentionally not used. Connection string is set as a Replit Secret.
+> See `lib/db/src/index.ts` — it prefers `NEON_DATABASE_URL ?? DATABASE_URL`.
 
 ## Database
 
