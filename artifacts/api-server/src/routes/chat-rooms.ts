@@ -7,6 +7,7 @@ import {
 import { eq, desc, asc, and, sql, inArray, gt, lt, lte, ilike, or } from "drizzle-orm";
 import { usersTable } from "@workspace/db";
 import { authenticate, optionalAuth, requireRole } from "../middlewares/auth";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -109,39 +110,200 @@ router.get("/chat/rooms/:id", optionalAuth, async (req, res) => {
 
 // ── Create room (owner only) ──────────────────────────────────────────────────
 
+const VALID_CATEGORIES = [
+  "General", "Gaming", "Minecraft", "Roblox", "Anime", "Movies",
+  "Music", "Programming", "Trading", "Education", "Marketplace",
+  "Technology", "Sports", "Memes", "Photography",
+];
+
 router.post("/chat/rooms", authenticate, requireRole("owner"), async (req, res) => {
+  const userId = req.user!.userId;
+
+  logger.info({ userId, body: req.body }, "[create-room] incoming request");
+
   try {
-    const { name, slug, description, imageUrl, rules } = req.body;
-    if (!name?.trim() || !slug?.trim()) {
-      res.status(400).json({ error: "name and slug are required" });
+    // ── 1. Required-field validation ─────────────────────────────────────────
+    const {
+      name, slug, description, imageUrl, rules,
+      category, isPinnedGroup, isPublic, sortOrder, memberLimit,
+      isLocked, slowModeSeconds,
+    } = req.body;
+
+    const missingFields: string[] = [];
+    if (!name?.trim())  missingFields.push("name");
+    if (!userId)        missingFields.push("created_by");
+
+    if (missingFields.length > 0) {
+      res.status(400).json({
+        success: false,
+        code: "MISSING_REQUIRED_FIELDS",
+        message: `Required fields missing: ${missingFields.join(", ")}`,
+        detail: null,
+        hint: "Provide all required fields: name, and ensure you are authenticated.",
+      });
       return;
     }
 
-    const safeSlug = slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-");
+    // ── 2. Generate / sanitise slug ──────────────────────────────────────────
+    const rawSlug   = slug?.trim() || name.trim().toLowerCase().replace(/\s+/g, "-");
+    const safeSlug  = rawSlug.toLowerCase().replace(/[^a-z0-9-]/g, "-");
 
-    const [created] = await db.insert(chatRoomsTable).values({
-      name: name.trim(),
-      slug: safeSlug,
-      description: description?.trim() || null,
-      imageUrl: imageUrl || null,
-      rules: rules?.trim() || null,
-      createdBy: req.user!.userId,
-    }).returning();
+    logger.info({ userId, safeSlug }, "[create-room] generated slug");
 
-    // Auto-join creator
-    await db.insert(chatRoomMembersTable).values({
-      roomId: created.id,
-      userId: req.user!.userId,
-      role: "admin",
-    }).onConflictDoNothing();
-
-    res.status(201).json(created);
-  } catch (err: any) {
-    if (err.message?.includes("unique")) {
-      res.status(409).json({ error: "Slug already exists" });
-    } else {
-      res.status(500).json({ error: err.message });
+    // ── 3. Validate category ─────────────────────────────────────────────────
+    const safeCategory = category?.trim() || null;
+    if (safeCategory && !VALID_CATEGORIES.includes(safeCategory)) {
+      res.status(400).json({
+        success: false,
+        code: "INVALID_CATEGORY",
+        message: `Invalid category "${safeCategory}".`,
+        detail: `Allowed values: ${VALID_CATEGORIES.join(", ")}`,
+        hint: "Choose one of the predefined categories, or leave it empty.",
+      });
+      return;
     }
+
+    // ── 4. Verify authenticated user exists in DB ────────────────────────────
+    const [existingUser] = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .limit(1);
+
+    if (!existingUser) {
+      res.status(403).json({
+        success: false,
+        code: "USER_NOT_FOUND",
+        message: "Authenticated user does not exist in the database.",
+        detail: null,
+        hint: "Your session may be stale. Please log in again.",
+      });
+      return;
+    }
+
+    // ── 5. Check slug uniqueness before INSERT ───────────────────────────────
+    const [existingSlug] = await db
+      .select({ id: chatRoomsTable.id })
+      .from(chatRoomsTable)
+      .where(eq(chatRoomsTable.slug, safeSlug))
+      .limit(1);
+
+    if (existingSlug) {
+      res.status(409).json({
+        success: false,
+        code: "SLUG_ALREADY_EXISTS",
+        message: "Room URL already exists.",
+        detail: `A room with slug "${safeSlug}" already exists.`,
+        hint: "Choose a different room name or slug.",
+      });
+      return;
+    }
+
+    // ── 6. Build and log insert payload ─────────────────────────────────────
+    const insertPayload = {
+      name:             name.trim(),
+      slug:             safeSlug,
+      description:      description?.trim() || null,
+      imageUrl:         imageUrl?.trim()    || null,
+      rules:            rules?.trim()       || null,
+      category:         safeCategory,
+      isPinnedGroup:    Boolean(isPinnedGroup ?? false),
+      isPublic:         Boolean(isPublic     ?? true),
+      sortOrder:        Number(sortOrder     ?? 0),
+      memberLimit:      memberLimit          ? Number(memberLimit) : null,
+      isLocked:         Boolean(isLocked     ?? false),
+      slowModeSeconds:  Number(slowModeSeconds ?? 0),
+      createdBy:        userId,
+    };
+
+    logger.info({ userId, insertPayload }, "[create-room] final insert payload");
+
+    // ── 7. INSERT ────────────────────────────────────────────────────────────
+    const [created] = await db
+      .insert(chatRoomsTable)
+      .values(insertPayload)
+      .returning();
+
+    // Auto-join creator as admin
+    await db
+      .insert(chatRoomMembersTable)
+      .values({ roomId: created.id, userId, role: "admin" })
+      .onConflictDoNothing();
+
+    logger.info({ userId, roomId: created.id, slug: safeSlug }, "[create-room] room created successfully");
+
+    res.status(201).json({ success: true, message: "Room created successfully", room: created });
+  } catch (err: any) {
+    // ── 8. Extract real PG error (Drizzle wraps it in err.cause) ─────────────
+    const pgErr   = err.cause ?? err;
+    const pgCode  = pgErr.code  ?? err.code  ?? "UNKNOWN";
+    const pgMsg   = pgErr.message ?? err.message ?? "Unknown database error";
+    const pgDetail = pgErr.detail ?? null;
+    const pgHint   = pgErr.hint   ?? null;
+
+    logger.error({
+      userId,
+      pgCode, pgMsg, pgDetail, pgHint,
+      stack: err.stack,
+    }, "[create-room] database error");
+
+    // ── 9. Map well-known PG error codes to clear messages ───────────────────
+    // 23505 = unique_violation
+    if (pgCode === "23505") {
+      res.status(409).json({
+        success: false,
+        code: "SLUG_ALREADY_EXISTS",
+        message: "Room URL already exists.",
+        detail: pgDetail,
+        hint: pgHint ?? "Choose a different slug.",
+      });
+      return;
+    }
+
+    // 23503 = foreign_key_violation (created_by references non-existent user)
+    if (pgCode === "23503") {
+      res.status(400).json({
+        success: false,
+        code: "FOREIGN_KEY_VIOLATION",
+        message: "Referenced record does not exist (e.g. user not found).",
+        detail: pgDetail,
+        hint: pgHint,
+      });
+      return;
+    }
+
+    // 23502 = not_null_violation
+    if (pgCode === "23502") {
+      res.status(400).json({
+        success: false,
+        code: "NULL_CONSTRAINT_VIOLATION",
+        message: "A required column was left empty.",
+        detail: pgDetail,
+        hint: pgHint,
+      });
+      return;
+    }
+
+    // 42501 = insufficient_privilege → RLS blocked the insert
+    if (pgCode === "42501") {
+      res.status(403).json({
+        success: false,
+        code: "RLS_BLOCKED",
+        message: "Row-level security policy prevented this insert. Contact the database administrator.",
+        detail: pgDetail,
+        hint: pgHint,
+      });
+      return;
+    }
+
+    // Generic fallback — never expose the SQL query text
+    res.status(500).json({
+      success: false,
+      code: `DB_ERROR_${pgCode}`,
+      message: "Failed to create room due to a database error.",
+      detail: pgDetail,
+      hint: pgHint,
+    });
   }
 });
 
