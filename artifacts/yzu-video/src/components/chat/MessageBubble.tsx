@@ -107,7 +107,14 @@ export function MessageBubble({
 }: Props) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
-  const timeStr = format(new Date(createdAt), "HH:mm");
+  const timeStr = (() => {
+    try {
+      const d = new Date(createdAt);
+      return isNaN(d.getTime()) ? "--:--" : format(d, "HH:mm");
+    } catch {
+      return "--:--";
+    }
+  })();
 
   const bubbleBase = isMine
     ? "bg-gradient-to-br from-purple-500 to-pink-500 text-white rounded-t-2xl rounded-bl-2xl rounded-br-md"

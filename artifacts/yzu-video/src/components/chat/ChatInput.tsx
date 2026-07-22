@@ -14,6 +14,7 @@ const EMOJI_LIST = [
 interface Props {
   onSend: (content: string, type?: "text") => void | Promise<void>;
   onAttach?: (file: File) => void | Promise<void>;
+  onTyping?: () => void;
   placeholder?: string;
   disabled?: boolean;
   isUploading?: boolean;
@@ -23,7 +24,7 @@ interface Props {
 }
 
 export function ChatInput({
-  onSend, onAttach, placeholder = "Ketik pesan...",
+  onSend, onAttach, onTyping, placeholder = "Ketik pesan...",
   disabled = false, isUploading = false,
   replyTo, onCancelReply,
   slowModeSeconds = 0,
@@ -32,6 +33,7 @@ export function ChatInput({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
   const voiceInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -128,7 +130,7 @@ export function ChatInput({
           <textarea
             ref={textareaRef}
             value={content}
-            onChange={(e) => setContent(e.target.value)}
+            onChange={(e) => { setContent(e.target.value); onTyping?.(); }}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             disabled={disabled}

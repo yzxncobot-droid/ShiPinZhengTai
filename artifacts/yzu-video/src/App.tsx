@@ -74,7 +74,13 @@ function AppRouter() {
       <Route path="/leaderboard" component={LeaderboardPage} />
       <Route path="/search" component={SearchPage} />
       <Route path="/chat" component={ChatHomePage} />
-      <Route path="/chat/room/:id" component={ChatRoomPage} />
+      <Route path="/chat/room/:id">
+        {(params) => (
+          <ErrorBoundary fallbackLabel="Chat Room">
+            <ChatRoomPage {...params} />
+          </ErrorBoundary>
+        )}
+      </Route>
       {/* DM routes removed */}
       <Route path="/bundle/watch/:videoId" component={BundleWatchPage} />
       <Route path="/bundles" component={BundlesPage} />

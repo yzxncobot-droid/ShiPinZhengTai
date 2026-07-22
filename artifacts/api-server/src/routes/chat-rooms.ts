@@ -83,28 +83,51 @@ router.get("/chat/rooms", optionalAuth, async (req, res) => {
 // ── Get single room ───────────────────────────────────────────────────────────
 
 router.get("/chat/rooms/:id", optionalAuth, async (req, res) => {
-  try {
-    const id = req.params.id;
-    const userId = req.user?.userId;
+  const roomId = req.params.id;
+  const userId = req.user?.userId ?? null;
 
-    const [room] = await db.select().from(chatRoomsTable).where(eq(chatRoomsTable.id, id));
-    if (!room) { res.status(404).json({ error: "Room not found" }); return; }
+  logger.info({ roomId, userId }, "[get-room] request");
+
+  try {
+    // Validate UUID format before querying
+    if (!UUID_RE.test(roomId)) {
+      logger.warn({ roomId }, "[get-room] invalid UUID format");
+      res.status(400).json({ success: false, code: "INVALID_ROOM_ID", message: "Invalid room ID format." });
+      return;
+    }
+
+    const [room] = await db
+      .select()
+      .from(chatRoomsTable)
+      .where(eq(chatRoomsTable.id, roomId));
+
+    if (!room) {
+      logger.warn({ roomId }, "[get-room] room not found");
+      res.status(404).json({ success: false, code: "ROOM_NOT_FOUND", message: "Room not found." });
+      return;
+    }
 
     const [memberCount] = await db
       .select({ count: sql<number>`cast(count(*) as int)` })
       .from(chatRoomMembersTable)
-      .where(and(eq(chatRoomMembersTable.roomId, id), eq(chatRoomMembersTable.isBanned, false)));
+      .where(and(eq(chatRoomMembersTable.roomId, roomId), eq(chatRoomMembersTable.isBanned, false)));
 
     let membership: any = null;
     if (userId) {
-      const [m] = await db.select().from(chatRoomMembersTable)
-        .where(and(eq(chatRoomMembersTable.roomId, id), eq(chatRoomMembersTable.userId, userId)));
+      const [m] = await db
+        .select()
+        .from(chatRoomMembersTable)
+        .where(and(eq(chatRoomMembersTable.roomId, roomId), eq(chatRoomMembersTable.userId, userId)));
       membership = m ?? null;
     }
 
-    res.json({ ...room, memberCount: memberCount?.count ?? 0, membership });
+    const payload = { ...room, memberCount: memberCount?.count ?? 0, membership };
+    logger.info({ roomId, userId, memberCount: payload.memberCount, hasMembership: !!membership }, "[get-room] success");
+    res.json(payload);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    const pgErr = err.cause ?? err;
+    logger.error({ roomId, userId, code: pgErr.code, message: pgErr.message, stack: err.stack }, "[get-room] database error");
+    res.status(500).json({ success: false, code: "DB_ERROR", message: "Failed to load room." });
   }
 });
 
@@ -376,11 +399,18 @@ router.post("/chat/rooms/:id/leave", authenticate, async (req, res) => {
 // ── Messages — list (paginated, cursor-based) ─────────────────────────────────
 
 router.get("/chat/rooms/:id/messages", optionalAuth, async (req, res) => {
+  const roomId = req.params.id;
+  const userId = req.user?.userId ?? null;
   try {
-    const roomId = req.params.id;
-    const userId = req.user?.userId;
     const limit = Math.min(50, parseInt(String(req.query.limit ?? "30")));
     const before = req.query.before as string | undefined; // cursor (ISO timestamp)
+
+    logger.info({ roomId, userId, limit, before: before ?? null }, "[get-messages] request");
+
+    if (!UUID_RE.test(roomId)) {
+      res.status(400).json({ success: false, code: "INVALID_ROOM_ID", message: "Invalid room ID format." });
+      return;
+    }
 
     const conditions = [
       eq(chatMessagesTable.roomId, roomId),
@@ -449,9 +479,12 @@ router.get("/chat/rooms/:id/messages", optionalAuth, async (req, res) => {
     }));
 
     // Return oldest-first
+    logger.info({ roomId, userId, count: enriched.length }, "[get-messages] success");
     res.json(enriched.reverse());
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    const pgErr = err.cause ?? err;
+    logger.error({ roomId, userId, code: pgErr.code, message: pgErr.message, stack: err.stack }, "[get-messages] database error");
+    res.status(500).json({ success: false, code: "DB_ERROR", message: "Failed to load messages." });
   }
 });
 
@@ -659,6 +692,9 @@ router.get("/chat/rooms/:id/pinned", optionalAuth, async (req, res) => {
 // ── Members ───────────────────────────────────────────────────────────────────
 
 router.get("/chat/rooms/:id/members", optionalAuth, async (req, res) => {
+  const roomId = req.params.id;
+  const userId = req.user?.userId ?? null;
+  logger.info({ roomId, userId }, "[get-members] request");
   try {
     const members = await db
       .select({
