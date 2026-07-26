@@ -92,10 +92,11 @@ function Confetti({ active }: { active: boolean }) {
 
 interface Props {
   userId?: string;
+  roomId?: string;
   onClose?: () => void;
 }
 
-export function DropCard({ userId, onClose }: Props) {
+export function DropCard({ userId, roomId, onClose }: Props) {
   const [drops, setDrops] = useState<Drop[]>([]);
   const [loading, setLoading] = useState(false);
   const [claiming, setClaiming] = useState<string | null>(null);
@@ -107,10 +108,11 @@ export function DropCard({ userId, onClose }: Props) {
 
   const fetchDrops = useCallback(async () => {
     try {
-      const data = await adminFetch<Drop[]>("/drops/active");
+      const url = roomId ? `/drops/active?roomId=${encodeURIComponent(roomId)}` : "/drops/active";
+      const data = await adminFetch<Drop[]>(url);
       setDrops(data);
     } catch {}
-  }, []);
+  }, [roomId]);
 
   useEffect(() => {
     fetchDrops();

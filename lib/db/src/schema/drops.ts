@@ -28,6 +28,8 @@ export const dropsTable = pgTable(
     rewardAmount: doublePrecision("reward_amount"),
     maxWinners: integer("max_winners").notNull().default(100),
     currentClaims: integer("current_claims").notNull().default(0),
+    /** Max claims per user (default 1). */
+    maxClaimPerUser: integer("max_claim_per_user").notNull().default(1),
     startTime: timestamp("start_time").notNull(),
     endTime: timestamp("end_time").notNull(),
     status: dropStatusEnum("status").notNull().default("scheduled"),

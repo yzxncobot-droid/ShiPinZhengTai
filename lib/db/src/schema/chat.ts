@@ -148,6 +148,8 @@ export const chatMessagesTable = pgTable(
     fileName:    text("file_name"),
     replyToId:   uuid("reply_to_id"),
     isPinned:    boolean("is_pinned").notNull().default(false),
+    pinnedBy:    uuid("pinned_by").references(() => usersTable.id, { onDelete: "set null" }),
+    pinnedAt:    timestamp("pinned_at"),
     isDeleted:   boolean("is_deleted").notNull().default(false),
     editedAt:    timestamp("edited_at"),
     createdAt:   timestamp("created_at").notNull().defaultNow(),

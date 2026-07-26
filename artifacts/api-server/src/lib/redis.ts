@@ -207,3 +207,23 @@ export async function getBufferedViews(videoId: string): Promise<number> {
 export async function resetVideoViewBuffer(videoId: string): Promise<void> {
   await redis.del(keys.videoViews(videoId));
 }
+
+// ── Force logout ──────────────────────────────────────────────────────────────
+
+/**
+ * Store a force-logout marker for a user.
+ * The auth middleware checks this and rejects tokens issued before this timestamp.
+ * TTL = 31 days (slightly longer than JWT expiry so all outstanding tokens are covered).
+ */
+export async function deleteAllUserSessions(userId: string): Promise<void> {
+  await redis.setex(`force_logout:${userId}`, 60 * 60 * 24 * 31, String(Date.now()));
+  await invalidateUserCache(userId);
+}
+
+/** Check if a token (by its iat — issued-at unix seconds) has been force-logged out. */
+export async function isForceLoggedOut(userId: string, iatSeconds: number): Promise<boolean> {
+  const raw = await redis.get<string>(`force_logout:${userId}`);
+  if (!raw) return false;
+  const ts = parseInt(typeof raw === "string" ? raw : String(raw));
+  return !isNaN(ts) && iatSeconds * 1000 < ts;
+}

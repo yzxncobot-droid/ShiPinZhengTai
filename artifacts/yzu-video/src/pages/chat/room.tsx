@@ -6,13 +6,16 @@ import { adminFetch } from "@/lib/admin-api";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { DropCard } from "@/components/chat/DropCard";
+import { CreateDropModal } from "@/components/chat/CreateDropModal";
+import { UserProfileModal } from "@/components/user/UserProfileModal";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Users, Pin, MoreVertical, Hash, Lock, Search,
-  AlertTriangle, WifiOff, ShieldOff, RefreshCw,
+  AlertTriangle, WifiOff, ShieldOff, RefreshCw, Gift, PinOff,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
@@ -184,6 +187,11 @@ export default function ChatRoomPage() {
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isValidId = !!id && UUID_RE.test(id);
 
+  // ── New feature state ──────────────────────────────────────────────────────
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
+  const [showCreateDrop, setShowCreateDrop] = useState(false);
+  const [dropKey, setDropKey] = useState(0); // bump to refresh DropCard after creating
+
   // ── Guard: invalid ID ───────────────────────────────────────────────────────
 
   if (!isValidId) {
@@ -206,7 +214,7 @@ export default function ChatRoomPage() {
 
   // ── Pinned messages ─────────────────────────────────────────────────────────
 
-  const { data: pinnedMessages = [] } = useQuery({
+  const { data: pinnedMessages = [], refetch: refetchPinned } = useQuery({
     queryKey: ["chat-pinned", id],
     queryFn: async () => {
       try { return await adminFetch<Message[]>(`/chat/rooms/${id}/pinned`); }
@@ -282,13 +290,10 @@ export default function ChatRoomPage() {
     if (!isValidId || !room) return;
     const interval = setInterval(async () => {
       try {
-        // Server returns { users: string[] }
         const data = await adminFetch<{ users: string[] }>(`/chat/rooms/${id}/typing`);
         const users: string[] = Array.isArray(data?.users) ? data.users : [];
         setTypingUsers(users.filter((u) => u !== (user?.username ?? "")));
-      } catch {
-        // Silently ignore typing poll failures
-      }
+      } catch {}
     }, 3000);
     return () => clearInterval(interval);
   }, [id, user?.username, isValidId, room]);
@@ -418,6 +423,20 @@ export default function ChatRoomPage() {
     }
   };
 
+  // ── Pin ───────────────────────────────────────────────────────────────────
+
+  const pinMsg = async (msgId: string) => {
+    if (!msgId) return;
+    try {
+      await adminFetch(`/chat/rooms/${id}/messages/${msgId}/pin`, { method: "PATCH" });
+      refetchPinned();
+      const latest = await loadMessages();
+      if (Array.isArray(latest)) setMessages(latest);
+    } catch (err: any) {
+      console.warn("[ChatRoom] pinMsg failed:", err);
+    }
+  };
+
   // ── Join room ─────────────────────────────────────────────────────────────
 
   const joinRoom = async () => {
@@ -433,7 +452,9 @@ export default function ChatRoomPage() {
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
-  const canModerate = ["admin", "owner"].includes(user?.role ?? "");
+  const canModerate = ["admin", "owner", "moderator"].includes(user?.role ?? "");
+  const canPin      = ["admin", "owner"].includes(user?.role ?? "");
+  const canDrop     = ["admin", "owner"].includes(user?.role ?? "");
   const isBanned    = room?.membership?.isBanned ?? false;
 
   const grouped = messages.map((m, i) => {
@@ -520,6 +541,16 @@ export default function ChatRoomPage() {
 
             {/* Actions */}
             <div className="flex items-center gap-0.5 shrink-0">
+              {/* Create Drop button (admin/owner) */}
+              {canDrop && (
+                <button
+                  onClick={() => setShowCreateDrop(true)}
+                  className="h-9 w-9 rounded-full hover:bg-purple-50 flex items-center justify-center transition-colors relative"
+                  title="Create Drop"
+                >
+                  <Gift className="h-4 w-4 text-purple-500" />
+                </button>
+              )}
               <button className="h-9 w-9 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors">
                 <Search className="h-4 w-4 text-slate-500" />
               </button>
@@ -547,6 +578,14 @@ export default function ChatRoomPage() {
                   {room.rules && (
                     <DropdownMenuItem onClick={() => alert(room.rules)}>Peraturan Grup</DropdownMenuItem>
                   )}
+                  {canDrop && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => setShowCreateDrop(true)} className="gap-2">
+                        <Gift className="h-3.5 w-3.5 text-purple-500" /> Buat Drop
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -555,11 +594,24 @@ export default function ChatRoomPage() {
           {/* Pinned message banner */}
           {topPinned && (
             <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border-t border-amber-100">
-              <span className="text-amber-500 shrink-0 text-sm">📌</span>
-              <p className="flex-1 text-[11px] text-amber-800 font-medium truncate">
-                <span className="font-extrabold">Disematkan: </span>
-                {topPinned.content ?? ""}
-              </p>
+              <Pin className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-extrabold text-amber-600 leading-none mb-0.5">
+                  {topPinned.authorUsername}
+                </p>
+                <p className="text-[11px] text-amber-800 font-medium truncate">
+                  {topPinned.content ?? ""}
+                </p>
+              </div>
+              {canPin && (
+                <button
+                  onClick={() => pinMsg(topPinned.id)}
+                  className="text-amber-400 hover:text-amber-600 transition-colors shrink-0"
+                  title="Unpin"
+                >
+                  <PinOff className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -567,7 +619,7 @@ export default function ChatRoomPage() {
 
       {/* ── Active Drops ── */}
       <SectionBoundary label="DropCard">
-        <DropCard userId={user?.id} />
+        <DropCard key={dropKey} userId={user?.id} roomId={id} />
       </SectionBoundary>
 
       {/* ── Messages area ── */}
@@ -648,6 +700,7 @@ export default function ChatRoomPage() {
                       messageType={msg.messageType ?? "text"}
                       fileUrl={msg.fileUrl}
                       fileName={msg.fileName}
+                      authorId={msg.authorId}
                       authorUsername={msg.authorUsername ?? "Unknown"}
                       authorAvatar={msg.authorAvatar}
                       authorRole={msg.authorRole ?? "meril"}
@@ -675,7 +728,10 @@ export default function ChatRoomPage() {
                         }
                       } : undefined}
                       onDelete={msg.authorId === user?.id || canModerate ? () => deleteMsg(msg.id) : undefined}
+                      onPin={canPin ? () => pinMsg(msg.id) : undefined}
+                      onClickUser={(userId) => setProfileUserId(userId)}
                       canModerate={canModerate}
+                      canPin={canPin}
                     />
                   </SectionBoundary>
                 ))}
@@ -711,6 +767,24 @@ export default function ChatRoomPage() {
           />
         )}
       </SectionBoundary>
+
+      {/* ── Modals ── */}
+      {profileUserId && (
+        <UserProfileModal
+          userId={profileUserId}
+          open={!!profileUserId}
+          onClose={() => setProfileUserId(null)}
+        />
+      )}
+
+      {id && (
+        <CreateDropModal
+          roomId={id}
+          open={showCreateDrop}
+          onClose={() => setShowCreateDrop(false)}
+          onCreated={() => setDropKey((k) => k + 1)}
+        />
+      )}
     </div>
   );
 }

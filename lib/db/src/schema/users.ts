@@ -14,7 +14,7 @@ import { z } from "zod/v4";
  * Note: the legacy "user" value is retained so existing rows aren't broken.
  * New registrations default to "meril". Frontend should treat "user" === "meril".
  */
-export const roleEnum = pgEnum("role", ["user", "meril", "admin", "owner"]);
+export const roleEnum = pgEnum("role", ["user", "meril", "moderator", "verified_creator", "admin", "owner"]);
 
 export const subscriptionStatusEnum = pgEnum("subscription_status_enum", [
   "none", "active", "expired",
@@ -55,6 +55,11 @@ export const usersTable = pgTable(
     /** The user who referred this account (null if organic signup). */
     referredBy: uuid("referred_by"),
 
+    // ── Profile extras ────────────────────────────────────────────────────────
+    displayName: text("display_name"),
+    bio:         text("bio"),
+    banner:      text("banner"),
+
     // ── Soft delete ───────────────────────────────────────────────────
     deletedAt: timestamp("deleted_at"),
 
@@ -78,6 +83,6 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof usersTable.$inferSelect;
 
 /** Roles that have any elevated privilege. */
-export const STAFF_ROLES = ["admin", "owner"] as const;
+export const STAFF_ROLES = ["moderator", "admin", "owner"] as const;
 /** All known roles (including legacy "user"). */
-export type UserRole = "user" | "meril" | "admin" | "owner";
+export type UserRole = "user" | "meril" | "moderator" | "verified_creator" | "admin" | "owner";

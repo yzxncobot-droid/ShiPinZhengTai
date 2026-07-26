@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { format } from "date-fns";
-import { MoreHorizontal, Reply, Trash2, Edit3, Pin, Smile, Crown, ShieldCheck } from "lucide-react";
+import { MoreHorizontal, Reply, Trash2, Edit3, Pin, PinOff, Smile, Crown, ShieldCheck, Shield } from "lucide-react";
 import { VerificationBadge } from "@/components/ui/VerificationBadge";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   Popover, PopoverContent, PopoverTrigger,
@@ -19,6 +20,7 @@ interface Props {
   messageType?: string;
   fileUrl?: string;
   fileName?: string;
+  authorId: string;
   authorUsername: string;
   authorAvatar?: string | null;
   authorRole?: string;
@@ -38,7 +40,10 @@ interface Props {
   onEdit?: () => void;
   onDelete?: () => void;
   onDeleteForAll?: () => void;
+  onPin?: () => void;
+  onClickUser?: (userId: string, username: string) => void;
   canModerate?: boolean;
+  canPin?: boolean;
 }
 
 function Avatar({ username, avatar, size = "sm" }: { username: string; avatar?: string | null; size?: "sm" | "md" }) {
@@ -62,6 +67,16 @@ function RoleBadge({ role, subscriptionStatus }: { role?: string; subscriptionSt
   if (role === "admin") return (
     <span className="flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 leading-none">
       <ShieldCheck className="h-2.5 w-2.5" /> Admin
+    </span>
+  );
+  if (role === "moderator") return (
+    <span className="flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 leading-none">
+      <Shield className="h-2.5 w-2.5" /> Mod
+    </span>
+  );
+  if (role === "verified_creator") return (
+    <span className="flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 leading-none">
+      ✓ Creator
     </span>
   );
   if (subscriptionStatus === "active") return (
@@ -100,10 +115,10 @@ function MediaContent({ fileUrl, fileName, messageType }: { fileUrl: string; fil
 
 export function MessageBubble({
   id, content, messageType = "text", fileUrl, fileName,
-  authorUsername, authorAvatar, authorRole, authorSubscriptionStatus, authorVerificationBadge,
+  authorId, authorUsername, authorAvatar, authorRole, authorSubscriptionStatus, authorVerificationBadge,
   createdAt, editedAt, isPinned, isDeleted, isMine = false,
   reactions = [], myReactions = [], replyToId,
-  showAvatar = true, onReact, onReply, onEdit, onDelete, onDeleteForAll, canModerate,
+  showAvatar = true, onReact, onReply, onEdit, onDelete, onDeleteForAll, onPin, onClickUser, canModerate, canPin,
 }: Props) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
@@ -122,13 +137,16 @@ export function MessageBubble({
 
   return (
     <div className={`flex gap-2.5 group ${isMine ? "flex-row-reverse" : ""} py-0.5`}>
-      {/* Avatar */}
+      {/* Avatar — clickable for profile */}
       {showAvatar ? (
         <div className="shrink-0 mt-auto">
-          <div className="relative">
+          <button
+            className="relative focus:outline-none"
+            onClick={() => onClickUser?.(authorId, authorUsername)}
+          >
             <Avatar username={authorUsername} avatar={authorAvatar} />
             <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-green-400 border-2 border-white" />
-          </div>
+          </button>
         </div>
       ) : (
         <div className="w-9 shrink-0" />
@@ -139,9 +157,12 @@ export function MessageBubble({
         {/* Author + time */}
         {showAvatar && (
           <div className={`flex items-center gap-1.5 mb-1 ${isMine ? "flex-row-reverse" : ""}`}>
-            <span className="text-[12px] font-extrabold text-slate-800">
+            <button
+              onClick={() => onClickUser?.(authorId, authorUsername)}
+              className="text-[12px] font-extrabold text-slate-800 hover:text-purple-600 transition-colors focus:outline-none"
+            >
               {authorUsername}
-            </span>
+            </button>
             <VerificationBadge verificationBadge={authorVerificationBadge} size="xs" showTooltip={false} />
             <RoleBadge role={authorRole} subscriptionStatus={authorSubscriptionStatus} />
             <span className="text-[10px] text-slate-400">{timeStr}</span>
@@ -228,7 +249,7 @@ export function MessageBubble({
         )}
 
         {/* More actions */}
-        {(isMine || canModerate) && (
+        {(isMine || canModerate || canPin) && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="h-7 w-7 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center hover:border-purple-300 transition-colors">
@@ -241,6 +262,16 @@ export function MessageBubble({
                   <Edit3 className="h-3.5 w-3.5" /> Edit
                 </DropdownMenuItem>
               )}
+              {/* Pin action for admin/owner */}
+              {canPin && !isDeleted && onPin && (
+                <DropdownMenuItem onClick={onPin} className="gap-2 text-amber-600 focus:text-amber-600">
+                  {isPinned
+                    ? <><PinOff className="h-3.5 w-3.5" /> Unpin</>
+                    : <><Pin className="h-3.5 w-3.5" /> Pin pesan</>
+                  }
+                </DropdownMenuItem>
+              )}
+              {(isMine || canModerate) && <DropdownMenuSeparator />}
               {isMine && !isDeleted && onDelete && (
                 <DropdownMenuItem onClick={onDelete} className="gap-2 text-red-600 focus:text-red-600">
                   <Trash2 className="h-3.5 w-3.5" /> Hapus untuk saya
@@ -254,6 +285,12 @@ export function MessageBubble({
               {canModerate && !isMine && !isDeleted && onDelete && (
                 <DropdownMenuItem onClick={onDelete} className="gap-2 text-red-600 focus:text-red-600">
                   <Trash2 className="h-3.5 w-3.5" /> Hapus (moderasi)
+                </DropdownMenuItem>
+              )}
+              {/* View profile */}
+              {!isMine && onClickUser && (
+                <DropdownMenuItem onClick={() => onClickUser(authorId, authorUsername)} className="gap-2">
+                  👤 Lihat Profil
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>

@@ -21,3 +21,5 @@ export * from "./user-settings";
 export * from "./chat";
 export * from "./verifications";
 export * from "./drops";
+export * from "./user-badges";
+export * from "./user-bans";

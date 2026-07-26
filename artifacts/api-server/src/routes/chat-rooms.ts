@@ -593,18 +593,37 @@ router.delete("/chat/rooms/:roomId/messages/:msgId", authenticate, async (req, r
   }
 });
 
-// ── Pin message (admin/owner) ─────────────────────────────────────────────────
+// ── Pin message (admin/owner) — one pin per room ──────────────────────────────
 
 router.patch("/chat/rooms/:roomId/messages/:msgId/pin", authenticate, requireRole("admin"), async (req, res) => {
+  const roomId = req.params.roomId;
+  const msgId  = req.params.msgId;
+  const pinnerId = req.user!.userId;
+
   try {
-    const [msg] = await db.select().from(chatMessagesTable).where(eq(chatMessagesTable.id, req.params.msgId));
+    const [msg] = await db.select().from(chatMessagesTable).where(eq(chatMessagesTable.id, msgId));
     if (!msg) { res.status(404).json({ error: "Not found" }); return; }
 
-    const [updated] = await db.update(chatMessagesTable)
-      .set({ isPinned: !msg.isPinned })
-      .where(eq(chatMessagesTable.id, req.params.msgId))
-      .returning();
-    res.json(updated);
+    if (msg.isPinned) {
+      // Unpin
+      const [updated] = await db.update(chatMessagesTable)
+        .set({ isPinned: false, pinnedBy: null, pinnedAt: null })
+        .where(eq(chatMessagesTable.id, msgId))
+        .returning();
+      res.json({ ...updated, action: "unpinned" });
+    } else {
+      // Unpin any currently pinned message in this room first
+      await db.update(chatMessagesTable)
+        .set({ isPinned: false, pinnedBy: null, pinnedAt: null })
+        .where(and(eq(chatMessagesTable.roomId, roomId), eq(chatMessagesTable.isPinned, true)));
+
+      // Pin the new one
+      const [updated] = await db.update(chatMessagesTable)
+        .set({ isPinned: true, pinnedBy: pinnerId, pinnedAt: new Date() })
+        .where(eq(chatMessagesTable.id, msgId))
+        .returning();
+      res.json({ ...updated, action: "pinned" });
+    }
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

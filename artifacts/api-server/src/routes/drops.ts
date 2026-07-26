@@ -74,9 +74,9 @@ async function grantReward(
   }
 }
 
-// ── Owner: create a drop ──────────────────────────────────────────────────────
+// ── Owner/Admin: create a drop ───────────────────────────────────────────────
 
-router.post("/drops", authenticate, requireRole("owner"), async (req, res) => {
+router.post("/drops", authenticate, requireRole("admin", "owner"), async (req, res) => {
   try {
     const ownerId = req.user!.userId;
     const {
@@ -133,6 +133,17 @@ router.get("/drops/active", optionalAuth, async (req, res) => {
     await activateScheduledDrops();
     await completeExpiredDrops();
 
+    // Optional roomId filter — if provided, only show drops for that room OR global drops
+    const roomIdFilter = req.query.roomId as string | undefined;
+
+    const whereClause = roomIdFilter
+      ? and(
+          eq(dropsTable.status, "active"),
+          // show room-specific drops for this room, plus global drops (null roomId)
+          sql`(${dropsTable.roomId} = ${roomIdFilter} OR ${dropsTable.roomId} IS NULL)`,
+        )
+      : eq(dropsTable.status, "active");
+
     const drops = await db
       .select({
         id: dropsTable.id,
@@ -149,7 +160,7 @@ router.get("/drops/active", optionalAuth, async (req, res) => {
         roomId: dropsTable.roomId,
       })
       .from(dropsTable)
-      .where(eq(dropsTable.status, "active"))
+      .where(whereClause)
       .orderBy(dropsTable.startTime);
 
     const userId = req.user?.userId;
@@ -174,9 +185,9 @@ router.get("/drops/active", optionalAuth, async (req, res) => {
   }
 });
 
-// ── Owner: list all drops ─────────────────────────────────────────────────────
+// ── Owner/Admin: list all drops ───────────────────────────────────────────────
 
-router.get("/drops", authenticate, requireRole("owner"), async (req, res) => {
+router.get("/drops", authenticate, requireRole("admin", "owner"), async (req, res) => {
   try {
     await activateScheduledDrops();
     await completeExpiredDrops();
