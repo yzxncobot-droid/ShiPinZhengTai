@@ -1,4 +1,4 @@
-import { pgTable, uuid, text } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, timestamp } from "drizzle-orm/pg-core";
 
 export const settingsTable = pgTable("settings", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -22,6 +22,18 @@ export const settingsTable = pgTable("settings", {
   metaTitle: text("meta_title"),
   googleAnalyticsId: text("google_analytics_id"),
   googleSearchConsoleId: text("google_search_console_id"),
+
+  // ── Maintenance Mode ────────────────────────────────────────────────────────
+  maintenanceEnabled:     boolean("maintenance_enabled").notNull().default(false),
+  maintenanceTitle:       text("maintenance_title"),
+  maintenanceDescription: text("maintenance_description"),
+  maintenanceImage:       text("maintenance_image"),
+  maintenanceButtonText:  text("maintenance_button_text"),
+  maintenanceRedirectUrl: text("maintenance_redirect_url"),
+  maintenanceEta:         timestamp("maintenance_eta"),
+  maintenanceCountdown:   boolean("maintenance_countdown").notNull().default(false),
+  maintenanceUpdatedAt:   timestamp("maintenance_updated_at"),
+  maintenanceUpdatedBy:   uuid("maintenance_updated_by"),
 });
 
 export type Settings = typeof settingsTable.$inferSelect;

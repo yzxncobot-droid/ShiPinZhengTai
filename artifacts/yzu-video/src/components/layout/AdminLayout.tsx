@@ -18,7 +18,7 @@ import {
   ArrowUpFromLine, TrendingUp, Star, BarChart3, FileBarChart, Bell,
   Settings, ShieldCheck, Server, Upload, LogOut, Home, ChevronLeft,
   ChevronRight, Menu, PlaySquare, Search, User as UserIcon, X, Gift,
-  CheckCircle2,
+  CheckCircle2, Wrench,
 } from "lucide-react";
 
 // ── Navigation Config ──────────────────────────────────────────────────────────
@@ -92,6 +92,7 @@ const useNavGroups = (pendingPayments: number = 0, unreadNotifs: number = 0): Na
     ownerOnly: true,
     items: [
       { label: "Pengaturan", href: "/admin/settings", icon: Settings },
+      { label: "Maintenance", href: "/admin/maintenance", icon: Wrench },
       { label: "Audit Log", href: "/admin/audit-logs", icon: ShieldCheck },
       { label: "Sistem", href: "/admin/system", icon: Server },
     ],
@@ -118,6 +119,7 @@ const PATH_LABELS: Record<string, string> = {
   "/admin/drops": "Drop System",
   "/admin/verifications": "Verifikasi Creator",
   "/admin/settings": "Pengaturan",
+  "/admin/maintenance": "Maintenance Mode",
   "/admin/audit-logs": "Audit Log",
   "/admin/system": "Sistem",
 };

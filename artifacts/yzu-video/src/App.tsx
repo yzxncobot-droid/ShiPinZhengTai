@@ -5,7 +5,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/lib/auth";
 import { initApiClient } from "@/lib/protected-route";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { MaintenanceGuard } from "@/components/MaintenanceGuard";
 import NotFound from "@/pages/not-found";
+import MaintenancePage from "@/pages/maintenance";
+import AdminMaintenancePage from "@/pages/admin/maintenance";
 
 // Public pages
 import Home from "@/pages/home";
@@ -112,6 +115,10 @@ function AppRouter() {
       <Route path="/admin/chat-rooms" component={AdminChatRoomsPage} />
       <Route path="/admin/verifications" component={AdminVerificationsPage} />
       <Route path="/admin/drops" component={AdminDropsPage} />
+      <Route path="/admin/maintenance" component={AdminMaintenancePage} />
+
+      {/* Maintenance page — always accessible */}
+      <Route path="/maintenance" component={MaintenancePage} />
 
       {/* Legacy /owner/* → redirect to /admin/* equivalents */}
       <Route path="/owner" component={AdminDashboard} />
@@ -136,7 +143,9 @@ function App() {
         <TooltipProvider>
           <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
             <ErrorBoundary>
-              <AppRouter />
+              <MaintenanceGuard>
+                <AppRouter />
+              </MaintenanceGuard>
             </ErrorBoundary>
           </WouterRouter>
           <Toaster />

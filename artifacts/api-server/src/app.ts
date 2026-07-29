@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { maintenanceGuard } from "./middlewares/maintenance";
 
 const app: Express = express();
 
@@ -45,7 +46,10 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-app.use("/api", router);
+// Maintenance guard runs AFTER auth middleware so req.user is available on
+// routes that call authenticate() before this fires.  We inject it at the
+// router level so every /api/* request passes through it.
+app.use("/api", maintenanceGuard(), router);
 
 // ── Global JSON error handler ─────────────────────────────────────────────────
 // Catches any error thrown (or passed via next(err)) inside a route handler and

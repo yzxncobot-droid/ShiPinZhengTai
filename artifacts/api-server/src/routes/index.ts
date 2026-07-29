@@ -24,6 +24,7 @@ import chatUploadRouter from "./chat-upload";
 import verificationsRouter from "./verifications";
 import dropsRouter from "./drops";
 import userManagementRouter from "./user-management";
+import maintenanceRouter from "./maintenance";
 
 const router: IRouter = Router();
 
@@ -52,5 +53,6 @@ router.use(chatUploadRouter);
 router.use(verificationsRouter);
 router.use(dropsRouter);
 router.use(userManagementRouter);
+router.use(maintenanceRouter);
 
 export default router;
