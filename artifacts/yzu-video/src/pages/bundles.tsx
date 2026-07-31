@@ -1,20 +1,23 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
+import { useState, useMemo } from "react";
+import { Link, useLocation } from "wouter";
 import {
-  Gift, Sparkles, Star, Loader2, ShoppingCart, PlayCircle, X,
-  ShieldCheck, Zap, Layers, CheckCircle2,
+  Gift, Sparkles, Star, Loader2, ShoppingCart, PlayCircle, Heart,
+  Share2, Layers, CheckCircle2, ShieldCheck, Zap, Filter,
+  X, ChevronRight, Clock, TrendingUp, Award,
 } from "lucide-react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useListBundles, useGetBundle, usePurchaseBundle, getListBundlesQueryKey } from "@workspace/api-client-react";
 import type { Bundle } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
 
-const formatRupiah = (value: number) => `Rp ${value.toLocaleString("id-ID")}`;
+const formatRupiah = (v: number) => `Rp ${v.toLocaleString("id-ID")}`;
 
 const BADGE_STYLES: Record<string, string> = {
   "BEST SELLER": "bg-gradient-to-r from-orange-400 to-red-500 text-white",
@@ -23,14 +26,12 @@ const BADGE_STYLES: Record<string, string> = {
   "VALUE PACK": "bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-900",
 };
 
-const FEATURES = [
-  { icon: PlayCircle, label: "Tonton Selamanya" },
-  { icon: ShieldCheck, label: "Aman untuk Anak" },
-  { icon: Zap, label: "Kualitas HD" },
-  { icon: Layers, label: "Akses Semua Video" },
-];
+const FILTER_TABS = ["Semua", "Belajar", "Hiburan", "Edukasi", "Indonesia", "Asia"];
 
-function BundlePreviewDialog({ bundleId, onOpenChange }: { bundleId: number | null; onOpenChange: (open: boolean) => void }) {
+// ─── Preview Dialog ───────────────────────────────────────────────────────────
+function BundlePreviewDialog({ bundleId, onOpenChange }: {
+  bundleId: number | null; onOpenChange: (open: boolean) => void;
+}) {
   const { data: bundle, isLoading } = useGetBundle(bundleId ?? 0, { query: { enabled: !!bundleId } });
 
   return (
@@ -42,21 +43,26 @@ function BundlePreviewDialog({ bundleId, onOpenChange }: { bundleId: number | nu
           </div>
         ) : (
           <>
-            <div className="relative h-40 bg-gradient-to-br from-purple-500 to-pink-500">
+            <div className="relative h-44 bg-gradient-to-br from-purple-500 to-pink-500">
               {bundle.thumbnail && (
                 <img src={bundle.thumbnail} alt={bundle.title} className="absolute inset-0 w-full h-full object-cover opacity-90" />
               )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
               <DialogHeader className="absolute bottom-3 left-4 right-4">
-                <DialogTitle className="text-white text-lg font-heading font-extrabold text-left drop-shadow">{bundle.title}</DialogTitle>
+                <DialogTitle className="text-white text-lg font-heading font-extrabold text-left drop-shadow">
+                  {bundle.title}
+                </DialogTitle>
+                <p className="text-white/70 text-xs font-medium">{bundle.videoCount} video dalam bundle</p>
               </DialogHeader>
             </div>
             <div className="p-5">
-              <p className="text-sm text-slate-500 font-medium mb-4">{bundle.description || "Kumpulan video eksklusif dalam satu paket hemat."}</p>
-              <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">{bundle.videoCount} Video dalam bundle ini</p>
-              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+              <p className="text-sm text-slate-500 font-medium mb-4">
+                {bundle.description || "Kumpulan video eksklusif dalam satu paket hemat."}
+              </p>
+              <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-3">Daftar Video</p>
+              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                 {bundle.videos?.map((v: any) => (
-                  <div key={v.id} className="flex items-center gap-3 bg-slate-50 rounded-xl p-2.5">
+                  <div key={v.id} className="flex items-center gap-3 bg-slate-50 rounded-xl p-2.5 border border-slate-100">
                     <div className="h-10 w-16 rounded-lg bg-slate-200 overflow-hidden shrink-0">
                       {v.thumbnail && <img src={v.thumbnail} alt={v.title} className="h-full w-full object-cover" />}
                     </div>
@@ -72,6 +78,142 @@ function BundlePreviewDialog({ bundleId, onOpenChange }: { bundleId: number | nu
   );
 }
 
+// ─── Bundle Card ──────────────────────────────────────────────────────────────
+function BundleCard({
+  bundle, onPreview, onBuy, isBuying, wishlist, onWishlist,
+}: {
+  bundle: Bundle;
+  onPreview: (id: number) => void;
+  onBuy: (id: number, price: number, title: string) => void;
+  isBuying: boolean;
+  wishlist: Set<number>;
+  onWishlist: (id: number) => void;
+}) {
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      whileHover={{ y: -2 }}
+      transition={{ duration: 0.3 }}
+      className="bg-white rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow overflow-hidden"
+      onClick={() => {/* navigate on thumb click handled below */}}
+    >
+      {/* Horizontal layout: thumb left, content right */}
+      <div className="flex">
+        {/* Thumbnail */}
+        <div className="relative w-36 sm:w-44 shrink-0">
+          <div className="h-full min-h-[9rem] bg-gradient-to-br from-purple-500 to-pink-500">
+            {bundle.thumbnail && (
+              <img src={bundle.thumbnail} alt={bundle.title} className="w-full h-full object-cover opacity-90" />
+            )}
+          </div>
+          {bundle.badge && (
+            <span className={`absolute top-2 left-2 text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full shadow ${BADGE_STYLES[bundle.badge] ?? "bg-slate-800 text-white"}`}>
+              {bundle.badge}
+            </span>
+          )}
+          {bundle.hasPurchased && (
+            <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+              <div className="bg-green-500 rounded-full p-2">
+                <CheckCircle2 className="h-6 w-6 text-white" />
+              </div>
+            </div>
+          )}
+          <span className="absolute bottom-2 left-2 bg-black/60 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full flex items-center gap-0.5">
+            <Layers className="h-2.5 w-2.5" /> {bundle.videoCount}
+          </span>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 p-4 flex flex-col min-w-0">
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <h3 className="font-heading font-extrabold text-sm text-slate-800 leading-snug line-clamp-2 flex-1">
+              {bundle.title}
+            </h3>
+            <button
+              onClick={(e) => { e.stopPropagation(); onWishlist(bundle.id); }}
+              className="shrink-0 h-7 w-7 rounded-full flex items-center justify-center hover:bg-red-50 transition-colors"
+            >
+              <Heart className={`h-4 w-4 ${wishlist.has(bundle.id) ? "fill-red-500 text-red-500" : "text-slate-300"}`} />
+            </button>
+          </div>
+
+          <p className="text-[11px] text-slate-500 line-clamp-2 font-medium mb-3 flex-1">
+            {bundle.description || "Kumpulan video eksklusif dalam satu paket hemat."}
+          </p>
+
+          {/* Price row */}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-base font-extrabold text-purple-600">{formatRupiah(bundle.price)}</span>
+            {bundle.originalPrice && bundle.originalPrice > bundle.price && (
+              <span className="text-xs text-slate-400 line-through">{formatRupiah(bundle.originalPrice)}</span>
+            )}
+            {bundle.discountPercent > 0 && (
+              <Badge className="bg-red-100 text-red-600 border-none font-extrabold text-[10px] px-1.5 py-0 rounded-full">
+                -{bundle.discountPercent}%
+              </Badge>
+            )}
+          </div>
+
+          {/* Rating stars (decorative) */}
+          <div className="flex items-center gap-0.5 mb-3">
+            {[1,2,3,4,5].map(s => (
+              <Star key={s} className={`h-3 w-3 ${s <= 4 ? "fill-amber-400 text-amber-400" : "text-slate-200"}`} />
+            ))}
+            <span className="text-[10px] text-slate-400 ml-1 font-medium">(4.8)</span>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 px-3 rounded-xl text-[11px] font-extrabold border-purple-200 text-purple-600 hover:bg-purple-50 flex-1"
+              onClick={(e) => { e.stopPropagation(); onPreview(bundle.id); }}
+            >
+              <PlayCircle className="h-3.5 w-3.5 mr-1" /> Preview
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 px-3 rounded-xl text-[11px] font-extrabold bg-gradient-to-br from-pink-500 to-rose-500 text-white border-none shadow-sm flex-1"
+              disabled={isBuying || bundle.hasPurchased}
+              onClick={(e) => { e.stopPropagation(); onBuy(bundle.id, bundle.price, bundle.title); }}
+            >
+              {isBuying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> :
+               bundle.hasPurchased ? "Dimiliki ✓" :
+               <><ShoppingCart className="h-3.5 w-3.5 mr-1" /> Beli</>}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
+function BundleSkeleton() {
+  return (
+    <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden animate-pulse">
+      <div className="flex">
+        <div className="w-36 sm:w-44 h-40 bg-slate-200 shrink-0" />
+        <div className="flex-1 p-4 space-y-3">
+          <div className="h-4 bg-slate-200 rounded w-3/4" />
+          <div className="h-3 bg-slate-200 rounded w-full" />
+          <div className="h-3 bg-slate-200 rounded w-2/3" />
+          <div className="h-5 bg-slate-200 rounded w-1/3" />
+          <div className="flex gap-2">
+            <div className="h-8 bg-slate-200 rounded-xl flex-1" />
+            <div className="h-8 bg-slate-200 rounded-xl flex-1" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function BundlesPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -81,21 +223,18 @@ export default function BundlesPage() {
   const { data: bundles, isLoading } = useListBundles();
   const purchaseMutation = usePurchaseBundle();
   const [previewId, setPreviewId] = useState<number | null>(null);
+  const [activeFilter, setActiveFilter] = useState("Semua");
+  const [wishlist, setWishlist] = useState<Set<number>>(new Set());
+  const [purchasingId, setPurchasingId] = useState<number | null>(null);
 
   const handleBuy = (id: number, price: number, title: string) => {
-    if (!user) {
-      setLocation("/login");
-      return;
-    }
+    if (!user) { setLocation("/login"); return; }
     if ((user.walletBalance || 0) < price) {
-      toast({
-        title: "Saldo Tidak Cukup",
-        description: "Isi saldo wallet kamu dulu untuk membeli bundle ini.",
-        variant: "destructive",
-      });
+      toast({ title: "Saldo Tidak Cukup", description: "Isi saldo wallet kamu dulu.", variant: "destructive" });
       setLocation("/topup");
       return;
     }
+    setPurchasingId(id);
     purchaseMutation.mutate({ id }, {
       onSuccess: () => {
         toast({ title: "🎉 Bundle berhasil dibeli!", description: `"${title}" sudah jadi milikmu selamanya.` });
@@ -103,8 +242,18 @@ export default function BundlesPage() {
         setLocation(`/bundles/${id}`);
       },
       onError: (err: any) => {
-        toast({ title: "Yah, gagal 😢", description: err?.message || "Terjadi kesalahan saat membeli bundle.", variant: "destructive" });
+        toast({ title: "Yah, gagal 😢", description: err?.message || "Terjadi kesalahan.", variant: "destructive" });
       },
+      onSettled: () => setPurchasingId(null),
+    });
+  };
+
+  const toggleWishlist = (id: number) => {
+    setWishlist(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) { next.delete(id); toast({ title: "Dihapus dari Wishlist" }); }
+      else { next.add(id); toast({ title: "❤️ Ditambahkan ke Wishlist" }); }
+      return next;
     });
   };
 
@@ -112,125 +261,94 @@ export default function BundlesPage() {
 
   return (
     <AppLayout>
-      <div className="container mx-auto px-4 py-10 md:py-14">
-        <div className="flex justify-end mb-2 max-w-4xl mx-auto">
-          <button
-            onClick={() => setLocation("/bundles/my")}
-            className="text-xs font-extrabold text-purple-600 hover:text-purple-800 flex items-center gap-1 px-3 py-1.5 rounded-full bg-purple-50 hover:bg-purple-100 transition-colors"
-          >
-            My Bundles →
-          </button>
-        </div>
+      {/* Header Banner */}
+      <div className="relative overflow-hidden gradient-funplus-pink pb-6 pt-8 px-4">
+        <div className="absolute top-0 left-0 w-48 h-48 bg-white/10 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2" />
+        <div className="absolute bottom-0 right-0 w-64 h-64 bg-pink-300/20 rounded-full blur-3xl translate-x-1/3 translate-y-1/3" />
 
-        <div className="text-center max-w-2xl mx-auto mb-10 relative">
-          <Star className="absolute -top-4 left-4 h-8 w-8 text-yellow-400 fill-yellow-400 transform -rotate-12 opacity-80" />
-          <Sparkles className="absolute top-2 right-6 h-6 w-6 text-pink-400 opacity-80" />
-
-          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-pink-400 to-rose-500 shadow-lg shadow-pink-500/20 mb-4 transform -rotate-3">
-            <Gift className="h-8 w-8 text-white" />
+        <div className="relative z-10 max-w-3xl mx-auto">
+          <div className="flex items-center gap-2 mb-1">
+            <Link href="/bundles/my" className="text-[10px] font-extrabold text-white/70 hover:text-white bg-white/15 px-3 py-1 rounded-full transition-colors">
+              My Bundles →
+            </Link>
           </div>
-          <h1 className="text-3xl md:text-5xl font-heading font-extrabold tracking-tight text-slate-800 mb-3">
-            Video Bundles 🎁
-          </h1>
-          <p className="text-sm md:text-base font-medium text-slate-500">
-            Paket hemat berisi beberapa video eksklusif. Beli sekali, tonton selamanya — bundle ini cuma bisa dibuka lewat pembelian, bukan langganan.
-          </p>
-        </div>
-
-        {isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-4xl mx-auto">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-72 rounded-3xl bg-white border border-slate-100 animate-pulse shadow-sm" />
-            ))}
+          <div className="flex items-center gap-4 mt-3">
+            <div className="h-16 w-16 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center shadow-lg shrink-0">
+              <Gift className="h-9 w-9 text-white" />
+            </div>
+            <div>
+              <h1 className="text-3xl md:text-4xl font-heading font-extrabold text-white leading-tight">
+                Video Bundles 🎁
+              </h1>
+              <p className="text-white/80 text-sm font-medium mt-1">
+                Beli sekali, tonton selamanya — konten eksklusif!
+              </p>
+            </div>
           </div>
-        ) : list.length === 0 ? (
-          <div className="text-center py-16 text-slate-400 font-medium">
-            <Gift className="h-10 w-10 mx-auto mb-3 opacity-30" />
-            Belum ada bundle yang tersedia saat ini.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-4xl mx-auto">
-            {list.map((bundle: Bundle) => (
-              <div
-                key={bundle.id}
-                className="relative flex flex-col rounded-3xl bg-white border border-slate-100 shadow-sm hover:shadow-md transition-shadow overflow-hidden cursor-pointer"
-                onClick={() => setLocation(`/bundles/${bundle.id}`)}
-              >
-                {/* Thumbnail */}
-                <div className="relative h-40 bg-gradient-to-br from-purple-500 to-pink-500">
-                  {bundle.thumbnail && (
-                    <img src={bundle.thumbnail} alt={bundle.title} className="absolute inset-0 w-full h-full object-cover" />
-                  )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/0 to-transparent" />
-                  {bundle.badge && (
-                    <span className={`absolute top-3 left-3 text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-1 rounded-full shadow-md ${BADGE_STYLES[bundle.badge] ?? "bg-slate-800 text-white"}`}>
-                      {bundle.badge}
-                    </span>
-                  )}
-                  <span className="absolute bottom-3 right-3 bg-black/60 text-white text-[10px] font-extrabold px-2.5 py-1 rounded-full flex items-center gap-1">
-                    <Layers className="h-3 w-3" /> {bundle.videoCount} Video
-                  </span>
-                  {bundle.hasPurchased && (
-                    <span className="absolute bottom-3 left-3 bg-green-500 text-white text-[10px] font-extrabold px-2.5 py-1 rounded-full flex items-center gap-1">
-                      <CheckCircle2 className="h-3 w-3" /> Sudah Dimiliki
-                    </span>
-                  )}
-                </div>
 
-                <div className="p-5 flex-1 flex flex-col">
-                  <h3 className="font-heading font-extrabold text-lg text-slate-800 mb-1 leading-snug">{bundle.title}</h3>
-                  <p className="text-xs font-medium text-slate-500 mb-4 line-clamp-2">{bundle.description || "Kumpulan video eksklusif dalam satu paket hemat."}</p>
-
-                  <div className="flex items-end justify-between bg-slate-50 p-3 rounded-2xl mb-4 border border-slate-100">
-                    <div>
-                      <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Harga Bundle</p>
-                      <div className="flex items-center gap-2">
-                        <p className="text-xl font-extrabold text-purple-600">{formatRupiah(bundle.price)}</p>
-                        {bundle.originalPrice && bundle.originalPrice > bundle.price && (
-                          <p className="text-xs font-bold text-slate-400 line-through">{formatRupiah(bundle.originalPrice)}</p>
-                        )}
-                      </div>
-                    </div>
-                    {bundle.discountPercent > 0 && (
-                      <Badge className="bg-red-100 text-red-600 border-none font-extrabold">-{bundle.discountPercent}%</Badge>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-4 gap-1.5 mb-5">
-                    {FEATURES.map((f) => (
-                      <div key={f.label} className="flex flex-col items-center text-center gap-1">
-                        <div className="bg-purple-50 p-2 rounded-full"><f.icon className="h-4 w-4 text-purple-500" /></div>
-                        <span className="text-[8px] font-extrabold text-slate-500 leading-tight">{f.label}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 mt-auto">
-                    <Button
-                      variant="outline"
-                      className="h-11 rounded-xl text-xs font-extrabold border-purple-200 text-purple-600 hover:bg-purple-50"
-                      onClick={() => setPreviewId(bundle.id)}
-                    >
-                      Preview
-                    </Button>
-                    <Button
-                      className="h-11 rounded-xl text-xs font-extrabold bg-gradient-to-br from-pink-500 to-rose-500 text-white border-none shadow-sm shadow-pink-500/30"
-                      disabled={purchaseMutation.isPending || bundle.hasPurchased}
-                      onClick={() => handleBuy(bundle.id, bundle.price, bundle.title)}
-                    >
-                      {purchaseMutation.isPending && purchaseMutation.variables?.id === bundle.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : bundle.hasPurchased ? (
-                        "Dimiliki"
-                      ) : (
-                        <span className="flex items-center gap-1"><ShoppingCart className="h-3.5 w-3.5" /> Buy Bundle</span>
-                      )}
-                    </Button>
-                  </div>
-                </div>
+          {/* Stats row */}
+          <div className="flex gap-4 mt-5">
+            {[
+              { icon: Layers, label: `${list.length} Bundle`, color: "text-yellow-300" },
+              { icon: ShieldCheck, label: "Aman & Terpercaya", color: "text-green-300" },
+              { icon: Zap, label: "HD Quality", color: "text-blue-300" },
+            ].map((s) => (
+              <div key={s.label} className="flex items-center gap-1.5 bg-white/15 backdrop-blur rounded-full px-3 py-1.5">
+                <s.icon className={`h-3.5 w-3.5 ${s.color}`} />
+                <span className="text-white text-[11px] font-bold">{s.label}</span>
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* Filter Tabs */}
+      <div className="flex gap-2 px-4 py-4 overflow-x-auto hide-scrollbar bg-white border-b border-slate-100">
+        {FILTER_TABS.map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveFilter(tab)}
+            className={`shrink-0 h-9 px-5 rounded-full text-xs font-extrabold transition-all border ${
+              activeFilter === tab
+                ? "bg-gradient-to-r from-purple-500 to-pink-500 text-white border-transparent shadow-md"
+                : "bg-white border-slate-200 text-slate-600 hover:border-purple-200"
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      {/* Bundle List */}
+      <div className="container mx-auto px-4 py-5 max-w-3xl">
+        {isLoading ? (
+          <div className="space-y-4">
+            {[1,2,3].map(i => <BundleSkeleton key={i} />)}
+          </div>
+        ) : list.length === 0 ? (
+          <div className="text-center py-20 flex flex-col items-center">
+            <div className="h-20 w-20 bg-purple-100 rounded-full flex items-center justify-center mb-4">
+              <Gift className="h-10 w-10 text-purple-400" />
+            </div>
+            <h3 className="text-lg font-heading font-extrabold text-slate-700">Belum Ada Bundle</h3>
+            <p className="text-sm text-slate-400 mt-1 font-medium">Bundle akan segera hadir.</p>
+          </div>
+        ) : (
+          <AnimatePresence mode="popLayout">
+            <div className="space-y-4">
+              {list.map((bundle: Bundle) => (
+                <BundleCard
+                  key={bundle.id}
+                  bundle={bundle}
+                  onPreview={setPreviewId}
+                  onBuy={handleBuy}
+                  isBuying={purchasingId === bundle.id && purchaseMutation.isPending}
+                  wishlist={wishlist}
+                  onWishlist={toggleWishlist}
+                />
+              ))}
+            </div>
+          </AnimatePresence>
         )}
       </div>
 

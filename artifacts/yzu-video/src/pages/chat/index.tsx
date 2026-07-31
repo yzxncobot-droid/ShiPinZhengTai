@@ -8,11 +8,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { BottomNav } from "@/components/layout/BottomNav";
 import {
   Megaphone, MessageSquare, Search, Pin, ExternalLink, MessageCircle,
-  Share2, Users, Hash, Lock, Globe, Crown, ShieldCheck, ChevronRight,
-  X, Loader2, Plus, CheckCircle2,
+  Share2, Users, Hash, Lock, Globe2, Crown, ShieldCheck, ChevronRight,
+  X, Loader2, Plus, CheckCircle2, Bell, Sparkles,
 } from "lucide-react";
 import { formatDistanceToNow, isToday, isYesterday, format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
+import { motion, AnimatePresence } from "framer-motion";
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -38,12 +39,10 @@ interface Group {
 // ─── Tabs ───────────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "chats" as const,          label: "Chats",         icon: MessageSquare },
-  { id: "announcements" as const,  label: "Announcements", icon: Megaphone },
+  { id: "chats" as const, label: "Chats", icon: MessageSquare },
+  { id: "announcements" as const, label: "Pengumuman", icon: Megaphone },
 ];
 type Tab = "chats" | "announcements";
-
-// ─── Category list ──────────────────────────────────────────────────────────────
 
 const ALL_CATEGORIES = [
   "General","Gaming","Minecraft","Roblox","Anime","Movies",
@@ -59,7 +58,7 @@ function timeAgo(date: string | Date) {
 
 function shortTime(date: string | Date) {
   const d = new Date(date);
-  if (isToday(d))     return format(d, "HH:mm");
+  if (isToday(d)) return format(d, "HH:mm");
   if (isYesterday(d)) return "Kemarin";
   return format(d, "dd/MM");
 }
@@ -67,54 +66,29 @@ function shortTime(date: string | Date) {
 function formatMsgPreview(msg: Group["latestMessage"] | null, description?: string): string {
   if (!msg) return description ?? "Belum ada pesan";
   const prefix = `${msg.authorUsername}: `;
-  if (msg.messageType === "image")  return `${prefix}🖼️ Gambar`;
-  if (msg.messageType === "video")  return `${prefix}🎬 Video`;
-  if (msg.messageType === "voice")  return `${prefix}🎤 Pesan suara`;
-  if (msg.messageType === "file")   return `${prefix}📎 File`;
-  if (msg.messageType === "gif")    return `${prefix}GIF`;
+  if (msg.messageType === "image") return `${prefix}🖼️ Gambar`;
+  if (msg.messageType === "video") return `${prefix}🎬 Video`;
+  if (msg.messageType === "voice") return `${prefix}🎤 Pesan suara`;
+  if (msg.messageType === "file") return `${prefix}📎 File`;
+  if (msg.messageType === "gif") return `${prefix}GIF`;
   return `${prefix}${msg.content}`;
 }
 
-// ─── Avatar ──────────────────────────────────────────────────────────────────────
-
-function AvatarEl({ username, avatar, size = "md", online }: {
-  username: string; avatar?: string | null; size?: "sm" | "md" | "lg"; online?: boolean;
-}) {
-  const sz = { sm: "h-8 w-8 text-xs", md: "h-12 w-12 text-sm", lg: "h-14 w-14 text-base" }[size];
-  return (
-    <div className="relative shrink-0">
-      {avatar
-        ? <img src={avatar} alt={username} className={`${sz} rounded-2xl object-cover`} />
-        : (
-          <div className={`${sz} rounded-2xl bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-extrabold`}>
-            {username[0]?.toUpperCase()}
-          </div>
-        )
-      }
-      {online && (
-        <span className="absolute bottom-0.5 right-0.5 h-3 w-3 rounded-full bg-green-400 border-2 border-white" />
-      )}
-    </div>
-  );
-}
+// ─── Group Avatar ─────────────────────────────────────────────────────────────────
 
 function GroupAvatar({ group }: { group: Group }) {
   if (group.imageUrl) {
-    return <img src={group.imageUrl} alt={group.name} className="h-12 w-12 rounded-2xl object-cover shrink-0" />;
+    return <img src={group.imageUrl} alt={group.name} className="h-14 w-14 rounded-2xl object-cover shrink-0 shadow-sm" />;
   }
-  // Generate color from name
   const colors = [
-    "from-purple-500 to-pink-500",
-    "from-blue-500 to-cyan-500",
-    "from-green-500 to-teal-500",
-    "from-orange-500 to-red-500",
-    "from-indigo-500 to-purple-500",
-    "from-amber-500 to-orange-500",
+    "from-purple-500 to-pink-500", "from-blue-500 to-cyan-500",
+    "from-green-500 to-teal-500", "from-orange-500 to-red-500",
+    "from-indigo-500 to-purple-500", "from-amber-500 to-orange-500",
   ];
   const color = colors[group.name.charCodeAt(0) % colors.length];
   return (
-    <div className={`h-12 w-12 rounded-2xl bg-gradient-to-br ${color} flex items-center justify-center shrink-0 shadow-sm`}>
-      <Hash className="h-6 w-6 text-white" />
+    <div className={`h-14 w-14 rounded-2xl bg-gradient-to-br ${color} flex items-center justify-center shrink-0 shadow-sm`}>
+      <Hash className="h-7 w-7 text-white" />
     </div>
   );
 }
@@ -124,19 +98,27 @@ function GroupAvatar({ group }: { group: Group }) {
 function GroupCard({ group, onClick }: { group: Group; onClick: () => void }) {
   const timeRef = group.latestMessage?.createdAt ?? group.createdAt;
   const preview = formatMsgPreview(group.latestMessage, group.description);
+  const hasUnread = group.unreadCount > 0;
 
   return (
-    <button
+    <motion.button
+      layout
+      whileTap={{ scale: 0.98 }}
       onClick={onClick}
-      className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-slate-50 active:bg-slate-100 transition-colors text-left"
+      className={`w-full flex items-center gap-3 px-4 py-3.5 transition-colors text-left ${hasUnread ? "bg-purple-50/50" : "hover:bg-slate-50"}`}
     >
-      <GroupAvatar group={group} />
+      <div className="relative">
+        <GroupAvatar group={group} />
+        {group.isPinnedGroup && (
+          <div className="absolute -top-1 -right-1 h-4 w-4 bg-amber-400 rounded-full flex items-center justify-center shadow-sm">
+            <Pin className="h-2.5 w-2.5 text-white" />
+          </div>
+        )}
+      </div>
 
       <div className="flex-1 min-w-0">
-        {/* Name row */}
         <div className="flex items-center gap-1.5 mb-0.5">
-          {group.isPinnedGroup && <Pin className="h-3 w-3 text-purple-400 shrink-0" />}
-          <span className={`font-extrabold text-sm truncate ${group.unreadCount > 0 ? "text-slate-900" : "text-slate-700"}`}>
+          <span className={`font-extrabold text-sm truncate ${hasUnread ? "text-slate-900" : "text-slate-700"}`}>
             {group.name}
           </span>
           {group.isLocked && <Lock className="h-3 w-3 text-slate-300 shrink-0" />}
@@ -146,37 +128,34 @@ function GroupCard({ group, onClick }: { group: Group; onClick: () => void }) {
             </span>
           )}
         </div>
-        {/* Preview */}
-        <p className={`text-xs truncate ${group.unreadCount > 0 ? "font-semibold text-slate-700" : "text-slate-400"}`}>
+        <p className={`text-xs truncate ${hasUnread ? "font-semibold text-slate-700" : "text-slate-400 font-medium"}`}>
           {preview}
         </p>
-        {/* Members */}
-        <div className="flex items-center gap-1 mt-0.5">
+        <div className="flex items-center gap-1 mt-1">
           <Users className="h-3 w-3 text-slate-300" />
-          <span className="text-[10px] text-slate-400">{group.memberCount.toLocaleString()} anggota</span>
+          <span className="text-[10px] text-slate-400 font-medium">{group.memberCount.toLocaleString()}</span>
         </div>
       </div>
 
-      {/* Right side */}
-      <div className="flex flex-col items-end gap-1 shrink-0 ml-1">
-        <span className={`text-[11px] ${group.unreadCount > 0 ? "text-purple-500 font-bold" : "text-slate-400"}`}>
+      <div className="flex flex-col items-end gap-1.5 shrink-0">
+        <span className={`text-[11px] ${hasUnread ? "text-purple-500 font-bold" : "text-slate-400"}`}>
           {shortTime(timeRef)}
         </span>
-        {group.unreadCount > 0 && (
-          <span className="h-5 min-w-[20px] rounded-full bg-purple-500 text-white text-[10px] font-extrabold flex items-center justify-center px-1.5">
+        {hasUnread && (
+          <span className="h-5 min-w-[20px] rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white text-[10px] font-extrabold flex items-center justify-center px-1.5 shadow-sm">
             {group.unreadCount > 99 ? "99+" : group.unreadCount}
           </span>
         )}
       </div>
-    </button>
+    </motion.button>
   );
 }
 
 // ─── Groups Pane ─────────────────────────────────────────────────────────────────
 
-function GroupsPane({ userId }: { userId?: string }) {
+function GroupsPane({ userId, userRole }: { userId?: string; userRole?: string }) {
   const [, setLocation] = useLocation();
-  const [search,   setSearch]   = useState("");
+  const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -194,37 +173,40 @@ function GroupsPane({ userId }: { userId?: string }) {
     staleTime: 4000,
   });
 
+  const isAdmin = userRole === "admin" || userRole === "owner";
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Search bar */}
-      <div className="px-3 pt-2 pb-1 bg-white border-b border-slate-50">
+      <div className="px-4 pt-3 pb-2 bg-white border-b border-slate-100">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Cari grup..."
-            className="w-full pl-9 pr-9 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:border-purple-300 focus:bg-white transition-all"
+            className="w-full pl-10 pr-9 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-sm font-medium focus:outline-none focus:border-purple-300 focus:bg-white transition-all placeholder:text-slate-400"
           />
           {search && (
             <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2">
-              <X className="h-4 w-4 text-slate-400" />
+              <X className="h-4 w-4 text-slate-400 hover:text-slate-600" />
             </button>
           )}
         </div>
       </div>
 
       {/* Category filter pills */}
-      <div className="flex gap-2 px-3 py-2 overflow-x-auto bg-white border-b border-slate-50" style={{ scrollbarWidth: "none" }}>
-        {["Semua", ...ALL_CATEGORIES].map((cat) => {
-          const active = cat === "Semua" ? category === "" : category === cat;
+      <div className="flex gap-2 px-4 py-2.5 overflow-x-auto bg-white border-b border-slate-50" style={{ scrollbarWidth: "none" }}>
+        {["Semua", "📌 Pinned", "🔔 Unread", ...ALL_CATEGORIES].map((cat) => {
+          const rawCat = cat.startsWith("📌") ? "__pinned__" : cat.startsWith("🔔") ? "__unread__" : cat;
+          const active = cat === "Semua" ? category === "" : category === rawCat;
           return (
             <button
               key={cat}
-              onClick={() => setCategory(cat === "Semua" ? "" : cat)}
-              className={`shrink-0 text-xs font-bold px-3 py-1.5 rounded-full border transition-all ${
+              onClick={() => setCategory(cat === "Semua" ? "" : rawCat)}
+              className={`shrink-0 text-xs font-bold px-3.5 py-1.5 rounded-full border transition-all ${
                 active
-                  ? "bg-purple-500 text-white border-purple-500 shadow-sm"
+                  ? "bg-gradient-to-r from-purple-500 to-pink-500 text-white border-transparent shadow-sm"
                   : "bg-white border-slate-200 text-slate-500 hover:border-purple-200 hover:text-purple-500"
               }`}
             >
@@ -235,12 +217,12 @@ function GroupsPane({ userId }: { userId?: string }) {
       </div>
 
       {/* Groups list */}
-      <div className="flex-1 overflow-y-auto bg-white">
+      <div className="flex-1 overflow-y-auto bg-white relative">
         {isLoading ? (
           <div className="divide-y divide-slate-50">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="flex items-center gap-3 px-4 py-3.5">
-                <Skeleton className="h-12 w-12 rounded-2xl shrink-0" />
+                <Skeleton className="h-14 w-14 rounded-2xl shrink-0" />
                 <div className="flex-1 space-y-2">
                   <Skeleton className="h-4 w-32" />
                   <Skeleton className="h-3 w-48" />
@@ -251,23 +233,40 @@ function GroupsPane({ userId }: { userId?: string }) {
           </div>
         ) : groups.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-center px-6">
-            <Globe className="h-12 w-12 text-slate-200 mb-3" />
-            <p className="font-extrabold text-slate-500 text-base">
+            <div className="h-20 w-20 bg-purple-50 rounded-full flex items-center justify-center mb-4">
+              <Globe2 className="h-10 w-10 text-purple-200" />
+            </div>
+            <p className="font-extrabold text-slate-600 text-base">
               {search || category ? "Tidak ada grup yang cocok" : "Belum ada grup"}
             </p>
-            <p className="text-sm text-slate-400 mt-1">
+            <p className="text-sm text-slate-400 mt-1 font-medium">
               {search || category ? "Coba kata kunci lain" : "Owner bisa membuat grup baru di panel admin"}
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-slate-50">
-            {groups.map((group) => (
-              <GroupCard
-                key={group.id}
-                group={group}
-                onClick={() => setLocation(`/chat/room/${group.id}`)}
-              />
-            ))}
+          <AnimatePresence initial={false}>
+            <div className="divide-y divide-slate-50">
+              {groups.map((group) => (
+                <GroupCard
+                  key={group.id}
+                  group={group}
+                  onClick={() => setLocation(`/chat/room/${group.id}`)}
+                />
+              ))}
+            </div>
+          </AnimatePresence>
+        )}
+
+        {/* Floating create button (admin only) */}
+        {isAdmin && (
+          <div className="absolute bottom-6 right-4">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="h-14 w-14 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 text-white flex items-center justify-center shadow-xl shadow-purple-500/30 pulse-glow"
+            >
+              <Plus className="h-6 w-6" />
+            </motion.button>
           </div>
         )}
       </div>
@@ -288,34 +287,40 @@ function AnnouncementCard({ ann, userId, onReact, onComment }: {
   const QUICK = ["❤️", "👍", "🔥", "🎉", "😢"];
 
   return (
-    <div className={`bg-white rounded-2xl shadow-sm border overflow-hidden ${ann.isPinned ? "border-amber-200" : "border-slate-100"}`}>
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={`bg-white rounded-3xl shadow-sm border overflow-hidden ${ann.isPinned ? "border-amber-200" : "border-slate-100"}`}
+    >
       {ann.isPinned && (
-        <div className="flex items-center gap-1.5 px-4 py-1.5 bg-amber-50 border-b border-amber-100">
+        <div className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-100">
           <Pin className="h-3 w-3 text-amber-500" />
-          <span className="text-[11px] font-extrabold text-amber-600 uppercase tracking-wide">Disematkan</span>
+          <span className="text-[11px] font-extrabold text-amber-600 uppercase tracking-wide">📌 Disematkan</span>
         </div>
       )}
-      {ann.imageUrl && <img src={ann.imageUrl} alt="" className="w-full h-40 object-cover" />}
+      {ann.imageUrl && <img src={ann.imageUrl} alt="" className="w-full h-44 object-cover" />}
       <div className="p-4">
         <div className="flex items-center gap-2.5 mb-3">
-          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold text-xs shrink-0">
+          <div className="h-9 w-9 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-sm">
             {ann.authorUsername[0]?.toUpperCase()}
           </div>
           <div>
-            <p className="text-[11px] font-extrabold text-amber-600">Yzu视频</p>
-            <p className="text-[10px] text-slate-400">{timeAgo(ann.createdAt)}</p>
+            <p className="text-[11px] font-extrabold text-purple-600 flex items-center gap-1">
+              <Sparkles className="h-3 w-3" /> FUN+ Official
+            </p>
+            <p className="text-[10px] text-slate-400 font-medium">{timeAgo(ann.createdAt)}</p>
           </div>
         </div>
         <h3 className="font-extrabold text-slate-800 text-base leading-snug mb-2">{ann.title}</h3>
         <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{displayContent}</p>
         {isLong && (
-          <button onClick={() => setExpanded(!expanded)} className="text-xs text-purple-500 font-bold mt-1">
-            {expanded ? "Sembunyikan" : "Selengkapnya"}
+          <button onClick={() => setExpanded(!expanded)} className="text-xs text-purple-500 font-bold mt-1 hover:text-purple-700">
+            {expanded ? "Sembunyikan ↑" : "Selengkapnya ↓"}
           </button>
         )}
         {ann.linkUrl && (
           <a href={ann.linkUrl} target="_blank" rel="noopener noreferrer"
-            className="mt-3 flex items-center gap-2 text-sm font-bold text-purple-600 bg-purple-50 border border-purple-100 rounded-xl px-3 py-2 hover:bg-purple-100 transition-colors">
+            className="mt-3 flex items-center gap-2 text-sm font-bold text-purple-600 bg-purple-50 border border-purple-100 rounded-2xl px-3 py-2.5 hover:bg-purple-100 transition-colors">
             <ExternalLink className="h-3.5 w-3.5 shrink-0" />
             {ann.linkLabel ?? ann.linkUrl}
           </a>
@@ -327,14 +332,17 @@ function AnnouncementCard({ ann, userId, onReact, onComment }: {
             return (
               <button key={e}
                 onClick={() => userId && onReact(ann.id, e)}
-                className={`flex items-center gap-0.5 px-2 py-1 rounded-full text-xs font-bold border transition-all
-                  ${mine ? "bg-purple-100 border-purple-300 text-purple-700" : "bg-slate-50 border-slate-200 text-slate-600 hover:border-purple-200"}`}>
-                {e}{r ? ` ${r.count}` : ""}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border transition-all ${
+                  mine
+                    ? "bg-purple-100 border-purple-300 text-purple-700 shadow-sm"
+                    : "bg-slate-50 border-slate-200 text-slate-600 hover:border-purple-200 hover:bg-purple-50"
+                }`}>
+                {e}{r && r.count > 0 ? ` ${r.count}` : ""}
               </button>
             );
           })}
         </div>
-        <div className="flex items-center gap-3 mt-3 pt-3 border-t border-slate-50">
+        <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-50">
           <button onClick={() => onComment(ann)} className="flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-purple-600 transition-colors">
             <MessageCircle className="h-4 w-4" />
             {ann.commentCount > 0 && <span>{ann.commentCount}</span>}
@@ -345,7 +353,7 @@ function AnnouncementCard({ ann, userId, onReact, onComment }: {
           </button>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -367,46 +375,67 @@ function CommentModal({ ann, userId, onClose }: { ann: Announcement; userId?: st
   });
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end justify-center" onClick={onClose}>
-      <div className="bg-white w-full max-w-lg rounded-t-3xl p-5 max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end justify-center"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+        className="bg-white w-full max-w-lg rounded-t-3xl p-5 max-h-[80vh] flex flex-col shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-extrabold text-slate-800">Komentar</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
+          <h3 className="font-extrabold text-slate-800 text-base">💬 Komentar</h3>
+          <button onClick={onClose} className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors">
+            <X className="h-4 w-4 text-slate-600" />
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto space-y-3 mb-4">
-          {isLoading ? (
-            Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)
-          ) : comments.length === 0 ? (
-            <div className="text-center py-8 text-slate-400 text-sm">Belum ada komentar</div>
-          ) : (
-            comments.map((c: any) => (
-              <div key={c.id} className="flex gap-2.5">
-                <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold text-xs shrink-0">
-                  {c.authorUsername?.[0]?.toUpperCase()}
+          {isLoading
+            ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)
+            : comments.length === 0
+            ? <div className="text-center py-10 text-slate-400 text-sm font-medium">Belum ada komentar. Jadilah yang pertama!</div>
+            : comments.map((c: any) => (
+                <div key={c.id} className="flex gap-2.5">
+                  <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold text-xs shrink-0">
+                    {c.authorUsername?.[0]?.toUpperCase()}
+                  </div>
+                  <div className="bg-slate-50 rounded-2xl rounded-tl-sm px-3 py-2 flex-1">
+                    <p className="text-[11px] font-bold text-purple-600">{c.authorUsername}</p>
+                    <p className="text-sm text-slate-700 mt-0.5 leading-relaxed">{c.content}</p>
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium">{timeAgo(c.createdAt)}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-[11px] font-bold text-slate-600">{c.authorUsername}</p>
-                  <p className="text-sm text-slate-700 mt-0.5">{c.content}</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">{timeAgo(c.createdAt)}</p>
-                </div>
-              </div>
-            ))
-          )}
+              ))
+          }
         </div>
         {userId ? (
           <div className="flex gap-2">
-            <input value={content} onChange={(e) => setContent(e.target.value)}
+            <input
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && content.trim() && submit.mutate()}
               placeholder="Tulis komentar..."
-              className="flex-1 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:border-purple-300 bg-slate-50" />
-            <Button onClick={() => submit.mutate()} disabled={!content.trim() || submit.isPending}
-              className="rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 border-none">Kirim</Button>
+              className="flex-1 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium focus:outline-none focus:border-purple-300 bg-slate-50 focus:bg-white transition-all"
+            />
+            <Button
+              onClick={() => submit.mutate()}
+              disabled={!content.trim() || submit.isPending}
+              className="rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 border-none shadow-md px-4"
+            >
+              {submit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Kirim"}
+            </Button>
           </div>
         ) : (
-          <p className="text-center text-sm text-slate-400">Login untuk berkomentar</p>
+          <p className="text-center text-sm text-slate-400 font-medium">Login untuk berkomentar</p>
         )}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -431,13 +460,15 @@ function AnnouncementsPane({ userId }: { userId?: string }) {
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50">
-      {commentTarget && (
-        <CommentModal ann={commentTarget} userId={userId} onClose={() => setCommentTarget(null)} />
-      )}
-      <div className="p-3 space-y-3">
+      <AnimatePresence>
+        {commentTarget && (
+          <CommentModal ann={commentTarget} userId={userId} onClose={() => setCommentTarget(null)} />
+        )}
+      </AnimatePresence>
+      <div className="p-4 space-y-4">
         {isLoading ? (
           Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="bg-white rounded-2xl p-4 space-y-3">
+            <div key={i} className="bg-white rounded-3xl p-4 space-y-3">
               <Skeleton className="h-5 w-40" />
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-4 w-3/4" />
@@ -445,8 +476,11 @@ function AnnouncementsPane({ userId }: { userId?: string }) {
           ))
         ) : announcements.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-center">
-            <Megaphone className="h-12 w-12 text-slate-200 mb-3" />
-            <p className="font-extrabold text-slate-500">Belum ada pengumuman</p>
+            <div className="h-20 w-20 bg-purple-50 rounded-full flex items-center justify-center mb-4">
+              <Megaphone className="h-10 w-10 text-purple-200" />
+            </div>
+            <p className="font-extrabold text-slate-600 text-base">Belum ada pengumuman</p>
+            <p className="text-sm text-slate-400 mt-1 font-medium">Pengumuman dari admin akan muncul di sini</p>
           </div>
         ) : (
           announcements.map((ann) => (
@@ -473,29 +507,32 @@ export default function ChatHomePage() {
   return (
     <div className="flex flex-col h-[100dvh] bg-slate-50">
       {/* Header */}
-      <div className="bg-white border-b border-slate-100 shadow-sm">
-        <div className="flex items-center justify-between px-4 h-14">
-          <h1 className="font-extrabold text-xl text-slate-800 tracking-tight">Chat</h1>
-          <div className="flex items-center gap-1">
-            <button className="h-9 w-9 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors">
-              <Search className="h-4.5 w-4.5 text-slate-500" />
+      <div className="gradient-funplus shadow-lg">
+        <div className="flex items-center justify-between px-4 pt-4 pb-3">
+          <div>
+            <h1 className="font-heading font-extrabold text-xl text-white tracking-tight">Chat</h1>
+            <p className="text-white/60 text-[11px] font-medium">Bergabung & ngobrol bareng</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button className="h-9 w-9 bg-white/15 rounded-full flex items-center justify-center hover:bg-white/25 transition-colors">
+              <Bell className="h-4.5 w-4.5 text-white" />
             </button>
           </div>
         </div>
 
-        {/* Pill tabs */}
-        <div className="flex gap-1.5 px-4 pb-3">
+        {/* Tabs */}
+        <div className="flex gap-1 px-4 pb-3">
           {TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-extrabold transition-all ${
+              className={`flex items-center gap-1.5 px-5 py-2 rounded-full text-sm font-extrabold transition-all ${
                 tab === t.id
-                  ? "bg-purple-500 text-white shadow-sm"
-                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                  ? "bg-white text-purple-700 shadow-md"
+                  : "text-white/70 hover:text-white hover:bg-white/15"
               }`}
             >
-              <t.icon className={`h-3.5 w-3.5 ${tab === t.id ? "text-white" : "text-slate-400"}`} />
+              <t.icon className={`h-3.5 w-3.5 ${tab === t.id ? "text-purple-600" : "text-white/70"}`} />
               {t.label}
             </button>
           ))}
@@ -503,8 +540,19 @@ export default function ChatHomePage() {
       </div>
 
       {/* Content */}
-      {tab === "chats"         && <GroupsPane userId={user?.id} />}
-      {tab === "announcements" && <AnnouncementsPane userId={user?.id} />}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={tab}
+          initial={{ opacity: 0, x: tab === "chats" ? -10 : 10 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: tab === "chats" ? 10 : -10 }}
+          transition={{ duration: 0.2 }}
+          className="flex-1 flex flex-col overflow-hidden"
+        >
+          {tab === "chats" && <GroupsPane userId={user?.id} userRole={user?.role} />}
+          {tab === "announcements" && <AnnouncementsPane userId={user?.id} />}
+        </motion.div>
+      </AnimatePresence>
 
       <BottomNav />
     </div>

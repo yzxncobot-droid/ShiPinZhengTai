@@ -5,52 +5,119 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useUpdateUser, useGetMe } from "@workspace/api-client-react";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Camera, Wallet, Crown } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import { motion } from "framer-motion";
+import {
+  Loader2, Camera, Wallet, Crown, ChevronRight, LogOut, Settings,
+  Bell, Shield, HelpCircle, Heart, Video, Star, Users, Gift,
+  History, User, Lock, Moon, Sun, Award, Plus, Minus,
+} from "lucide-react";
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const ROLE_STYLE: Record<string, { label: string; className: string }> = {
+  owner: { label: "👑 Owner", className: "bg-amber-100 text-amber-700 border border-amber-200" },
+  admin: { label: "🛡️ Admin", className: "bg-blue-100 text-blue-700 border border-blue-200" },
+  meril: { label: "⭐ Member", className: "bg-purple-100 text-purple-700 border border-purple-200" },
+};
+
+function getRoleInfo(role?: string) {
+  return ROLE_STYLE[role ?? "meril"] ?? ROLE_STYLE.meril;
+}
+
+// ─── Menu Item ────────────────────────────────────────────────────────────────
+function MenuItem({
+  icon: Icon, label, href, onClick, badge, danger, iconBg,
+}: {
+  icon: React.ElementType; label: string; href?: string; onClick?: () => void;
+  badge?: string | number; danger?: boolean; iconBg?: string;
+}) {
+  const cls = `flex items-center gap-3 px-4 py-3.5 hover:bg-slate-50 active:bg-slate-100 transition-colors w-full text-left cursor-pointer`;
+  const inner = (
+    <>
+      <div className={`h-9 w-9 rounded-xl flex items-center justify-center shadow-sm ${iconBg ?? "bg-slate-100"}`}>
+        <Icon className={`h-4.5 w-4.5 ${danger ? "text-red-500" : iconBg ? "text-white" : "text-slate-600"}`} />
+      </div>
+      <span className={`flex-1 text-sm font-semibold ${danger ? "text-red-500" : "text-slate-800"}`}>{label}</span>
+      {badge && (
+        <span className="text-[10px] font-extrabold bg-red-500 text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
+          {badge}
+        </span>
+      )}
+      {!danger && <ChevronRight className="h-4 w-4 text-slate-300" />}
+    </>
+  );
+
+  if (href) return <Link href={href} className={cls}>{inner}</Link>;
+  return <button className={cls} onClick={onClick}>{inner}</button>;
+}
+
+// ─── Stat Card ────────────────────────────────────────────────────────────────
+function StatCard({ icon: Icon, label, value, color }: {
+  icon: React.ElementType; label: string; value: string | number; color: string;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-1 flex-1">
+      <div className={`h-10 w-10 rounded-xl ${color} flex items-center justify-center shadow-sm`}>
+        <Icon className="h-5 w-5 text-white" />
+      </div>
+      <p className="font-extrabold text-slate-800 text-sm">{value}</p>
+      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">{label}</p>
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function ProfilePage() {
-  const { user, token } = useAuth();
+  const { user: authUser, token, logout } = useAuth();
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
-  // Fetch fresh user data to ensure we have latest balance/subscription
   const { data: freshUser, refetch } = useGetMe();
   const updateUser = useUpdateUser();
-  
-  const currentUser = freshUser || user;
+
+  const currentUser = freshUser || authUser;
 
   const [username, setUsername] = useState(currentUser?.username || "");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [isDark, setIsDark] = useState(false);
   const avatarRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setIsDark(document.documentElement.classList.contains("dark") || localStorage.getItem("theme") === "dark");
+  }, []);
+
+  const toggleDark = () => {
+    const next = !isDark;
+    setIsDark(next);
+    document.documentElement.classList.toggle("dark", next);
+    localStorage.setItem("theme", next ? "dark" : "light");
+  };
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !currentUser) return;
-
     setIsUploading(true);
     const formData = new FormData();
     formData.append("image", file);
-
     try {
       const res = await fetch("/api/upload/image", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
-
       if (!res.ok) throw new Error("Upload failed");
       const data = await res.json();
-      
       updateUser.mutate({ id: currentUser.id, data: { avatar: data.url } }, {
-        onSuccess: () => {
-          toast({ title: "Avatar updated" });
-          refetch();
-        }
+        onSuccess: () => { toast({ title: "✅ Foto profil diperbarui!" }); refetch(); },
       });
     } catch (err: any) {
-      toast({ title: "Failed to upload avatar", description: err.message, variant: "destructive" });
+      toast({ title: "Gagal upload", description: err.message, variant: "destructive" });
     } finally {
       setIsUploading(false);
     }
@@ -59,156 +126,271 @@ export default function ProfilePage() {
   const handleUpdateProfile = (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
-
     const data: any = { username };
     if (currentPassword && newPassword) {
       data.currentPassword = currentPassword;
       data.newPassword = newPassword;
     }
-
     updateUser.mutate({ id: currentUser.id, data }, {
       onSuccess: () => {
-        toast({ title: "Profile updated successfully" });
-        setCurrentPassword("");
-        setNewPassword("");
+        toast({ title: "✅ Profil berhasil diperbarui!" });
+        setCurrentPassword(""); setNewPassword("");
         refetch();
       },
       onError: (err: any) => {
-        toast({ title: "Update failed", description: err.message, variant: "destructive" });
-      }
+        toast({ title: "Update gagal", description: err.message, variant: "destructive" });
+      },
     });
   };
 
-  if (!currentUser) return null;
+  const handleLogout = () => {
+    logout();
+    setLocation("/login");
+  };
+
+  if (!currentUser) {
+    return (
+      <ProtectedRoute>
+        <AppLayout>
+          <div className="container mx-auto px-4 py-12 max-w-lg">
+            <div className="space-y-4">
+              <Skeleton className="h-48 rounded-3xl" />
+              <Skeleton className="h-24 rounded-2xl" />
+              <Skeleton className="h-48 rounded-2xl" />
+            </div>
+          </div>
+        </AppLayout>
+      </ProtectedRoute>
+    );
+  }
+
+  const roleInfo = getRoleInfo(currentUser.role);
 
   return (
     <ProtectedRoute>
       <AppLayout>
-        <div className="container mx-auto px-4 md:px-6 py-12 max-w-4xl">
-          <div className="mb-8">
-            <h1 className="text-3xl font-heading font-bold">Account Settings</h1>
-            <p className="text-muted-foreground mt-1">Manage your profile and account details.</p>
-          </div>
+        <div className="max-w-lg mx-auto pb-8">
+          {/* Hero Header */}
+          <div className="relative overflow-hidden gradient-funplus pt-12 pb-20 px-4">
+            <div className="absolute top-0 left-0 w-40 h-40 bg-white/10 rounded-full blur-3xl -translate-x-1/2" />
+            <div className="absolute bottom-0 right-0 w-56 h-56 bg-pink-400/20 rounded-full blur-3xl translate-x-1/3 translate-y-1/3" />
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            
-            {/* Sidebar Cards */}
-            <div className="space-y-6">
-              <div className="bg-card border border-border/50 rounded-2xl p-6 text-center shadow-sm">
-                <div className="relative w-24 h-24 mx-auto mb-4 group">
-                  <Avatar className="w-full h-full border-4 border-background shadow-md">
-                    <AvatarImage src={currentUser.avatar || ''} />
-                    <AvatarFallback className="text-2xl">{currentUser.username.charAt(0).toUpperCase()}</AvatarFallback>
+            <div className="relative z-10 flex flex-col items-center text-center">
+              {/* Avatar */}
+              <div className="relative group mb-4">
+                <div className="h-[88px] w-[88px] rounded-full p-0.5 bg-gradient-to-br from-yellow-300 via-pink-400 to-purple-500 shadow-xl">
+                  <Avatar className="w-full h-full border-4 border-white">
+                    <AvatarImage src={currentUser.avatar || ""} alt={currentUser.username} />
+                    <AvatarFallback className="bg-purple-100 text-purple-700 font-extrabold text-2xl">
+                      {currentUser.username.charAt(0).toUpperCase()}
+                    </AvatarFallback>
                   </Avatar>
-                  <div 
-                    onClick={() => !isUploading && avatarRef.current?.click()}
-                    className="absolute inset-0 bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
-                  >
-                    {isUploading ? <Loader2 className="h-6 w-6 animate-spin text-white" /> : <Camera className="h-6 w-6 text-white" />}
-                  </div>
-                  <input type="file" ref={avatarRef} className="hidden" accept="image/*" onChange={handleAvatarUpload} />
                 </div>
-                <h3 className="font-heading font-bold text-lg">{currentUser.username}</h3>
-                <p className="text-sm text-muted-foreground">{currentUser.email}</p>
-                <div className="mt-4 inline-flex items-center px-3 py-1 rounded-full bg-muted text-xs font-medium uppercase tracking-wider">
-                  Role: {currentUser.role}
-                </div>
+                <button
+                  onClick={() => !isUploading && avatarRef.current?.click()}
+                  className="absolute -bottom-1 -right-1 h-8 w-8 bg-white rounded-full flex items-center justify-center shadow-md border-2 border-purple-100 hover:scale-110 transition-transform"
+                >
+                  {isUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-500" /> : <Camera className="h-3.5 w-3.5 text-purple-600" />}
+                </button>
+                <input type="file" ref={avatarRef} className="hidden" accept="image/*" onChange={handleAvatarUpload} />
               </div>
 
-              <div className="bg-card border border-border/50 rounded-2xl p-6 shadow-sm">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Wallet className="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Wallet Balance</p>
-                    <p className="text-xl font-bold tracking-tight">Rp {currentUser.walletBalance?.toLocaleString() || 0}</p>
-                  </div>
-                </div>
-                
-                {currentUser.activeSubscription ? (
-                  <div className="flex items-center gap-3 pt-4 border-t border-border/50">
-                    <div className="h-10 w-10 rounded-full bg-amber-500/10 flex items-center justify-center">
-                      <Crown className="h-5 w-5 text-amber-500" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-amber-600">Active Premium</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">Expires: {new Date(currentUser.activeSubscription.endDate).toLocaleDateString()}</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="pt-4 border-t border-border/50 text-center">
-                    <p className="text-sm text-muted-foreground mb-3">No active subscription</p>
-                  </div>
+              {/* Name & role */}
+              <h2 className="text-xl font-heading font-extrabold text-white">{currentUser.username}</h2>
+              {currentUser.email && (
+                <p className="text-white/70 text-sm font-medium mt-0.5">{currentUser.email}</p>
+              )}
+              <div className="flex items-center gap-2 mt-2">
+                <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${roleInfo.className}`}>
+                  {roleInfo.label}
+                </span>
+                {currentUser.activeSubscription && (
+                  <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                    <Crown className="h-3 w-3 inline mr-1" />Premium
+                  </span>
                 )}
               </div>
+              {currentUser.createdAt && (
+                <p className="text-white/50 text-[10px] font-medium mt-1.5">
+                  Member sejak {new Date(currentUser.createdAt).toLocaleDateString("id-ID", { year: "numeric", month: "long" })}
+                </p>
+              )}
             </div>
+          </div>
 
-            {/* Edit Form */}
-            <div className="md:col-span-2">
-              <div className="bg-card border border-border/50 rounded-2xl p-6 md:p-8 shadow-sm">
-                <h2 className="text-xl font-heading font-bold mb-6">Profile Details</h2>
-                
-                <form onSubmit={handleUpdateProfile} className="space-y-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="username">Username</Label>
-                    <Input 
-                      id="username" 
-                      value={username} 
-                      onChange={(e) => setUsername(e.target.value)} 
-                      className="bg-background max-w-md"
-                    />
+          <div className="px-4 -mt-10 space-y-4">
+            {/* Wallet Card */}
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white rounded-3xl p-5 shadow-lg border border-slate-100"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-sm">
+                    <Wallet className="h-5 w-5 text-white" />
                   </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email Address</Label>
-                    <Input 
-                      id="email" 
-                      value={currentUser.email} 
-                      disabled 
-                      className="bg-muted text-muted-foreground max-w-md"
-                    />
-                    <p className="text-xs text-muted-foreground">Email address cannot be changed.</p>
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Saldo Wallet</p>
+                    <p className="text-xl font-extrabold text-slate-800">
+                      Rp {currentUser.walletBalance?.toLocaleString("id-ID") ?? 0}
+                    </p>
                   </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: "Top Up", icon: Plus, href: "/topup", color: "bg-purple-500" },
+                  { label: "Riwayat", icon: History, href: "/history", color: "bg-blue-500" },
+                  { label: "Langganan", icon: Crown, href: "/subscriptions", color: "bg-amber-500" },
+                ].map((a) => (
+                  <Link key={a.label} href={a.href}
+                    className="flex flex-col items-center gap-1.5 py-3 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-purple-50 hover:border-purple-100 transition-colors"
+                  >
+                    <div className={`h-8 w-8 rounded-xl ${a.color} flex items-center justify-center`}>
+                      <a.icon className="h-4 w-4 text-white" />
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-600">{a.label}</span>
+                  </Link>
+                ))}
+              </div>
+            </motion.div>
 
-                  <div className="pt-6 mt-6 border-t border-border/50">
-                    <h3 className="text-lg font-heading font-semibold mb-4">Change Password</h3>
-                    <div className="space-y-4 max-w-md">
-                      <div className="space-y-2">
-                        <Label htmlFor="current">Current Password</Label>
-                        <Input 
-                          id="current" 
-                          type="password" 
-                          placeholder="••••••••"
-                          value={currentPassword}
-                          onChange={(e) => setCurrentPassword(e.target.value)}
-                          className="bg-background"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="new">New Password</Label>
-                        <Input 
-                          id="new" 
-                          type="password" 
-                          placeholder="••••••••"
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          className="bg-background"
-                        />
+            {/* Stats */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100"
+            >
+              <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-4 px-1">Statistik</p>
+              <div className="flex gap-2 justify-around flex-wrap">
+                <StatCard icon={Video} label="Video" value={0} color="bg-purple-500" />
+                <StatCard icon={Heart} label="Like" value={0} color="bg-pink-500" />
+                <StatCard icon={Star} label="Favorit" value={0} color="bg-amber-500" />
+                <StatCard icon={Users} label="Follower" value={0} color="bg-blue-500" />
+                <StatCard icon={Gift} label="Bundle" value={0} color="bg-emerald-500" />
+                <StatCard icon={Award} label="Badge" value={0} color="bg-orange-500" />
+              </div>
+            </motion.div>
+
+            {/* Menu */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
+              className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden"
+            >
+              <div className="px-4 pt-4 pb-2">
+                <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Akun</p>
+              </div>
+              <div className="divide-y divide-slate-50">
+                <MenuItem icon={User} label="Edit Profil" onClick={() => setShowEdit(!showEdit)} iconBg="bg-gradient-to-br from-purple-500 to-purple-400" />
+                <MenuItem icon={Wallet} label="Wallet & Saldo" href="/topup" iconBg="bg-gradient-to-br from-amber-500 to-orange-400" />
+                <MenuItem icon={History} label="Riwayat Transaksi" href="/history" iconBg="bg-gradient-to-br from-blue-500 to-sky-400" />
+                <MenuItem icon={Gift} label="Bundle Saya" href="/bundles/my" iconBg="bg-gradient-to-br from-pink-500 to-rose-400" />
+                <MenuItem icon={Crown} label="Langganan Premium" href="/subscriptions" iconBg="bg-gradient-to-br from-amber-400 to-yellow-400" />
+              </div>
+
+              <div className="px-4 pt-4 pb-2 border-t border-slate-50">
+                <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Lainnya</p>
+              </div>
+              <div className="divide-y divide-slate-50">
+                <MenuItem icon={Award} label="Leaderboard" href="/leaderboard" iconBg="bg-gradient-to-br from-yellow-500 to-amber-400" />
+                <MenuItem icon={Bell} label="Notifikasi" href="/notifications" iconBg="bg-gradient-to-br from-red-500 to-pink-400" />
+                <MenuItem icon={Shield} label="Keamanan" onClick={() => setShowEdit(true)} iconBg="bg-gradient-to-br from-slate-500 to-slate-400" />
+              </div>
+
+              {/* Dark mode toggle */}
+              <div className="divide-y divide-slate-50 border-t border-slate-50">
+                <div className="flex items-center gap-3 px-4 py-3.5">
+                  <div className="h-9 w-9 rounded-xl flex items-center justify-center shadow-sm bg-gradient-to-br from-slate-700 to-slate-500">
+                    {isDark ? <Moon className="h-4 w-4 text-white" /> : <Sun className="h-4 w-4 text-white" />}
+                  </div>
+                  <span className="flex-1 text-sm font-semibold text-slate-800">Mode Gelap</span>
+                  <button
+                    onClick={toggleDark}
+                    className={`relative h-6 w-11 rounded-full transition-colors duration-300 ${isDark ? "bg-purple-500" : "bg-slate-200"}`}
+                  >
+                    <div className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-300 ${isDark ? "translate-x-5" : "translate-x-0.5"}`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Admin panel (if admin/owner) */}
+              {(currentUser.role === "admin" || currentUser.role === "owner") && (
+                <div className="border-t border-slate-50 divide-y divide-slate-50">
+                  <MenuItem
+                    icon={Settings}
+                    label="Panel Admin"
+                    href="/admin"
+                    iconBg="bg-gradient-to-br from-indigo-500 to-blue-500"
+                  />
+                </div>
+              )}
+
+              <div className="border-t border-slate-50 divide-y divide-slate-50">
+                <MenuItem icon={HelpCircle} label="Bantuan" href="/search" iconBg="bg-gradient-to-br from-cyan-500 to-teal-400" />
+                <MenuItem icon={LogOut} label="Keluar" onClick={handleLogout} danger />
+              </div>
+            </motion.div>
+
+            {/* Edit Profile section */}
+            {showEdit && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden"
+              >
+                <div className="p-5">
+                  <h3 className="font-heading font-extrabold text-slate-800 mb-5 flex items-center gap-2">
+                    <User className="h-4 w-4 text-purple-500" /> Edit Profil
+                  </h3>
+                  <form onSubmit={handleUpdateProfile} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="username" className="text-sm font-bold text-slate-700">Username</Label>
+                      <Input
+                        id="username"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-purple-500"
+                      />
+                    </div>
+                    <div className="pt-4 border-t border-slate-100">
+                      <h4 className="text-sm font-extrabold text-slate-700 mb-3 flex items-center gap-2">
+                        <Lock className="h-3.5 w-3.5 text-slate-500" /> Ganti Password
+                      </h4>
+                      <div className="space-y-3">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="current" className="text-xs font-bold text-slate-600">Password Sekarang</Label>
+                          <Input
+                            id="current" type="password" placeholder="••••••••"
+                            value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
+                            className="rounded-xl bg-slate-50 border-slate-200"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="new" className="text-xs font-bold text-slate-600">Password Baru</Label>
+                          <Input
+                            id="new" type="password" placeholder="••••••••"
+                            value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
+                            className="rounded-xl bg-slate-50 border-slate-200"
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
-
-                  <div className="pt-4">
-                    <Button type="submit" disabled={updateUser.isPending}>
-                      {updateUser.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Save Changes
+                    <Button
+                      type="submit"
+                      className="w-full h-12 rounded-2xl bg-gradient-to-r from-purple-600 to-pink-500 font-extrabold text-sm gap-2 border-none shadow-lg shadow-purple-500/20"
+                      disabled={updateUser.isPending}
+                    >
+                      {updateUser.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                      Simpan Perubahan
                     </Button>
-                  </div>
-                </form>
-              </div>
-            </div>
-
+                  </form>
+                </div>
+              </motion.div>
+            )}
           </div>
         </div>
       </AppLayout>
