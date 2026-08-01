@@ -62,6 +62,13 @@ export interface User {
   totalTopup?: number;
   totalSpent?: number;
   createdAt: string;
+  subscriptionStatus?: string;
+  /** @nullable */
+  subscriptionExpiry?: string | null;
+  /** @nullable */
+  referralCode?: string | null;
+  creatorBadge?: boolean;
+  verifiedCreator?: boolean;
   activeSubscription?: UserSubscription;
 }
 

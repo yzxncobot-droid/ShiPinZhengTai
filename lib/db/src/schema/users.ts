@@ -55,6 +55,12 @@ export const usersTable = pgTable(
     /** The user who referred this account (null if organic signup). */
     referredBy: uuid("referred_by"),
 
+    // ── Creator Badge System ──────────────────────────────────────────────────
+    /** true → user can upload videos */
+    creatorBadge:    boolean("creator_badge").notNull().default(false),
+    /** true → user can upload + access My Video dashboard (requires creatorBadge) */
+    verifiedCreator: boolean("verified_creator").notNull().default(false),
+
     // ── Profile extras ────────────────────────────────────────────────────────
     displayName: text("display_name"),
     bio:         text("bio"),

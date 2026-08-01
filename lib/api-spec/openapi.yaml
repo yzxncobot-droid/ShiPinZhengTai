@@ -1303,6 +1303,17 @@ components:
         createdAt:
           type: string
           format: date-time
+        subscriptionStatus:
+          type: string
+        subscriptionExpiry:
+          type: ["string", "null"]
+          format: date-time
+        referralCode:
+          type: ["string", "null"]
+        creatorBadge:
+          type: boolean
+        verifiedCreator:
+          type: boolean
         activeSubscription:
           $ref: "#/components/schemas/UserSubscription"
 

@@ -20,5 +20,12 @@ export interface User {
   totalTopup?: number;
   totalSpent?: number;
   createdAt: Date;
+  subscriptionStatus?: string;
+  /** @nullable */
+  subscriptionExpiry?: Date | null;
+  /** @nullable */
+  referralCode?: string | null;
+  creatorBadge?: boolean;
+  verifiedCreator?: boolean;
   activeSubscription?: UserSubscription;
 }

@@ -26,6 +26,8 @@ import BundleDetailPage from "@/pages/bundles/detail";
 import MyBundlesPage from "@/pages/bundles/my";
 import VideoDetailPage from "@/pages/videos/detail";
 import DebugUploadPage from "@/pages/debug-upload";
+import CreatorUploadPage from "@/pages/upload";
+import MyVideoPage from "@/pages/my-video";
 
 // Admin Pages (unified admin + owner panel)
 import AdminDashboard from "@/pages/admin/dashboard";
@@ -91,6 +93,8 @@ function AppRouter() {
       <Route path="/bundles/:id" component={BundleDetailPage} />
       <Route path="/videos/:id" component={VideoDetailPage} />
       <Route path="/debug-upload" component={DebugUploadPage} />
+      <Route path="/upload" component={CreatorUploadPage} />
+      <Route path="/my-video" component={MyVideoPage} />
 
       {/* Unified Admin / Owner Panel */}
       <Route path="/admin" component={AdminDashboard} />

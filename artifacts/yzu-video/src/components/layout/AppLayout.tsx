@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator, 
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
-import { Search, User, Wallet, Bell, History, Crown, LayoutDashboard, LogOut, MessageCircle, Send, Globe2 } from "lucide-react";
+import { Search, User, Wallet, Bell, History, Crown, LayoutDashboard, LogOut, MessageCircle, Send, Globe2, UploadCloud, Film, BadgeCheck } from "lucide-react";
 import { SiInstagram, SiTiktok, SiFacebook, SiYoutube, SiDiscord } from "react-icons/si";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -102,19 +102,34 @@ export function Navbar() {
                 <DropdownMenuContent className="w-56 rounded-2xl p-2" align="end" forceMount>
                   <DropdownMenuLabel className="font-normal px-2 py-1.5">
                     <div className="flex flex-col space-y-1">
-                      <p className="text-sm font-extrabold leading-none text-slate-800">{user.username}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-extrabold leading-none text-slate-800">{user.username}</p>
+                        {(user as any).verifiedCreator && (
+                          <BadgeCheck className="h-4 w-4 text-blue-500 shrink-0" title="Verified Creator" />
+                        )}
+                      </div>
                       <p className="text-xs leading-none text-slate-500 mt-1">
                         {user.email}
                       </p>
                     </div>
-                    {user.activeSubscription && (
-                      <div className="mt-3">
-                        <Badge variant="secondary" className="bg-amber-100 text-amber-700 hover:bg-amber-200 border-none font-bold">
-                          <Crown className="mr-1 h-3 w-3" />
-                          {user.activeSubscription.subscription?.name || 'Premium'} Active
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {user.activeSubscription && (
+                        <Badge variant="secondary" className="bg-amber-100 text-amber-700 hover:bg-amber-200 border-none font-bold text-[10px]">
+                          <Crown className="mr-1 h-2.5 w-2.5" />
+                          {user.activeSubscription.subscription?.name || 'Premium'}
                         </Badge>
-                      </div>
-                    )}
+                      )}
+                      {(user as any).verifiedCreator && (
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-200 border-none font-bold text-[10px]">
+                          <BadgeCheck className="mr-1 h-2.5 w-2.5" /> Verified Creator
+                        </Badge>
+                      )}
+                      {(user as any).creatorBadge && !(user as any).verifiedCreator && (
+                        <Badge variant="secondary" className="bg-purple-100 text-purple-700 hover:bg-purple-200 border-none font-bold text-[10px]">
+                          <UploadCloud className="mr-1 h-2.5 w-2.5" /> Creator
+                        </Badge>
+                      )}
+                    </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator className="my-1" />
                   
@@ -132,13 +147,28 @@ export function Navbar() {
                     <User className="mr-2 h-4 w-4 text-purple-500" />
                     <span>Profile</span>
                   </DropdownMenuItem>
+
+                  {/* Creator menu items */}
+                  {((user as any).creatorBadge || user.role === 'admin' || user.role === 'owner') && (
+                    <DropdownMenuItem onClick={() => setLocation('/upload')} className="cursor-pointer rounded-xl font-medium">
+                      <UploadCloud className="mr-2 h-4 w-4 text-pink-500" />
+                      <span>Upload Video</span>
+                    </DropdownMenuItem>
+                  )}
+                  {((user as any).verifiedCreator || user.role === 'admin' || user.role === 'owner') && (
+                    <DropdownMenuItem onClick={() => setLocation('/my-video')} className="cursor-pointer rounded-xl font-medium">
+                      <Film className="mr-2 h-4 w-4 text-violet-500" />
+                      <span>My Video</span>
+                    </DropdownMenuItem>
+                  )}
+
+                  <DropdownMenuItem onClick={() => setLocation('/topup')} className="cursor-pointer rounded-xl font-medium">
+                    <Wallet className="mr-2 h-4 w-4 text-orange-500" />
+                    <span>Wallet</span>
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setLocation('/history')} className="cursor-pointer rounded-xl font-medium">
                     <History className="mr-2 h-4 w-4 text-sky-500" />
-                    <span>History</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setLocation('/topup')} className="cursor-pointer sm:hidden rounded-xl font-medium">
-                    <Wallet className="mr-2 h-4 w-4 text-orange-500" />
-                    <span>Top-up Wallet</span>
+                    <span>Purchase History</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator className="my-1" />
                   <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-500 focus:bg-red-50 focus:text-red-600 rounded-xl font-medium">

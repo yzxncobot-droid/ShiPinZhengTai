@@ -1,0 +1,302 @@
+Create a complete Creator Badge System for the platform.
+
+==================================================
+CREATOR BADGE SYSTEM
+==================================================
+
+Automatically create two badges in the system:
+
+1. Creator Badge
+2. Verified Creator Badge
+
+These badges must be available by default without requiring manual database setup.
+
+==================================================
+PERMISSIONS
+==================================================
+
+Normal User
+- Cannot upload videos.
+- Cannot access My Video.
+- Upload Video and My Video must NOT appear in the Profile dropdown.
+
+--------------------------------------------------
+
+Creator Badge
+- Can ONLY access Upload Video.
+- Can upload videos.
+- Cannot access My Video.
+- Profile dropdown ONLY displays:
+  • Upload Video
+
+--------------------------------------------------
+
+Verified Creator Badge
+- Can upload videos.
+- Can access My Video.
+- Profile dropdown displays:
+  • Upload Video
+  • My Video
+- Display a Verified Creator badge beside the username.
+
+==================================================
+PROFILE DROPDOWN
+==================================================
+
+Normal User
+- Profile
+- Wallet
+- Purchase History
+- Settings
+- Logout
+
+Creator Badge
+- Profile
+- Upload Video
+- Wallet
+- Purchase History
+- Settings
+- Logout
+
+Verified Creator Badge
+- Profile
+- Upload Video
+- My Video
+- Wallet
+- Purchase History
+- Settings
+- Logout
+
+Hide creator menus automatically based on badge.
+
+==================================================
+DATABASE
+==================================================
+
+Automatically create the required database fields.
+
+users
+
+creator_badge BOOLEAN DEFAULT FALSE
+
+verified_creator BOOLEAN DEFAULT FALSE
+
+Rules
+
+creator_badge = true
+verified_creator = false
+
+→ Creator
+
+creator_badge = true
+verified_creator = true
+
+→ Verified Creator
+
+==================================================
+ROUTE PROTECTION
+==================================================
+
+Protect routes:
+
+/upload
+
+Only Creator Badge and Verified Creator Badge can access.
+
+--------------------------------------------------
+
+Protect routes:
+
+/my-video
+
+Only Verified Creator Badge can access.
+
+--------------------------------------------------
+
+If user has no permission
+
+Redirect to
+
+/not-authorized
+
+or
+
+/profile
+
+Show message:
+
+"You don't have permission to access this page."
+
+==================================================
+UPLOAD VIDEO PAGE
+==================================================
+
+Create Upload Video page similar to the reference.
+
+Features
+
+• Free Video
+• Premium Video
+• Bundle Video
+
+Video Source
+
+• Upload File
+• Video Link
+
+Supported
+
+MP4
+MOV
+AVI
+MKV
+WEBM
+
+Thumbnail upload
+
+JPG
+PNG
+WEBP
+
+Video Details
+
+Title
+
+Description
+
+Multiple Categories
+
+Tags
+
+Visibility
+
+Allow Download
+
+Premium Price
+
+Bundle Selection
+
+Auto detect
+
+Duration
+
+Resolution
+
+Aspect Ratio
+
+File Size
+
+==================================================
+UPLOAD PROCESS
+==================================================
+
+Show
+
+Upload Progress
+
+Percentage
+
+Remaining Time
+
+Cancel Upload
+
+Retry Upload
+
+==================================================
+VIDEO STORAGE
+==================================================
+
+Private Videos
+
+→ Bunny Stream
+
+Public Videos
+
+→ Supabase Storage (Bucket: Yzu)
+
+Thumbnail
+
+→ Supabase Storage (Bucket: yzux)
+
+Save all metadata to database automatically.
+
+==================================================
+MY VIDEO
+==================================================
+
+Only Verified Creator can access.
+
+Create a dashboard similar to YouTube Studio.
+
+Include:
+
+• Video List
+• Scheduled Upload
+• Viewer Statistics
+• Revenue
+• Subscriber Count
+• Analytics
+• Retention
+• Video Performance
+
+Each video should display:
+
+Thumbnail
+
+Title
+
+Duration
+
+Category
+
+Views
+
+Likes
+
+Comments
+
+Status
+
+Upload Date
+
+Actions
+
+Edit
+
+Delete
+
+Analytics
+
+Copy Link
+
+==================================================
+UI
+==================================================
+
+Use a modern mobile-first UI inspired by the reference.
+
+Rounded cards
+
+Purple gradient
+
+Soft shadow
+
+Responsive
+
+Skeleton loading
+
+Smooth animation
+
+==================================================
+SECURITY
+==================================================
+
+Validate permissions on both frontend and backend.
+
+Creator Badge:
+- Only Upload Video.
+
+Verified Creator Badge:
+- Upload Video + My Video.
+
+Normal users cannot access creator features even if they manually enter the URL.

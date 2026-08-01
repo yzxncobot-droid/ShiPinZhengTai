@@ -32,6 +32,8 @@ export function formatUser(user: typeof usersTable.$inferSelect, activeSub?: any
     subscriptionExpiry: user.subscriptionExpiry ?? null,
     referralCode: user.referralCode ?? null,
     createdAt: user.createdAt,
+    creatorBadge: user.creatorBadge ?? false,
+    verifiedCreator: user.verifiedCreator ?? false,
     activeSubscription: activeSub ?? null,
   };
 }

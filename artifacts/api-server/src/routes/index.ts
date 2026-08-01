@@ -25,6 +25,7 @@ import verificationsRouter from "./verifications";
 import dropsRouter from "./drops";
 import userManagementRouter from "./user-management";
 import maintenanceRouter from "./maintenance";
+import creatorRouter from "./creator";
 
 const router: IRouter = Router();
 
@@ -54,5 +55,6 @@ router.use(verificationsRouter);
 router.use(dropsRouter);
 router.use(userManagementRouter);
 router.use(maintenanceRouter);
+router.use(creatorRouter);
 
 export default router;
