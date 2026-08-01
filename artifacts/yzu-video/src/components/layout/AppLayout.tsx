@@ -10,11 +10,10 @@ import {
   DropdownMenuSeparator, 
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
-import { Search, User, Wallet, Bell, History, Crown, LayoutDashboard, LogOut, Menu, MessageCircle, Send, Globe2 } from "lucide-react";
+import { Search, User, Wallet, Bell, History, Crown, LayoutDashboard, LogOut, MessageCircle, Send, Globe2 } from "lucide-react";
 import { SiInstagram, SiTiktok, SiFacebook, SiYoutube, SiDiscord } from "react-icons/si";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { BottomNav } from "./BottomNav";
 
 export function FunLogo({ className = "" }: { className?: string }) {
@@ -160,27 +159,6 @@ export function Navbar() {
             </div>
           )}
 
-          {/* Mobile Menu */}
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="md:hidden text-slate-500">
-                <Menu className="h-6 w-6" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="w-[300px] sm:w-[400px] rounded-r-3xl">
-              <div className="flex flex-col gap-6 py-4">
-                <div className="mb-4">
-                  <FunLogo className="items-start" />
-                </div>
-                
-                <nav className="flex flex-col gap-2">
-                  <Link href="/" className={`p-3 rounded-2xl text-sm font-extrabold ${location === '/' ? 'bg-purple-50 text-purple-600' : 'text-slate-600 hover:bg-slate-50'}`}>Home</Link>
-                  <Link href="/subscriptions" className={`p-3 rounded-2xl text-sm font-extrabold ${location === '/subscriptions' ? 'bg-purple-50 text-purple-600' : 'text-slate-600 hover:bg-slate-50'}`}>Premium Plans</Link>
-                  <Link href="/leaderboard" className={`p-3 rounded-2xl text-sm font-extrabold ${location === '/leaderboard' ? 'bg-purple-50 text-purple-600' : 'text-slate-600 hover:bg-slate-50'}`}>Leaderboard</Link>
-                </nav>
-              </div>
-            </SheetContent>
-          </Sheet>
         </div>
       </div>
     </header>

@@ -1,0 +1,99 @@
+UI CLEANUP & LAYOUT UPDATE
+
+Lakukan perubahan berikut tanpa mengubah identitas desain aplikasi (warna, font, radius, shadow, animasi, dan style keseluruhan).
+
+## 1. HALAMAN BUNDLE
+- Hapus seluruh section kategori yang berada tepat di bawah banner.
+- Hapus semua tombol kategori seperti:
+  - Semua
+  - Belajar
+  - Hiburan
+  - Edukasi
+  - Indonesia
+  - dan kategori lainnya.
+- Setelah kategori dihapus, naikkan section "Belum Ada Bundle" agar langsung berada di bawah banner dengan jarak sekitar 20–24px.
+- Jangan sisakan ruang kosong bekas kategori.
+
+## 2. HALAMAN HOME
+- Hapus seluruh menu shortcut/grid icon yang berada di bawah banner.
+- Hapus semua menu berikut:
+  - Bundle
+  - Top Up
+  - Chat
+  - Favorit
+  - Riwayat
+  - Promo
+  - Badge
+  - Cari
+- Jangan sisakan ruang kosong setelah menu tersebut dihapus.
+
+## 3. NAIKKAN SECTION PRODUK VIDEO
+- Setelah menu shortcut dihapus, pindahkan seluruh section "Produk Video" ke atas sehingga berada tepat di bawah banner.
+- Beri jarak sekitar 20–24px antara banner dan section "Produk Video".
+- Semua elemen yang berada di dalam section tersebut harus ikut naik, termasuk:
+  - Judul Produk Video
+  - Filter (Terpopuler, Terbaru, dll.)
+  - Tombol kategori
+  - Card video
+  - Empty State
+  - Pagination
+  - Infinite Scroll
+- Pastikan tidak ada ruang kosong di antara banner dan Produk Video.
+
+Urutan layout harus menjadi:
+
+Banner
+↓ (20–24px)
+Produk Video
+Filter
+Kategori
+Daftar Video
+
+## 4. HAPUS MENU HAMBURGER
+- Hapus ikon menu tiga garis (hamburger) di pojok kanan atas.
+- Jangan menggantinya dengan ikon lain.
+- Posisi Search dan tombol Sign Up tetap seperti sekarang.
+
+## 5. UKURAN BANNER
+Banner Home harus tetap memiliki ukuran yang sama seperti sebelumnya.
+
+Gunakan ukuran tetap:
+- Desktop: 728 × 256 px
+- Aspect Ratio: 2.84 : 1
+- Border Radius: 28px
+
+Gunakan CSS seperti berikut:
+
+width: 100%;
+max-width: 728px;
+aspect-ratio: 728 / 256;
+border-radius: 28px;
+overflow: hidden;
+object-fit: cover;
+
+atau
+
+height: auto;
+aspect-ratio: 2.84 / 1;
+
+Jangan mengecilkan atau memperbesar banner walaupun konten di bawahnya dihapus.
+
+## 6. RESPONSIVE
+- Pastikan tampilan tetap rapi di Mobile, Tablet, dan Desktop.
+- Tidak boleh ada overflow, layout bergeser, atau ruang kosong yang tidak diperlukan.
+
+## 7. JANGAN MENGUBAH
+- Bottom Navigation
+- Banner Gradient
+- Banner Design
+- Produk Video Design
+- Card Video
+- Loading Animation
+- Warna
+- Typography
+- Border Radius
+- Shadow
+- Animasi
+- Spacing selain yang disebutkan di atas
+
+Tujuan akhir adalah membuat tampilan lebih minimalis, bersih, dan memberikan lebih banyak ruang untuk konten video tanpa mengubah identitas desain aplikasi.

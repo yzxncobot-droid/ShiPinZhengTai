@@ -26,7 +26,6 @@ const BADGE_STYLES: Record<string, string> = {
   "VALUE PACK": "bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-900",
 };
 
-const FILTER_TABS = ["Semua", "Belajar", "Hiburan", "Edukasi", "Indonesia", "Asia"];
 
 // ─── Preview Dialog ───────────────────────────────────────────────────────────
 function BundlePreviewDialog({ bundleId, onOpenChange }: {
@@ -223,7 +222,6 @@ export default function BundlesPage() {
   const { data: bundles, isLoading } = useListBundles();
   const purchaseMutation = usePurchaseBundle();
   const [previewId, setPreviewId] = useState<number | null>(null);
-  const [activeFilter, setActiveFilter] = useState("Semua");
   const [wishlist, setWishlist] = useState<Set<number>>(new Set());
   const [purchasingId, setPurchasingId] = useState<number | null>(null);
 
@@ -300,23 +298,6 @@ export default function BundlesPage() {
             ))}
           </div>
         </div>
-      </div>
-
-      {/* Filter Tabs */}
-      <div className="flex gap-2 px-4 py-4 overflow-x-auto hide-scrollbar bg-white border-b border-slate-100">
-        {FILTER_TABS.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveFilter(tab)}
-            className={`shrink-0 h-9 px-5 rounded-full text-xs font-extrabold transition-all border ${
-              activeFilter === tab
-                ? "bg-gradient-to-r from-purple-500 to-pink-500 text-white border-transparent shadow-md"
-                : "bg-white border-slate-200 text-slate-600 hover:border-purple-200"
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
       </div>
 
       {/* Bundle List */}
