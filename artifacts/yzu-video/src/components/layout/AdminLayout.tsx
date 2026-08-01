@@ -78,6 +78,7 @@ const useNavGroups = (pendingPayments: number = 0, unreadNotifs: number = 0): Na
       { label: "Pengumuman", href: "/admin/announcements", icon: Bell },
       { label: "Chat Rooms", href: "/admin/chat-rooms", icon: LayoutDashboard },
       { label: "Drop System", href: "/admin/drops", icon: Gift },
+      { label: "Code Redeem", href: "/admin/redeem", icon: Gift },
     ],
   },
   {
@@ -117,6 +118,7 @@ const PATH_LABELS: Record<string, string> = {
   "/admin/announcements": "Pengumuman",
   "/admin/chat-rooms": "Chat Rooms",
   "/admin/drops": "Drop System",
+  "/admin/redeem": "Code Redeem",
   "/admin/verifications": "Verifikasi Creator",
   "/admin/settings": "Pengaturan",
   "/admin/maintenance": "Maintenance Mode",

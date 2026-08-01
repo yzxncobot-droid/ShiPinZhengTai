@@ -57,6 +57,8 @@ import ChatRoomPage from "@/pages/chat/room";
 import DmRoomPage from "@/pages/chat/dm-room";
 import AdminVerificationsPage from "@/pages/admin/verifications";
 import AdminDropsPage from "@/pages/admin/drops";
+import RedeemPage from "@/pages/redeem";
+import AdminRedeemPage from "@/pages/admin/redeem";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -134,6 +136,8 @@ function AppRouter() {
       <Route path="/admin/chat-rooms" component={AdminChatRoomsPage} />
       <Route path="/admin/verifications" component={AdminVerificationsPage} />
       <Route path="/admin/drops" component={AdminDropsPage} />
+      <Route path="/admin/redeem" component={AdminRedeemPage} />
+      <Route path="/redeem" component={RedeemPage} />
       <Route path="/admin/maintenance" component={AdminMaintenancePage} />
 
       {/* Maintenance page — always accessible */}
@@ -149,6 +153,7 @@ function AppRouter() {
       <Route path="/owner/settings" component={AdminSettings} />
       <Route path="/owner/verifications" component={AdminVerificationsPage} />
       <Route path="/owner/drops" component={AdminDropsPage} />
+      <Route path="/owner/redeem" component={AdminRedeemPage} />
 
       <Route component={NotFound} />
     </Switch>

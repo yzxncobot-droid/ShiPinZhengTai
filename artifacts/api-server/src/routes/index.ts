@@ -27,6 +27,7 @@ import userManagementRouter from "./user-management";
 import maintenanceRouter from "./maintenance";
 import creatorRouter from "./creator";
 import socialRouter from "./social";
+import redeemRouter from "./redeem";
 
 const router: IRouter = Router();
 
@@ -58,5 +59,6 @@ router.use(userManagementRouter);
 router.use(maintenanceRouter);
 router.use(creatorRouter);
 router.use(socialRouter);
+router.use(redeemRouter);
 
 export default router;
