@@ -55,11 +55,8 @@ export function Navbar() {
             <Link href="/bundles" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location.startsWith('/bundles') ? 'text-purple-600' : 'text-slate-500'}`}>
               Bundles
             </Link>
-            <Link href="/subscriptions" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location === '/subscriptions' ? 'text-purple-600' : 'text-slate-500'}`}>
-              Premium
-            </Link>
-            <Link href="/leaderboard" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location === '/leaderboard' ? 'text-purple-600' : 'text-slate-500'}`}>
-              Leaderboard
+            <Link href="/topup" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location === '/topup' ? 'text-purple-600' : 'text-slate-500'}`}>
+              Top Up
             </Link>
             <Link href="/chat" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location.startsWith('/chat') ? 'text-purple-600' : 'text-slate-500'}`}>
               Chat

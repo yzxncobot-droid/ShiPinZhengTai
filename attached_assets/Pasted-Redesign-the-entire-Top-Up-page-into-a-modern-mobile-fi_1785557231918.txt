@@ -1,0 +1,356 @@
+Redesign the entire Top Up page into a modern mobile-first interface inspired by the provided design reference.
+
+IMPORTANT:
+The final UI should closely match the reference while keeping the existing functionality. Do not remove any existing business logic. Only redesign and improve the user experience.
+
+==========================================
+TOP UP PAGE REDESIGN
+==========================================
+
+Create a clean, colorful "Fun Premium Kids Platform" design.
+
+Color Palette:
+- Light Blue
+- Purple
+- Yellow
+- Orange
+- White
+
+Style:
+- Mobile First
+- Rounded Cards
+- Soft Shadows
+- Gradient Backgrounds
+- Smooth Animations
+- Premium UI
+- Cute illustrations
+- Friendly interface
+
+==========================================
+HEADER
+==========================================
+
+Replace the current top section with:
+
+- Large title:
+Top Up Balance
+
+- Subtitle:
+Top up your wallet instantly using QRIS.
+
+- Cute illustration on the right side.
+
+- Current Balance Card with gradient background.
+
+Display:
+
+Current Balance
+
+Rp {wallet_balance}
+
+==========================================
+TOP UP NOMINAL
+==========================================
+
+Replace all existing presets.
+
+Create exactly these preset buttons:
+
+Rp 1.000
+Rp 5.000
+Rp 10.000
+Rp 15.000
+Rp 25.000
+Rp 50.000
+
+Show them inside rounded cards.
+
+Highlight the selected amount.
+
+Allow only ONE selected amount.
+
+Below the presets add:
+
+Custom Amount
+
+Minimum:
+Rp100
+
+Maximum:
+Rp1.000.000
+
+Validation:
+
+- Minimum top up is Rp100.
+- Reject anything below Rp100.
+- Display friendly validation messages.
+
+==========================================
+PAYMENT METHODS
+==========================================
+
+Display supported payment logos similar to the design.
+
+Show:
+
+QRIS
+GoPay
+OVO
+DANA
+ShopeePay
+LinkAja
+BCA
+BRI
+Mandiri
+BNI
+BSI
+CIMB
+
+Only QRIS should be selectable.
+
+==========================================
+TOP UP HISTORY
+==========================================
+
+Display latest top up history.
+
+Each card should show:
+
+Amount
+
+Status
+
+Created Time
+
+Approved Time
+
+Owner Notes
+
+==========================================
+QRIS POPUP
+==========================================
+
+When the user presses:
+
+Use
+
+Open a beautiful modal similar to the reference.
+
+Inside the popup show:
+
+Large Header
+
+Pay with QRIS
+
+Subtitle
+
+This QRIS is valid for one payment only.
+
+Display:
+
+Total Payment
+
+Rp {selected_amount}
+
+Large QR Code
+
+Countdown Timer
+
+Payment Expiration
+
+==========================================
+UPLOAD PROOF
+==========================================
+
+Below QR code show:
+
+Upload Payment Proof
+
+Allow:
+
+PNG
+JPG
+JPEG
+WEBP
+
+Preview uploaded image.
+
+Allow replace image.
+
+==========================================
+CONFIRM BUTTON
+==========================================
+
+Large gradient button.
+
+Text:
+
+Confirm Payment
+
+When pressed:
+
+Create payment record.
+
+Upload payment proof to:
+
+Supabase Storage
+
+Bucket:
+
+Yzu/payments
+
+Store payment data inside database.
+
+Status:
+
+Pending
+
+==========================================
+PAYMENT PROCESS
+==========================================
+
+After confirmation:
+
+Display success screen.
+
+Message:
+
+Waiting for owner approval.
+
+Your balance will automatically be added after payment has been verified.
+
+==========================================
+OWNER DASHBOARD
+==========================================
+
+Owner can:
+
+Approve payment
+
+Reject payment
+
+View uploaded proof
+
+View QR payment
+
+View payment amount
+
+View user
+
+View timestamp
+
+Add notes
+
+When approved:
+
+Automatically increase wallet balance.
+
+When rejected:
+
+Status becomes Rejected.
+
+Wallet remains unchanged.
+
+==========================================
+REMOVE PREMIUM PAGE
+==========================================
+
+Remove the Premium page completely.
+
+Remove Premium menu from navigation.
+
+Remove all Premium navigation links.
+
+==========================================
+BOTTOM NAVIGATION
+==========================================
+
+Replace current Bottom Navigation.
+
+Order should be:
+
+Home
+
+Bundles
+
+Top Up
+
+Chat
+
+Profile
+
+Use colorful icons matching the reference.
+
+Selected page should have gradient highlight.
+
+==========================================
+ANIMATIONS
+==========================================
+
+Add smooth transitions.
+
+Button press animation.
+
+Modal animation.
+
+Card hover animation.
+
+Loading skeletons.
+
+==========================================
+RESPONSIVE
+==========================================
+
+The entire UI must be optimized for mobile first.
+
+Target width:
+
+360px
+375px
+390px
+412px
+430px
+
+No overflow.
+
+No layout shift.
+
+No horizontal scrolling.
+
+==========================================
+DO NOT BREAK EXISTING FEATURES
+==========================================
+
+Keep working:
+
+Wallet system
+
+QRIS payment
+
+Payment approval
+
+Supabase payment uploads
+
+Neon database
+
+Authentication
+
+Admin dashboard
+
+Notifications
+
+Top up history
+
+==========================================
+FINAL CHECK
+==========================================
+
+Before finishing:
+
+- Test every top up flow.
+- Test QR popup.
+- Test payment proof upload.
+- Test owner approval.
+- Test wallet balance update.
+- Test responsive layout.
+- Ensure there are no console errors, build errors, runtime errors, or broken components.
