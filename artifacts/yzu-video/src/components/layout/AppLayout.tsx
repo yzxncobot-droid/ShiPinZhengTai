@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator, 
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
-import { Search, User, Wallet, Bell, History, Crown, LayoutDashboard, LogOut, MessageCircle, Send, Globe2, UploadCloud, Film, BadgeCheck, Gift } from "lucide-react";
+import { Search, User, Wallet, Bell, History, Crown, LayoutDashboard, LogOut, MessageCircle, Send, Globe2, UploadCloud, Film, BadgeCheck, Gift, Trophy } from "lucide-react";
 import { SiInstagram, SiTiktok, SiFacebook, SiYoutube, SiDiscord } from "react-icons/si";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -159,6 +159,10 @@ export function Navbar() {
                     </DropdownMenuItem>
                   )}
 
+                  <DropdownMenuItem onClick={() => setLocation('/leaderboard')} className="cursor-pointer rounded-xl font-medium">
+                    <Trophy className="mr-2 h-4 w-4 text-yellow-500" />
+                    <span>Leaderboard</span>
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setLocation('/redeem')} className="cursor-pointer rounded-xl font-medium">
                     <Gift className="mr-2 h-4 w-4 text-purple-500" />
                     <span>Code Redeem</span>
