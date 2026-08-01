@@ -2,33 +2,50 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useQuery } from "@tanstack/react-query";
 import { adminFetch } from "@/lib/admin-api";
-import { Home, Gift, Crown, Wallet, User, MessageCircle } from "lucide-react";
+import { Home, Gift, Crown, User, MessageCircle } from "lucide-react";
 import { motion } from "framer-motion";
 
 export function BottomNav() {
   const [location] = useLocation();
   const { user } = useAuth();
 
-  // Unread chat badge
+  // Combined unread: group chat + DM + announcements
   const { data: chatUnread } = useQuery({
     queryKey: ["chat-nav-unread"],
     queryFn: async () => {
-      const [chat, ann] = await Promise.all([
+      const [groupChat, ann, dm] = await Promise.all([
         adminFetch<{ unread: number }>("/chat/unread").catch(() => ({ unread: 0 })),
         adminFetch<{ unread: number }>("/announcements-unread").catch(() => ({ unread: 0 })),
+        adminFetch<{ unread: number }>("/dm/unread").catch(() => ({ unread: 0 })),
       ]);
-      return Math.min((chat.unread ?? 0) + (ann.unread ?? 0), 99);
+      return Math.min(
+        (groupChat.unread ?? 0) + (ann.unread ?? 0) + (dm.unread ?? 0),
+        99
+      );
     },
     refetchInterval: 15000,
     enabled: !!user,
   });
 
+  // Notifications unread
+  const { data: notifUnread } = useQuery({
+    queryKey: ["notifications-unread"],
+    queryFn: () => adminFetch<{ unread: number }>("/notifications/unread-count"),
+    refetchInterval: 30000,
+    enabled: !!user,
+  });
+
   const navItems = [
-    { href: "/", icon: Home, label: "Home" },
-    { href: "/chat", icon: MessageCircle, label: "Chat", badge: chatUnread ?? 0 },
-    { href: "/bundles", icon: Gift, label: "Bundles" },
-    { href: "/subscriptions", icon: Crown, label: "Premium" },
-    { href: user ? "/profile" : "/login", icon: User, label: "Profil" },
+    { href: "/",        icon: Home,          label: "Home",   badge: 0 },
+    { href: "/chat",    icon: MessageCircle, label: "Chat",   badge: chatUnread ?? 0 },
+    { href: "/bundles", icon: Gift,          label: "Bundles",badge: 0 },
+    { href: "/subscriptions", icon: Crown,   label: "Premium",badge: 0 },
+    {
+      href:  user ? "/profile" : "/login",
+      icon:  User,
+      label: "Profil",
+      badge: notifUnread?.unread ?? 0,
+    },
   ];
 
   const isActive = (href: string) => {
@@ -44,7 +61,7 @@ export function BottomNav() {
       <nav className="flex justify-around items-center h-[64px] px-1">
         {navItems.map((item) => {
           const active = isActive(item.href);
-          const badge = (item as any).badge ?? 0;
+          const badge = item.badge ?? 0;
 
           return (
             <Link

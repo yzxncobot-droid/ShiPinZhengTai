@@ -28,6 +28,7 @@ import VideoDetailPage from "@/pages/videos/detail";
 import DebugUploadPage from "@/pages/debug-upload";
 import CreatorUploadPage from "@/pages/upload";
 import MyVideoPage from "@/pages/my-video";
+import UserProfilePage from "@/pages/user";
 
 // Admin Pages (unified admin + owner panel)
 import AdminDashboard from "@/pages/admin/dashboard";
@@ -53,6 +54,7 @@ import AdminAnnouncementsPage from "@/pages/admin/announcements";
 import AdminChatRoomsPage from "@/pages/admin/chat-rooms";
 import ChatHomePage from "@/pages/chat/index";
 import ChatRoomPage from "@/pages/chat/room";
+import DmRoomPage from "@/pages/chat/dm-room";
 import AdminVerificationsPage from "@/pages/admin/verifications";
 import AdminDropsPage from "@/pages/admin/drops";
 
@@ -78,6 +80,11 @@ function AppRouter() {
       <Route path="/notifications" component={NotificationsPage} />
       <Route path="/leaderboard" component={LeaderboardPage} />
       <Route path="/search" component={SearchPage} />
+
+      {/* Social - public user profiles */}
+      <Route path="/user/:username" component={UserProfilePage} />
+
+      {/* Chat */}
       <Route path="/chat" component={ChatHomePage} />
       <Route path="/chat/room/:id">
         {(params) => (
@@ -86,7 +93,15 @@ function AppRouter() {
           </ErrorBoundary>
         )}
       </Route>
-      {/* DM routes removed */}
+      <Route path="/chat/dm/:id">
+        {() => (
+          <ErrorBoundary fallbackLabel="DM Room">
+            <DmRoomPage />
+          </ErrorBoundary>
+        )}
+      </Route>
+
+      {/* Content */}
       <Route path="/bundle/watch/:videoId" component={BundleWatchPage} />
       <Route path="/bundles" component={BundlesPage} />
       <Route path="/bundles/my" component={MyBundlesPage} />

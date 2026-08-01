@@ -9,7 +9,7 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import {
   Megaphone, MessageSquare, Search, Pin, ExternalLink, MessageCircle,
   Share2, Users, Hash, Lock, Globe2, Crown, ShieldCheck, ChevronRight,
-  X, Loader2, Plus, CheckCircle2, Bell, Sparkles,
+  X, Loader2, Plus, CheckCircle2, Bell, Sparkles, Edit3, Send,
 } from "lucide-react";
 import { formatDistanceToNow, isToday, isYesterday, format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
@@ -39,10 +39,11 @@ interface Group {
 // ─── Tabs ───────────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "chats" as const, label: "Chats", icon: MessageSquare },
+  { id: "chats" as const,         label: "Grup",       icon: MessageSquare },
+  { id: "dm" as const,            label: "DM",         icon: MessageCircle },
   { id: "announcements" as const, label: "Pengumuman", icon: Megaphone },
 ];
-type Tab = "chats" | "announcements";
+type Tab = "chats" | "dm" | "announcements";
 
 const ALL_CATEGORIES = [
   "General","Gaming","Minecraft","Roblox","Anime","Movies",
@@ -439,6 +440,294 @@ function CommentModal({ ann, userId, onClose }: { ann: Announcement; userId?: st
   );
 }
 
+// ─── DM Pane ─────────────────────────────────────────────────────────────────────
+
+interface DmConversation {
+  conversationId: string;
+  isPinned: boolean;
+  isArchived: boolean;
+  isMuted: boolean;
+  otherUser: { userId: string; username: string; avatar?: string; role?: string } | null;
+  lastMessage: { content: string; messageType: string; createdAt: string; senderId: string } | null;
+  unread: number;
+}
+
+interface SearchUser {
+  id: string;
+  username: string;
+  avatar?: string;
+  role?: string;
+}
+
+function DmPane({ userId }: { userId?: string }) {
+  const [, setLocation] = useLocation();
+  const [search, setSearch]           = useState("");
+  const [filter, setFilter]           = useState<"all" | "unread">("all");
+  const [showNewDm, setShowNewDm]     = useState(false);
+  const [userSearch, setUserSearch]   = useState("");
+  const qc = useQueryClient();
+
+  const { data: convs = [], isLoading } = useQuery<DmConversation[]>({
+    queryKey: ["dm-conversations"],
+    queryFn: () => adminFetch<DmConversation[]>("/dm/conversations"),
+    refetchInterval: 5000,
+    enabled: !!userId,
+  });
+
+  const { data: searchResults = [] } = useQuery<SearchUser[]>({
+    queryKey: ["dm-search-users", userSearch],
+    queryFn: () => adminFetch<SearchUser[]>(`/dm/search-users?q=${encodeURIComponent(userSearch)}`),
+    enabled: showNewDm && userSearch.length >= 2,
+  });
+
+  const startConv = useMutation({
+    mutationFn: (targetUserId: string) =>
+      adminFetch<{ conversationId: string }>("/dm/conversations/start", {
+        method: "POST",
+        body: JSON.stringify({ targetUserId }),
+      }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["dm-conversations"] });
+      setShowNewDm(false);
+      setLocation(`/chat/dm/${data.conversationId}`);
+    },
+  });
+
+  const filtered = convs.filter((c) => {
+    if (filter === "unread" && !c.unread) return false;
+    if (search && !c.otherUser?.username.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  function msgPreview(c: DmConversation) {
+    const m = c.lastMessage;
+    if (!m) return "Mulai percakapan...";
+    if (m.messageType === "image") return "🖼️ Gambar";
+    if (m.messageType === "sticker") return "🎭 Stiker";
+    if (m.messageType === "voice") return "🎤 Pesan suara";
+    if (m.messageType === "file") return "📎 File";
+    return m.content;
+  }
+
+  function msgTime(date: string) {
+    const d = new Date(date);
+    const now = new Date();
+    if (d.toDateString() === now.toDateString()) return format(d, "HH:mm");
+    return format(d, "dd/MM");
+  }
+
+  if (!userId) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-16">
+        <MessageCircle className="h-16 w-16 text-purple-100 mb-4" />
+        <p className="font-extrabold text-slate-600 mb-2">Login untuk DM</p>
+        <p className="text-sm text-slate-400">Masuk untuk kirim pesan langsung ke pengguna lain</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden bg-white">
+      {/* Search bar */}
+      <div className="px-4 pt-3 pb-2 border-b border-slate-50">
+        <div className="relative">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Cari percakapan..."
+            className="w-full pl-10 pr-9 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-sm font-medium focus:outline-none focus:border-purple-300 focus:bg-white transition-all placeholder:text-slate-400"
+          />
+          {search && (
+            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2">
+              <X className="h-4 w-4 text-slate-400" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Filter pills */}
+      <div className="flex gap-2 px-4 py-2 border-b border-slate-50">
+        {(["all", "unread"] as const).map((f) => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`text-xs font-bold px-3.5 py-1.5 rounded-full border transition-all ${
+              filter === f
+                ? "bg-gradient-to-r from-purple-500 to-pink-500 text-white border-transparent shadow-sm"
+                : "bg-white border-slate-200 text-slate-500 hover:border-purple-200"
+            }`}
+          >
+            {f === "all" ? "Semua" : "Belum Dibaca"}
+          </button>
+        ))}
+      </div>
+
+      {/* List */}
+      <div className="flex-1 overflow-y-auto">
+        {isLoading ? (
+          <div className="divide-y divide-slate-50">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3.5">
+                <Skeleton className="h-12 w-12 rounded-full shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-28" />
+                  <Skeleton className="h-3 w-44" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24 text-center px-6">
+            <div className="h-20 w-20 bg-purple-50 rounded-full flex items-center justify-center mb-4">
+              <MessageCircle className="h-10 w-10 text-purple-200" />
+            </div>
+            <p className="font-extrabold text-slate-600 text-base">
+              {search ? "Tidak ada percakapan" : "Belum ada DM"}
+            </p>
+            <p className="text-sm text-slate-400 mt-1 font-medium">
+              {search ? "Coba nama lain" : "Tekan tombol + untuk mulai chat"}
+            </p>
+          </div>
+        ) : (
+          <AnimatePresence initial={false}>
+            <div className="divide-y divide-slate-50">
+              {filtered.map((c) => {
+                const hasUnread = c.unread > 0;
+                const other = c.otherUser;
+                return (
+                  <motion.button
+                    key={c.conversationId}
+                    layout
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => setLocation(`/chat/dm/${c.conversationId}`)}
+                    className={`w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors ${
+                      hasUnread ? "bg-purple-50/40" : "hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="relative shrink-0">
+                      <div className="h-12 w-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-sm overflow-hidden">
+                        {other?.avatar
+                          ? <img src={other.avatar} className="h-full w-full object-cover" />
+                          : <span className="text-white font-extrabold text-lg">{other?.username?.charAt(0).toUpperCase() ?? "?"}</span>
+                        }
+                      </div>
+                      {c.isPinned && (
+                        <div className="absolute -top-0.5 -right-0.5 h-4 w-4 bg-amber-400 rounded-full flex items-center justify-center">
+                          <Pin className="h-2.5 w-2.5 text-white" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`font-extrabold text-sm ${hasUnread ? "text-slate-900" : "text-slate-700"}`}>
+                        {other?.username ?? "Unknown"}
+                      </p>
+                      <p className={`text-xs truncate mt-0.5 ${hasUnread ? "font-semibold text-slate-700" : "text-slate-400 font-medium"}`}>
+                        {msgPreview(c)}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5 shrink-0">
+                      {c.lastMessage && (
+                        <span className={`text-[11px] ${hasUnread ? "text-purple-500 font-bold" : "text-slate-400"}`}>
+                          {msgTime(c.lastMessage.createdAt)}
+                        </span>
+                      )}
+                      {hasUnread && (
+                        <span className="h-5 min-w-[20px] rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white text-[10px] font-extrabold flex items-center justify-center px-1.5 shadow-sm">
+                          {c.unread > 99 ? "99+" : c.unread}
+                        </span>
+                      )}
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </AnimatePresence>
+        )}
+      </div>
+
+      {/* New DM button */}
+      <div className="absolute bottom-20 right-4 z-10">
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => setShowNewDm(true)}
+          className="h-14 w-14 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 text-white flex items-center justify-center shadow-xl shadow-purple-500/30 pulse-glow"
+        >
+          <Edit3 className="h-6 w-6" />
+        </motion.button>
+      </div>
+
+      {/* New DM modal */}
+      <AnimatePresence>
+        {showNewDm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end justify-center"
+            onClick={() => setShowNewDm(false)}
+          >
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="bg-white w-full max-w-lg rounded-t-3xl p-5 max-h-[70vh] flex flex-col shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-extrabold text-slate-800 text-base">💬 Pesan Baru</h3>
+                <button onClick={() => setShowNewDm(false)} className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors">
+                  <X className="h-4 w-4 text-slate-600" />
+                </button>
+              </div>
+              <div className="relative mb-4">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  placeholder="Cari pengguna..."
+                  className="w-full pl-10 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-sm font-medium focus:outline-none focus:border-purple-300"
+                  autoFocus
+                />
+              </div>
+              <div className="flex-1 overflow-y-auto space-y-1">
+                {userSearch.length < 2 ? (
+                  <p className="text-center text-sm text-slate-400 py-8 font-medium">Ketik minimal 2 karakter</p>
+                ) : searchResults.length === 0 ? (
+                  <p className="text-center text-sm text-slate-400 py-8 font-medium">Pengguna tidak ditemukan</p>
+                ) : (
+                  searchResults.map((u) => (
+                    <button
+                      key={u.id}
+                      onClick={() => startConv.mutate(u.id)}
+                      disabled={startConv.isPending}
+                      className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl hover:bg-slate-50 transition-colors text-left"
+                    >
+                      <div className="h-10 w-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold shrink-0 overflow-hidden">
+                        {u.avatar
+                          ? <img src={u.avatar} className="h-full w-full object-cover" />
+                          : u.username.charAt(0).toUpperCase()
+                        }
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-bold text-sm text-slate-800">{u.username}</p>
+                        <p className="text-xs text-slate-400 font-medium capitalize">{u.role}</p>
+                      </div>
+                      <Send className="h-4 w-4 text-slate-300" />
+                    </button>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 // ─── Announcements Pane ───────────────────────────────────────────────────────────
 
 function AnnouncementsPane({ userId }: { userId?: string }) {
@@ -543,13 +832,14 @@ export default function ChatHomePage() {
       <AnimatePresence mode="wait">
         <motion.div
           key={tab}
-          initial={{ opacity: 0, x: tab === "chats" ? -10 : 10 }}
+          initial={{ opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: tab === "chats" ? 10 : -10 }}
+          exit={{ opacity: 0, x: 8 }}
           transition={{ duration: 0.2 }}
           className="flex-1 flex flex-col overflow-hidden"
         >
           {tab === "chats" && <GroupsPane userId={user?.id} userRole={user?.role} />}
+          {tab === "dm" && <DmPane userId={user?.id} />}
           {tab === "announcements" && <AnnouncementsPane userId={user?.id} />}
         </motion.div>
       </AnimatePresence>

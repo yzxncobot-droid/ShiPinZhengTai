@@ -23,3 +23,5 @@ export * from "./verifications";
 export * from "./drops";
 export * from "./user-badges";
 export * from "./user-bans";
+export * from "./social";
+export * from "./direct-messages";
