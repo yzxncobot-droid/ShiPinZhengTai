@@ -103,6 +103,7 @@ export default function AdminBundles() {
     setUploading(true);
     const fd = new FormData();
     fd.append("image", file);
+    fd.append("assetType", field === "banner" ? "bundle-banner" : "bundle-thumbnail");
     try {
       const data = await new Promise<{ url: string }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();

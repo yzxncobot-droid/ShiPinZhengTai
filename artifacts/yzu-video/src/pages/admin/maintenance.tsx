@@ -120,6 +120,7 @@ export default function AdminMaintenancePage() {
     setImageUploading(true);
     const fd = new FormData();
     fd.append("image", file);
+    fd.append("assetType", "banner");
     try {
       const res = await fetch("/api/upload/image", {
         method: "POST",

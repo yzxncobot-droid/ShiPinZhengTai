@@ -105,6 +105,7 @@ export default function ProfilePage() {
     setIsUploading(true);
     const formData = new FormData();
     formData.append("image", file);
+    formData.append("assetType", "avatar");
     try {
       const res = await fetch("/api/upload/image", {
         method: "POST",

@@ -22,6 +22,9 @@ import {
   resolveStorageType,
   isPublicStorageAvailable,
   uploadToPublicBucket,
+  isMediaStorageAvailable,
+  uploadToMediaStorage,
+  uploadBundleThumbnailToMedia,
 } from "../lib/storage";
 import type { UploadVideoResult, UploadThumbnailResult } from "../lib/storage";
 import { logger } from "../lib/logger";
@@ -339,7 +342,18 @@ router.post(
   },
 );
 
-// ── Generic image upload (avatars, logos, banners, QRIS…) → public/images/ ───
+// ── Generic image upload → MEDIA Supabase (avatars, QRIS, banners, logos…) ───
+//
+//  Accepts an optional `assetType` body field to route to the correct
+//  sub-folder inside the MEDIA bucket:
+//    "avatar"           → media/avatars/
+//    "qris"             → media/qris/
+//    "banner"           → media/banners/
+//    "bundle-thumbnail" → media/bundle-thumbnails/
+//    "bundle-banner"    → media/bundle-banners/
+//    "logo"             → media/logos/
+//    (omitted)          → media/images/   ← backward-compat default
+//
 router.post(
   "/upload/image",
   authenticate,
@@ -349,16 +363,17 @@ router.post(
       res.status(400).json({ success: false, message: "Tidak ada file gambar yang dipilih." });
       return;
     }
-    if (!isPublicStorageAvailable) {
-      res.status(503).json({ success: false, message: "Storage belum dikonfigurasi. Hubungi administrator." });
+    if (!isMediaStorageAvailable) {
+      res.status(503).json({ success: false, message: "Media storage belum dikonfigurasi (MEDIA_SUPABASE_URL / MEDIA_SUPABASE_SERVICE_KEY). Hubungi administrator." });
       return;
     }
+    const assetType = req.body?.assetType as string | undefined;
     try {
-      const { path: storedPath, url } = await uploadToPublicBucket("public/images", req.file);
-      res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: "yzx" });
+      const { path: storedPath, url, folder } = await uploadToMediaStorage(assetType, req.file);
+      res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: "yzx", folder, assetType: assetType ?? "images" });
     } catch (err: any) {
-      logger.error({ folder: "public/images", err }, "Image upload failed");
-      res.status(500).json({ success: false, message: friendlyUploadError(err, "public/images"), detail: err?.message });
+      logger.error({ assetType, err }, "Image upload failed (media storage)");
+      res.status(500).json({ success: false, message: friendlyUploadError(err, `media/${assetType ?? "images"}`), detail: err?.message });
     }
   },
 );
@@ -387,7 +402,7 @@ router.post(
   },
 );
 
-// ── Bundle thumbnail upload → public/bundle-thumbnails/ (PUBLIC Supabase) ────
+// ── Bundle thumbnail upload → MEDIA Supabase (media/bundle-thumbnails/) ──────
 router.post(
   "/upload/bundle-thumbnail",
   authenticate,
@@ -397,16 +412,16 @@ router.post(
       res.status(400).json({ success: false, message: "Tidak ada file thumbnail bundle yang dipilih." });
       return;
     }
-    if (!isPublicStorageAvailable) {
-      res.status(503).json({ success: false, message: "Storage belum dikonfigurasi. Hubungi administrator." });
+    if (!isMediaStorageAvailable) {
+      res.status(503).json({ success: false, message: "Media storage belum dikonfigurasi (MEDIA_SUPABASE_URL / MEDIA_SUPABASE_SERVICE_KEY). Hubungi administrator." });
       return;
     }
     try {
-      const { path: storedPath, url } = await uploadToPublicBucket("public/bundle-thumbnails", req.file);
-      res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: "yzx" });
+      const { path: storedPath, url, folder } = await uploadBundleThumbnailToMedia(req.file);
+      res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: "yzx", folder });
     } catch (err: any) {
-      logger.error({ folder: "public/bundle-thumbnails", err }, "Bundle thumbnail upload failed");
-      res.status(500).json({ success: false, message: friendlyUploadError(err, "public/bundle-thumbnails"), detail: err?.message });
+      logger.error({ folder: "media/bundle-thumbnails", err }, "Bundle thumbnail upload failed");
+      res.status(500).json({ success: false, message: friendlyUploadError(err, "media/bundle-thumbnails"), detail: err?.message });
     }
   },
 );
@@ -515,10 +530,10 @@ router.post(
 router.get("/upload/debug", authenticate, async (req: Request, res: Response) => {
   const result: Record<string, any> = {
     timestamp: new Date().toISOString(),
-    architecture: "PUBLIC + OWNER (2 Supabase projects)",
+    architecture: "PUBLIC + OWNER + MEDIA (3 Supabase projects)",
     storageProviders: {
       publicSupabase: {
-        description:      "Creator + Verified Creator uploads",
+        description:      "Creator + Verified Creator video uploads",
         supabaseUrl:      process.env.PUBLIC_SUPABASE_URL ?? "(not set)",
         serviceKeyPresent: !!process.env.PUBLIC_SUPABASE_SERVICE_KEY,
         available:        isCreatorStorageAvailable,
@@ -530,7 +545,7 @@ router.get("/upload/debug", authenticate, async (req: Request, res: Response) =>
         vcPaymentsFolder:        "public/verified-creator/payments",
       },
       ownerSupabase: {
-        description:      "Owner / Admin uploads",
+        description:      "Owner / Admin video uploads",
         supabaseUrl:      process.env.OWNER_SUPABASE_URL ?? "(not set)",
         serviceKeyPresent: !!process.env.OWNER_SUPABASE_SERVICE_KEY,
         available:        isOwnerStorageAvailable,
@@ -538,8 +553,24 @@ router.get("/upload/debug", authenticate, async (req: Request, res: Response) =>
         videoFolder:      "owner/videos",
         thumbFolder:      "owner/thumbnails",
       },
+      mediaSupabase: {
+        description:      "Media assets: avatars, QRIS, banners, bundle images",
+        supabaseUrl:      process.env.MEDIA_SUPABASE_URL ?? "(not set)",
+        serviceKeyPresent: !!process.env.MEDIA_SUPABASE_SERVICE_KEY,
+        available:        isMediaStorageAvailable,
+        bucket:           process.env.MEDIA_SUPABASE_BUCKET ?? "yzx",
+        folders: {
+          avatars:           "media/avatars",
+          qris:              "media/qris",
+          banners:           "media/banners",
+          bundleThumbnails:  "media/bundle-thumbnails",
+          bundleBanners:     "media/bundle-banners",
+          logos:             "media/logos",
+          images:            "media/images",
+        },
+      },
       legacy: {
-        description:      "Pre-migration uploads (backward-compat)",
+        description:      "Pre-migration uploads (backward-compat read-only)",
         supabaseUrl:      process.env.SUPABASE_URL ?? "(not set)",
         serviceKeyPresent: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
         available:        isSupabaseAvailable,

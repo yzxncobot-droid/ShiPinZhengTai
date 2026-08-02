@@ -75,6 +75,8 @@ export default function OwnerSettings() {
     setIsUploading(fieldName);
     const formData = new FormData();
     formData.append("image", file);
+    const assetTypeMap: Record<string, string> = { qrisImage: "qris", banner: "banner" };
+    formData.append("assetType", assetTypeMap[fieldName as string] ?? "images");
 
     try {
       const res = await fetch("/api/upload/image", {

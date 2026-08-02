@@ -42,6 +42,8 @@ export default function AdminSettings() {
     setLoading(true);
     const fd = new FormData();
     fd.append("image", file);
+    const assetTypeMap: Record<string, string> = { logo: "logo", qrisImage: "qris", favicon: "logo" };
+    fd.append("assetType", assetTypeMap[field] ?? "images");
     try {
       const res = await fetch("/api/upload/image", {
         method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd,

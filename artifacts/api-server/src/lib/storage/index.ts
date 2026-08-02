@@ -21,6 +21,14 @@ export {
   uploadToPublicBucket,
 } from "./public";
 export { ownerStorage, isOwnerStorageAvailable, isBunnyStreamAvailable } from "./owner";
+export {
+  isMediaStorageAvailable,
+  uploadToMediaStorage,
+  uploadBundleThumbnailToMedia,
+  uploadBundleBannerToMedia,
+  resolveMediaAssetType,
+  type MediaAssetType,
+} from "./media";
 export type {
   StorageProvider,
   StorageType,
