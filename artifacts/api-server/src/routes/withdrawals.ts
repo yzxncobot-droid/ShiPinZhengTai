@@ -7,6 +7,7 @@ import {
 import { eq, desc, and, sql, count } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
 import { invalidateUserCache } from "../lib/redis";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -88,67 +89,94 @@ router.patch("/withdrawals/:id/approve", authenticate, requireRole("admin", "own
   const id = req.params.id as string;
   const adminId = req.user!.userId;
 
-  const [withdrawal] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id)).limit(1);
-  if (!withdrawal) { res.status(404).json({ error: "Not found" }); return; }
-  if (withdrawal.status !== "pending") { res.status(400).json({ error: "Already processed" }); return; }
+  try {
+    const [withdrawal] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id)).limit(1);
+    if (!withdrawal) { res.status(404).json({ error: "Withdrawal not found" }); return; }
+    if (withdrawal.status !== "pending") {
+      res.status(400).json({ error: `Cannot approve: withdrawal is already "${withdrawal.status}"` }); return;
+    }
 
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, withdrawal.userId)).limit(1);
-  if (!user) { res.status(404).json({ error: "User not found" }); return; }
-  if (user.walletBalance < withdrawal.amount) {
-    res.status(400).json({ error: "User has insufficient balance" }); return;
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, withdrawal.userId)).limit(1);
+    if (!user) { res.status(404).json({ error: "User not found" }); return; }
+    if (user.walletBalance < withdrawal.amount) {
+      res.status(400).json({ error: `User has insufficient balance (balance: Rp ${user.walletBalance.toLocaleString("id-ID")}, requested: Rp ${withdrawal.amount.toLocaleString("id-ID")})` }); return;
+    }
+
+    const newBalance = user.walletBalance - withdrawal.amount;
+    const amountFormatted = withdrawal.amount.toLocaleString("id-ID");
+
+    logger.info({ withdrawalId: id, userId: withdrawal.userId, amount: withdrawal.amount, by: adminId }, "Withdrawal approve: starting transaction");
+
+    await db.transaction(async (tx) => {
+      // Step 1: deduct from user balance cache
+      await tx.update(usersTable).set({
+        walletBalance: newBalance,
+        totalSpent: sql`${usersTable.totalSpent} + ${withdrawal.amount}`,
+        updatedAt: new Date(),
+      }).where(eq(usersTable.id, withdrawal.userId));
+      logger.info({ withdrawalId: id }, "Withdrawal approve: user balance updated");
+
+      // Step 2: deduct from wallet ledger
+      await tx.update(walletsTable).set({
+        balance: newBalance,
+        totalSpent: sql`${walletsTable.totalSpent} + ${withdrawal.amount}`,
+        updatedAt: new Date(),
+        lastTransactionAt: new Date(),
+      }).where(eq(walletsTable.userId, withdrawal.userId));
+      logger.info({ withdrawalId: id }, "Withdrawal approve: wallet updated");
+
+      // Step 3: mark withdrawal approved
+      await tx.update(withdrawalsTable).set({
+        status: "approved", processedBy: adminId, processedAt: new Date(), updatedAt: new Date(),
+      }).where(eq(withdrawalsTable.id, id));
+      logger.info({ withdrawalId: id }, "Withdrawal approve: status set to approved");
+
+      // Step 4: append to transactions history
+      await tx.insert(transactionsTable).values({
+        userId: withdrawal.userId,
+        type: "adjustment",
+        amount: -withdrawal.amount,
+        description: `Withdrawal approved: Rp ${amountFormatted}`,
+        referenceId: withdrawal.id,
+      });
+      logger.info({ withdrawalId: id }, "Withdrawal approve: transaction record inserted");
+
+      // Step 5: append to wallet transactions ledger
+      await tx.insert(walletTransactionsTable).values({
+        userId: withdrawal.userId,
+        type: "adjustment",
+        amount: -withdrawal.amount,
+        balanceAfter: newBalance,
+        description: `Withdrawal approved: Rp ${amountFormatted}`,
+        referenceType: "withdrawal",
+        referenceId: withdrawal.id,
+        createdBy: adminId,
+      });
+      logger.info({ withdrawalId: id }, "Withdrawal approve: wallet transaction record inserted");
+
+      // Step 6: send approval notification
+      await tx.insert(notificationsTable).values({
+        userId: withdrawal.userId,
+        title: "Penarikan Dana Disetujui",
+        message: `Penarikan dana sebesar Rp ${amountFormatted} telah disetujui dan sedang diproses.`,
+        type: "success",
+        category: "payment",
+        referenceType: "withdrawal",
+        referenceId: withdrawal.id,
+      });
+      logger.info({ withdrawalId: id }, "Withdrawal approve: notification sent");
+    });
+
+    await invalidateUserCache(withdrawal.userId);
+
+    const [updated] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id)).limit(1);
+    logger.info({ withdrawalId: id, userId: withdrawal.userId, amount: withdrawal.amount, by: adminId }, "Withdrawal approved successfully");
+    res.json(updated);
+  } catch (err: any) {
+    logger.error({ err: err?.message, stack: err?.stack, id }, "Withdrawal approve failed");
+    const detail = err?.message ?? "Unknown error";
+    res.status(500).json({ error: `Failed to approve withdrawal: ${detail}` });
   }
-
-  const newBalance = user.walletBalance - withdrawal.amount;
-
-  await db.transaction(async (tx) => {
-    await tx.update(usersTable).set({
-      walletBalance: newBalance,
-      totalSpent: sql`${usersTable.totalSpent} + ${withdrawal.amount}`,
-      updatedAt: new Date(),
-    }).where(eq(usersTable.id, withdrawal.userId));
-
-    await tx.update(walletsTable).set({
-      balance: newBalance,
-      totalSpent: sql`${walletsTable.totalSpent} + ${withdrawal.amount}`,
-      updatedAt: new Date(),
-      lastTransactionAt: new Date(),
-    }).where(eq(walletsTable.userId, withdrawal.userId));
-
-    await tx.update(withdrawalsTable).set({
-      status: "approved", processedBy: adminId, processedAt: new Date(), updatedAt: new Date(),
-    }).where(eq(withdrawalsTable.id, id));
-
-    await tx.insert(transactionsTable).values({
-      userId: withdrawal.userId,
-      type: "adjustment",
-      amount: -withdrawal.amount,
-      description: `Withdrawal approved: Rp ${withdrawal.amount.toLocaleString()}`,
-      referenceId: withdrawal.id,
-    });
-
-    await tx.insert(walletTransactionsTable).values({
-      userId: withdrawal.userId,
-      type: "adjustment",
-      amount: -withdrawal.amount,
-      balanceAfter: newBalance,
-      description: `Withdrawal approved: Rp ${withdrawal.amount.toLocaleString()}`,
-      referenceType: "withdrawal",
-      referenceId: withdrawal.id,
-      createdBy: adminId,
-    });
-
-    await tx.insert(notificationsTable).values({
-      userId: withdrawal.userId,
-      title: "Withdrawal Approved",
-      message: `Your withdrawal of Rp ${withdrawal.amount.toLocaleString()} was approved.`,
-      type: "system",
-    });
-  });
-
-  await invalidateUserCache(withdrawal.userId);
-
-  const [updated] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id)).limit(1);
-  res.json(updated);
 });
 
 // Admin/owner: reject withdrawal
@@ -157,26 +185,60 @@ router.patch("/withdrawals/:id/reject", authenticate, requireRole("admin", "owne
   const adminId = req.user!.userId;
   const { reason } = req.body;
 
-  const [withdrawal] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id)).limit(1);
-  if (!withdrawal) { res.status(404).json({ error: "Not found" }); return; }
+  try {
+    const [withdrawal] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id)).limit(1);
+    if (!withdrawal) { res.status(404).json({ error: "Withdrawal not found" }); return; }
+    if (withdrawal.status !== "pending") {
+      res.status(400).json({ error: `Cannot reject: withdrawal is already "${withdrawal.status}"` }); return;
+    }
 
-  const [updated] = await db.update(withdrawalsTable).set({
-    status: "rejected", processedBy: adminId, processedAt: new Date(),
-    notes: reason || withdrawal.notes, updatedAt: new Date(),
-  }).where(eq(withdrawalsTable.id, id)).returning();
+    const amountFormatted = withdrawal.amount.toLocaleString("id-ID");
+    logger.info({ withdrawalId: id, userId: withdrawal.userId, amount: withdrawal.amount, by: adminId }, "Withdrawal reject: starting transaction");
 
-  await db.insert(notificationsTable).values({
-    userId: withdrawal.userId, title: "Withdrawal Rejected",
-    message: `Your withdrawal of Rp ${withdrawal.amount.toLocaleString()} was rejected.${reason ? ` Reason: ${reason}` : ""}`,
-    type: "system",
-  });
+    let updated: typeof withdrawal;
+    await db.transaction(async (tx) => {
+      // Step 1: mark withdrawal rejected with reason
+      const [result] = await tx.update(withdrawalsTable).set({
+        status: "rejected",
+        processedBy: adminId,
+        processedAt: new Date(),
+        notes: reason || withdrawal.notes,
+        updatedAt: new Date(),
+      }).where(eq(withdrawalsTable.id, id)).returning();
+      updated = result;
+      logger.info({ withdrawalId: id }, "Withdrawal reject: status set to rejected");
 
-  await db.insert(auditLogsTable).values({
-    userId: adminId, action: "reject_withdrawal", entity: "withdrawal", entityId: id,
-    details: JSON.stringify({ amount: withdrawal.amount, reason }), ipAddress: req.ip,
-  });
+      // Step 2: send rejection notification
+      await tx.insert(notificationsTable).values({
+        userId: withdrawal.userId,
+        title: "Penarikan Dana Ditolak",
+        message: `Penarikan dana sebesar Rp ${amountFormatted} ditolak.${reason ? ` Alasan: ${reason}` : " Hubungi admin untuk informasi lebih lanjut."}`,
+        type: "warning",
+        category: "payment",
+        referenceType: "withdrawal",
+        referenceId: withdrawal.id,
+      });
+      logger.info({ withdrawalId: id }, "Withdrawal reject: notification sent");
 
-  res.json(updated);
+      // Step 3: audit log
+      await tx.insert(auditLogsTable).values({
+        userId: adminId,
+        action: "reject_withdrawal",
+        entity: "withdrawal",
+        entityId: id,
+        details: JSON.stringify({ amount: withdrawal.amount, reason: reason ?? null }),
+        ipAddress: req.ip,
+      });
+      logger.info({ withdrawalId: id }, "Withdrawal reject: audit log written");
+    });
+
+    logger.info({ withdrawalId: id, userId: withdrawal.userId, amount: withdrawal.amount, by: adminId }, "Withdrawal rejected successfully");
+    res.json(updated!);
+  } catch (err: any) {
+    logger.error({ err: err?.message, stack: err?.stack, id }, "Withdrawal reject failed");
+    const detail = err?.message ?? "Unknown error";
+    res.status(500).json({ error: `Failed to reject withdrawal: ${detail}` });
+  }
 });
 
 export default router;

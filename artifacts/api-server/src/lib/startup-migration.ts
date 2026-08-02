@@ -1,20 +1,27 @@
 /**
  * Idempotent startup migration — runs once when the API server boots.
  *
- * Adds the `storage_type` column to the videos table if it does not
- * already exist, then back-fills it from uploader_type for existing rows.
- *
- * Safe to run on every restart: all statements use IF NOT EXISTS / WHERE IS NULL.
+ * Each migration step runs in its own try/catch so a failure in one section
+ * does not block subsequent sections. All statements use IF NOT EXISTS / WHERE IS NULL.
  */
 
 import { pool } from "@workspace/db";
 import { logger } from "./logger";
 
+async function runStep(client: any, name: string, sql: string): Promise<void> {
+  try {
+    await client.query(sql);
+    logger.info(`startup-migration: ${name} — OK`);
+  } catch (err: any) {
+    logger.warn({ err: err?.message }, `startup-migration: ${name} — failed (non-fatal)`);
+  }
+}
+
 export async function runStartupMigration(): Promise<void> {
   const client = await pool.connect();
   try {
-    // 1. Ensure all prerequisite columns exist (idempotent — safe to run repeatedly)
-    await client.query(`
+    // ── 1. videos table columns ─────────────────────────────────────────────
+    await runStep(client, "videos columns", `
       ALTER TABLE videos ADD COLUMN IF NOT EXISTS video_source_type text NOT NULL DEFAULT 'upload';
       ALTER TABLE videos ADD COLUMN IF NOT EXISTS video_file_path text;
       ALTER TABLE videos ADD COLUMN IF NOT EXISTS uploader_type text;
@@ -27,14 +34,9 @@ export async function runStartupMigration(): Promise<void> {
       ALTER TABLE videos ADD COLUMN IF NOT EXISTS bunny_library_id text;
       ALTER TABLE videos ADD COLUMN IF NOT EXISTS storage_type text;
     `);
-    logger.info("startup-migration: all video columns ensured");
 
-    // 2. Back-fill storage_type from uploader_type for existing rows —
-    //    ONLY for rows backed by Supabase (not Bunny Stream), because
-    //    bunny_stream rows are on Bunny CDN, not the OWNER Supabase project.
-    //    Their storage_type is intentionally left NULL until a real-location
-    //    migration is performed separately.
-    const { rowCount } = await client.query(`
+    // ── 2. videos storage_type back-fill ────────────────────────────────────
+    await runStep(client, "videos storage_type back-fill", `
       UPDATE videos
       SET storage_type = CASE
         WHEN uploader_type IN ('creator', 'verified_creator') THEN 'PUBLIC'
@@ -43,18 +45,29 @@ export async function runStartupMigration(): Promise<void> {
       END
       WHERE storage_type IS NULL
         AND uploader_type IS NOT NULL
-        AND COALESCE(video_storage_provider, '') != 'bunny_stream'
+        AND COALESCE(video_storage_provider, '') != 'bunny_stream';
     `);
 
-    if (rowCount && rowCount > 0) {
-      logger.info({ rowCount }, "startup-migration: back-filled storage_type for existing videos");
-    } else {
-      logger.info("startup-migration: storage_type back-fill complete (0 rows needed updating)");
-    }
-  } catch (err: any) {
-    // Non-fatal — log and continue. The column may already exist or the DB
-    // may be temporarily unavailable. Do NOT crash the server.
-    logger.warn({ err: err?.message }, "startup-migration: storage_type migration failed (non-fatal)");
+    // ── 3. notifications table columns ──────────────────────────────────────
+    //
+    // The `category` column (and related social/payment columns) were added to
+    // the Drizzle schema but never migrated to the live DB.  Because the column
+    // is defined as notNull() in the schema, Drizzle always names it explicitly
+    // in every INSERT, causing every notification write to fail with:
+    //   "column category of relation notifications does not exist"
+    //
+    // We run this as a separate step so a missing `videos` table (e.g. in a
+    // fresh Replit DB) does not block this critical fix.
+    await runStep(client, "notifications columns", `
+      ALTER TABLE notifications ADD COLUMN IF NOT EXISTS category       text NOT NULL DEFAULT 'system';
+      ALTER TABLE notifications ADD COLUMN IF NOT EXISTS actor_id       uuid REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE notifications ADD COLUMN IF NOT EXISTS actor_username text;
+      ALTER TABLE notifications ADD COLUMN IF NOT EXISTS actor_avatar   text;
+      ALTER TABLE notifications ADD COLUMN IF NOT EXISTS reference_type text;
+      ALTER TABLE notifications ADD COLUMN IF NOT EXISTS reference_id   text;
+      ALTER TABLE notifications ADD COLUMN IF NOT EXISTS action_url     text;
+    `);
+
   } finally {
     client.release();
   }
