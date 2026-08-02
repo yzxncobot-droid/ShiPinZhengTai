@@ -78,5 +78,5 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-SUPABASE_URL = "https://mvbiaozmtmeqvostvptz.supabase.co"
+SUPABASE_URL = "https://ndbnxvwldywbhjjuorye.supabase.co"
 UPSTASH_REDIS_REST_URL = "https://adequate-elf-43259.upstash.io"
