@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { runStartupMigration } from "./lib/startup-migration";
 
 const rawPort = process.env["PORT"];
 
@@ -22,4 +23,9 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+
+  // Run idempotent startup migration (adds storage_type column if missing)
+  runStartupMigration().catch((e) =>
+    logger.warn({ err: e?.message }, "startup-migration: unexpected error"),
+  );
 });
