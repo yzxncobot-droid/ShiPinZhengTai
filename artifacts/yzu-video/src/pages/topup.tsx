@@ -8,19 +8,18 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   QrCode, UploadCloud, Loader2, CheckCircle2, X, AlertCircle,
-  ShieldAlert, ChevronRight, Shield, Clock, Copy,
+  ShieldAlert, ChevronRight, Shield, Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Form, FormControl, FormField, FormMessage } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
+import { Form } from "@/components/ui/form";
 import { Progress } from "@/components/ui/progress";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { useState, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { format, formatDistanceToNow } from "date-fns";
+import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 
 // ─── Constants ──────────────────────────────────────────────────────────────────
@@ -51,7 +50,6 @@ const PAYMENT_METHODS = [
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 const LS_KEY = "topup_rules_ack";
-const PAYMENT_TIMEOUT_SECS = 15 * 60;
 
 function shouldShowModal(sessionKey: string): boolean {
   try {
@@ -72,12 +70,6 @@ const RULES = [
   "Edited or fake screenshots will be rejected.",
   "Upload your proof after completing the transfer.",
 ];
-
-function formatCountdown(s: number) {
-  const m = Math.floor(s / 60).toString().padStart(2, "0");
-  const sec = (s % 60).toString().padStart(2, "0");
-  return `${m}:${sec}`;
-}
 
 // ─── Rules Modal ───────────────────────────────────────────────────────────────
 function RulesModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -122,14 +114,6 @@ const topupSchema = z.object({
   amount: z.coerce.number().min(100, "Minimum Rp 100"),
   transferAmount: z.coerce.number().min(100, "Enter transfer amount"),
   paymentProof: z.string().min(1, "Payment proof is required"),
-}).superRefine((data, ctx) => {
-  if (data.transferAmount && data.amount && data.transferAmount !== data.amount) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["transferAmount"],
-      message: "Transfer amount must exactly match the top-up amount.",
-    });
-  }
 });
 
 interface UploadErr { code: string; message: string }
@@ -180,15 +164,16 @@ function HistoryCard({ topup }: { topup: Topup }) {
   );
 }
 
-// ─── QRIS Payment Dialog ────────────────────────────────────────────────────────
-function QRISDialog({
-  open, onClose, amount, settings, token, form,
+// ─── QRIS Payment Modal ─────────────────────────────────────────────────────────
+function QRISModal({
+  open, onClose, amount, settings, token,
   uploadState, setUploadState, uploadProgress, setUploadProgress,
   uploadError, setUploadError, fileInputRef, handleFileChange, resetProof,
+  proofUrl, previewObjectUrl,
   onConfirm, isPending,
 }: {
   open: boolean; onClose: () => void; amount: number;
-  settings: any; token: string | null; form: any;
+  settings: any; token: string | null;
   uploadState: "idle"|"uploading"|"success"|"error";
   setUploadState: (s: any) => void;
   uploadProgress: number; setUploadProgress: (n: number) => void;
@@ -196,208 +181,234 @@ function QRISDialog({
   fileInputRef: React.RefObject<HTMLInputElement>;
   handleFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   resetProof: () => void;
+  proofUrl: string;
+  previewObjectUrl: string | null;
   onConfirm: () => void;
   isPending: boolean;
 }) {
-  const proofUrl = form.watch("paymentProof");
-  const [countdown, setCountdown] = useState(PAYMENT_TIMEOUT_SECS);
-  const { toast } = useToast();
-
+  // Prevent background scroll while open
   useEffect(() => {
-    if (!open) return;
-    setCountdown(PAYMENT_TIMEOUT_SECS);
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) { clearInterval(timer); return 0; }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
+    if (open) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => { document.body.style.overflow = ""; };
   }, [open]);
 
-  const isLowTime = countdown < 3 * 60;
-
-  const copyAmount = () => {
-    navigator.clipboard.writeText(String(amount)).then(() => toast({ title: "Amount copied!" }));
-  };
-
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-sm w-[95vw] rounded-3xl border-0 p-0 overflow-hidden shadow-2xl">
-        {/* Header */}
-        <div className="relative bg-gradient-to-br from-purple-600 to-indigo-600 px-5 pt-5 pb-8 overflow-hidden">
-          <div className="absolute top-2 right-16 text-yellow-300 text-xl select-none pointer-events-none">★</div>
-          <div className="absolute top-8 right-8 text-yellow-200 text-sm select-none pointer-events-none">★</div>
-          <div className="absolute -right-4 -bottom-4 text-[80px] select-none pointer-events-none opacity-60">🧒</div>
+    <AnimatePresence>
+      {open && (
+        <>
+          {/* Backdrop */}
+          <motion.div
+            key="qris-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22 }}
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+            onClick={onClose}
+          />
 
-          <div className="flex items-start gap-3 relative z-10">
-            <div className="h-11 w-11 bg-white/20 rounded-2xl flex items-center justify-center shrink-0">
-              <QrCode className="h-6 w-6 text-white" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-white font-extrabold text-lg leading-tight">Pay with QRIS</h3>
-              <p className="text-white/70 text-xs font-medium mt-0.5">This QRIS is valid for one payment only.</p>
-            </div>
-            <button
-              onClick={onClose}
-              className="h-8 w-8 bg-white/20 rounded-full flex items-center justify-center hover:bg-white/30 transition-colors shrink-0"
+          {/* Modal sheet */}
+          <motion.div
+            key="qris-modal"
+            initial={{ opacity: 0, scale: 0.93, y: 24 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 16 }}
+            transition={{ type: "spring", stiffness: 340, damping: 28 }}
+            className="fixed inset-0 z-50 flex items-center justify-center px-4 pointer-events-none"
+          >
+            <div
+              className="relative w-full max-w-sm rounded-[24px] overflow-hidden shadow-2xl pointer-events-auto"
+              onClick={(e) => e.stopPropagation()}
             >
-              <X className="h-4 w-4 text-white" />
-            </button>
-          </div>
-        </div>
+              {/* ── Header ── */}
+              <div className="relative bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-500 px-5 pt-5 pb-7 overflow-hidden">
+                {/* Stars decoration */}
+                <div className="absolute top-3 right-20 text-yellow-300 text-xl select-none pointer-events-none">★</div>
+                <div className="absolute top-9 right-10 text-yellow-200 text-sm select-none pointer-events-none">★</div>
+                {/* Kid illustration */}
+                <div className="absolute -right-2 -bottom-2 text-[80px] select-none pointer-events-none opacity-80 leading-none">🧒</div>
 
-        {/* Body */}
-        <div className="bg-white px-5 pb-6 pt-4 space-y-4 max-h-[72vh] overflow-y-auto">
-          {/* Countdown */}
-          <div className={`flex items-center justify-between rounded-2xl px-4 py-3 border ${isLowTime ? "bg-red-50 border-red-200" : "bg-amber-50 border-amber-200"}`}>
-            <div className="flex items-center gap-2">
-              <Clock className={`h-4 w-4 ${isLowTime ? "text-red-500" : "text-amber-500"}`} />
-              <span className={`text-xs font-bold ${isLowTime ? "text-red-700" : "text-amber-700"}`}>
-                Payment Expiration
-              </span>
-            </div>
-            <span className={`text-xl font-extrabold tabular-nums ${isLowTime ? "text-red-600" : "text-amber-600"}`}>
-              {countdown === 0 ? "EXPIRED" : formatCountdown(countdown)}
-            </span>
-          </div>
+                {/* Close button */}
+                <button
+                  onClick={onClose}
+                  className="absolute top-3.5 right-3.5 h-8 w-8 bg-white/20 rounded-full flex items-center justify-center hover:bg-white/35 transition-colors z-10"
+                >
+                  <X className="h-4 w-4 text-white" />
+                </button>
 
-          {/* Total payment */}
-          <div className="bg-purple-50 border border-purple-100 rounded-2xl px-4 py-3 flex items-center justify-between">
-            <div>
-              <p className="text-[10px] font-extrabold text-purple-400 uppercase tracking-widest mb-0.5">Total Payment</p>
-              <p className="text-2xl font-extrabold text-purple-700">Rp {amount.toLocaleString("id-ID")}</p>
-            </div>
-            <button
-              type="button"
-              onClick={copyAmount}
-              className="flex items-center gap-1.5 bg-white border border-purple-200 text-purple-600 text-xs font-bold px-3 py-2 rounded-xl hover:bg-purple-50 transition-colors"
-            >
-              <Copy className="h-3.5 w-3.5" /> Copy
-            </button>
-          </div>
-
-          {/* QR Code */}
-          <div className="flex justify-center">
-            {settings?.qrisImage ? (
-              <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm">
-                <img src={settings.qrisImage} alt="QRIS" className="w-48 h-48 object-contain" />
-              </div>
-            ) : (
-              <div className="w-48 h-48 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col items-center justify-center shadow-sm">
-                <QrCode className="h-16 w-16 text-slate-200 mb-2" />
-                <span className="text-xs font-bold text-slate-400">QRIS not configured</span>
-              </div>
-            )}
-          </div>
-
-          {/* Transfer amount warning */}
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-start gap-2">
-            <ShieldAlert className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-            <p className="text-xs text-amber-700 font-medium leading-snug">
-              Transfer exactly <strong>Rp {amount.toLocaleString("id-ID")}</strong> — different amounts are automatically rejected.
-            </p>
-          </div>
-
-          {/* Transfer amount field */}
-          <FormField control={form.control} name="transferAmount" render={({ field }) => (
-            <div>
-              <label className="text-xs font-extrabold text-slate-700 mb-1.5 block">
-                Amount you transferred <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-extrabold text-sm">Rp</span>
-                <Input
-                  type="number"
-                  className={`pl-12 h-12 rounded-2xl font-extrabold bg-slate-50 border-2 focus-visible:ring-0 ${
-                    field.value && Number(field.value) !== amount ? "border-red-400 bg-red-50" :
-                    field.value && Number(field.value) === amount ? "border-green-400 bg-green-50" :
-                    "border-slate-200"
-                  }`}
-                  placeholder={amount.toLocaleString("id-ID")}
-                  {...field}
-                />
-                {field.value && Number(field.value) === amount && (
-                  <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-green-500" />
-                )}
-                {field.value && Number(field.value) !== amount && (
-                  <AlertCircle className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-red-500" />
-                )}
-              </div>
-              <FormMessage />
-            </div>
-          )} />
-
-          {/* Upload proof */}
-          <div>
-            <label className="text-xs font-extrabold text-slate-700 mb-1.5 block">Upload Payment Proof</label>
-            <input type="file" accept=".jpg,.jpeg,.png,.webp" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
-
-            {uploadState === "success" && proofUrl ? (
-              <div className="relative rounded-2xl overflow-hidden border border-green-200 h-32">
-                <img src={proofUrl} alt="Proof" className="w-full h-full object-contain bg-slate-50" />
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center gap-2">
-                  <Button type="button" size="sm" className="h-8 rounded-full bg-white text-slate-800 text-xs font-bold" onClick={() => fileInputRef.current?.click()}>Replace</Button>
-                  <Button type="button" size="sm" className="h-8 rounded-full bg-red-500 text-white text-xs font-bold" onClick={resetProof}>Remove</Button>
-                </div>
-              </div>
-            ) : uploadState === "uploading" ? (
-              <div className="h-32 rounded-2xl border-2 border-dashed border-purple-300 bg-purple-50 flex flex-col items-center justify-center gap-2">
-                <Loader2 className="h-6 w-6 animate-spin text-purple-500" />
-                <Progress value={uploadProgress} className="w-40 h-1.5" />
-                <p className="text-[10px] font-bold text-purple-600">{uploadProgress}%</p>
-              </div>
-            ) : uploadState === "error" && uploadError ? (
-              <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-center">
-                <AlertCircle className="h-5 w-5 text-red-500 mx-auto mb-1" />
-                <p className="text-xs font-bold text-red-600 mb-2">{uploadError.message}</p>
-                <Button type="button" size="sm" className="rounded-full h-7 bg-red-500 text-white text-xs font-bold" onClick={() => { setUploadState("idle"); setUploadError(null); fileInputRef.current?.click(); }}>Try Again</Button>
-              </div>
-            ) : (
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center justify-between border border-dashed border-purple-200 rounded-2xl px-4 py-4 cursor-pointer hover:bg-purple-50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="h-11 w-11 bg-purple-100 rounded-full flex items-center justify-center">
-                    <UploadCloud className="h-6 w-6 text-purple-600" />
+                <div className="flex items-center gap-3 relative z-10 pr-10">
+                  <div className="h-11 w-11 bg-white/25 rounded-2xl flex items-center justify-center shrink-0 shadow-inner">
+                    <QrCode className="h-6 w-6 text-white" />
                   </div>
                   <div>
-                    <p className="text-sm font-extrabold text-slate-700">Upload Payment Proof</p>
-                    <p className="text-[10px] text-slate-400 font-medium">PNG, JPG, JPEG, WEBP supported</p>
+                    <h3 className="text-white font-extrabold text-xl leading-tight">Bayar QRIS</h3>
+                    <p className="text-white/75 text-xs font-medium mt-0.5">QRIS hanya berlaku sekali</p>
                   </div>
                 </div>
-                <Button type="button" size="sm" className="h-8 px-3 rounded-xl bg-purple-600 text-white text-xs font-extrabold gap-1 shrink-0">
-                  <UploadCloud className="h-3.5 w-3.5" /> Upload
-                </Button>
               </div>
-            )}
-          </div>
 
-          {/* Confirm button */}
-          <Button
-            type="button"
-            className="w-full h-13 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-extrabold text-sm gap-2 shadow-lg shadow-purple-500/30 disabled:opacity-50"
-            disabled={isPending || uploadState === "uploading" || !proofUrl || countdown === 0}
-            onClick={onConfirm}
-          >
-            {isPending
-              ? <Loader2 className="h-5 w-5 animate-spin" />
-              : <CheckCircle2 className="h-5 w-5" />}
-            {countdown === 0 ? "Payment Expired" : "Confirm Payment"}
-          </Button>
+              {/* ── Body ── */}
+              <div className="bg-white max-h-[75vh] overflow-y-auto">
+                <div className="px-5 pt-5 pb-6 space-y-4">
 
-          {/* Owner note */}
-          <div className="flex items-start gap-2.5 bg-slate-50 rounded-2xl px-4 py-3 border border-slate-100">
-            <Shield className="h-4 w-4 text-slate-400 shrink-0 mt-0.5" />
-            <div>
-              <p className="text-xs font-extrabold text-slate-700">Waiting for owner approval</p>
-              <p className="text-[10px] text-slate-400 font-medium mt-0.5">Your balance will automatically be added after payment has been verified.</p>
+                  {/* Total Payment */}
+                  <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-100 rounded-2xl px-5 py-4 text-center">
+                    <p className="text-[10px] font-extrabold text-purple-400 uppercase tracking-[0.18em] mb-1">Total Bayar</p>
+                    <p className="text-3xl font-extrabold text-purple-700 tracking-tight">
+                      Rp {amount.toLocaleString("id-ID")}
+                    </p>
+                  </div>
+
+                  {/* QRIS Image */}
+                  <div className="flex justify-center">
+                    {settings?.qrisImage ? (
+                      <div className="bg-white border border-slate-200 rounded-3xl p-4 shadow-md shadow-slate-200/70">
+                        <img src={settings.qrisImage} alt="QRIS" className="w-52 h-52 object-contain" />
+                      </div>
+                    ) : (
+                      <div className="w-52 h-52 bg-slate-50 border border-slate-200 rounded-3xl flex flex-col items-center justify-center shadow-sm">
+                        <QrCode className="h-16 w-16 text-slate-200 mb-2" />
+                        <span className="text-xs font-bold text-slate-400">QRIS belum dikonfigurasi</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Upload Proof Section */}
+                  <div>
+                    <input
+                      type="file"
+                      accept=".jpg,.jpeg,.png,.webp"
+                      className="hidden"
+                      ref={fileInputRef}
+                      onChange={handleFileChange}
+                    />
+
+                    {uploadState === "success" ? (
+                      // Preview uploaded image
+                      <div className="space-y-2">
+                        <div className="relative rounded-2xl overflow-hidden border-2 border-green-300 shadow-sm">
+                          <img
+                            src={previewObjectUrl ?? proofUrl ?? ""}
+                            alt="Bukti Transfer"
+                            className="w-full max-h-48 object-contain bg-slate-50"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = "none";
+                            }}
+                          />
+                          <div className="absolute top-2 right-2 flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()}
+                              className="h-7 px-3 rounded-full bg-white/90 text-slate-700 text-xs font-bold shadow-sm hover:bg-white transition-colors"
+                            >
+                              Ganti
+                            </button>
+                            <button
+                              type="button"
+                              onClick={resetProof}
+                              className="h-7 px-3 rounded-full bg-red-500/90 text-white text-xs font-bold shadow-sm hover:bg-red-500 transition-colors"
+                            >
+                              Hapus
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 px-1">
+                          <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                          <span className="text-xs font-bold text-green-600">Bukti transfer berhasil diupload</span>
+                        </div>
+                      </div>
+                    ) : uploadState === "uploading" ? (
+                      // Upload progress
+                      <div className="border-2 border-dashed border-purple-300 rounded-2xl bg-purple-50 px-5 py-7 flex flex-col items-center gap-3">
+                        <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+                        <div className="w-full max-w-[180px]">
+                          <Progress value={uploadProgress} className="h-2 rounded-full" />
+                        </div>
+                        <p className="text-xs font-bold text-purple-600">Mengupload... {uploadProgress}%</p>
+                      </div>
+                    ) : uploadState === "error" && uploadError ? (
+                      // Error state
+                      <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-5 text-center">
+                        <AlertCircle className="h-7 w-7 text-red-500 mx-auto mb-2" />
+                        <p className="text-sm font-bold text-red-600 mb-3">{uploadError.message}</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUploadState("idle");
+                            setUploadError(null);
+                            fileInputRef.current?.click();
+                          }}
+                          className="h-8 px-5 rounded-full bg-red-500 text-white text-xs font-extrabold hover:bg-red-600 transition-colors"
+                        >
+                          Coba Lagi
+                        </button>
+                      </div>
+                    ) : (
+                      // Idle upload area
+                      <div
+                        onClick={() => fileInputRef.current?.click()}
+                        className="border-2 border-dashed border-purple-200 rounded-2xl bg-purple-50/40 px-5 py-7 cursor-pointer hover:bg-purple-50 hover:border-purple-400 transition-all group"
+                      >
+                        <div className="flex flex-col items-center gap-3 text-center">
+                          <div className="h-14 w-14 bg-purple-100 rounded-full flex items-center justify-center group-hover:bg-purple-200 transition-colors">
+                            <UploadCloud className="h-7 w-7 text-purple-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-extrabold text-slate-700">Upload Bukti Transfer</p>
+                            <p className="text-xs text-slate-400 font-medium mt-0.5">Upload screenshot bukti transfer Anda</p>
+                          </div>
+                          <button
+                            type="button"
+                            className="h-9 px-6 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-md shadow-purple-500/25 hover:shadow-lg hover:shadow-purple-500/35 transition-all"
+                            onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                          >
+                            <UploadCloud className="h-3.5 w-3.5" /> Upload
+                          </button>
+                          <p className="text-[10px] text-slate-400 font-medium">JPG, JPEG, PNG, WEBP · Maks. 10 MB</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Confirm Button */}
+                  <motion.button
+                    type="button"
+                    whileTap={{ scale: 0.97 }}
+                    disabled={isPending || uploadState !== "success"}
+                    onClick={onConfirm}
+                    className="w-full h-13 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-purple-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    style={{ minHeight: 52 }}
+                  >
+                    {isPending ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-5 w-5" />
+                    )}
+                    Confirm
+                  </motion.button>
+
+                  {/* Bottom info card */}
+                  <div className="flex items-start gap-3 bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3.5">
+                    <span className="text-lg shrink-0 mt-0.5">🛡</span>
+                    <div>
+                      <p className="text-xs font-extrabold text-slate-700">Menunggu persetujuan owner</p>
+                      <p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">
+                        Setelah pembayaran dikonfirmasi owner, saldo akan otomatis masuk ke akun Anda.
+                      </p>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -407,7 +418,7 @@ export default function TopupPage() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const { data: settings } = useGetSettings();
-  const { data: topupHistory, isLoading: loadingHistory } = useListMyTopups({ limit: 5 });
+  const { data: topupHistory, isLoading: loadingHistory, refetch: refetchHistory } = useListMyTopups({ limit: 5 });
   const createTopup = useCreateTopup();
 
   const sessionKey = (token ?? "anon").slice(0, 10);
@@ -424,6 +435,7 @@ export default function TopupPage() {
   const [uploadState, setUploadState] = useState<"idle"|"uploading"|"success"|"error">("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<UploadErr | null>(null);
+  const [previewObjectUrl, setPreviewObjectUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<z.infer<typeof topupSchema>>({
@@ -432,12 +444,18 @@ export default function TopupPage() {
   });
 
   const selectedAmount = form.watch("amount");
+  const proofUrl = form.watch("paymentProof");
+
+  const openQrisModal = (amount: number) => {
+    form.setValue("amount", amount, { shouldValidate: true });
+    form.setValue("transferAmount", amount, { shouldValidate: true });
+    setQrisOpen(true);
+  };
 
   const setPreset = (preset: number) => {
-    form.setValue("amount", preset, { shouldValidate: true });
-    form.setValue("transferAmount", preset, { shouldValidate: true });
     setCustomValue("");
     setCustomError("");
+    openQrisModal(preset);
   };
 
   const applyCustom = () => {
@@ -451,8 +469,7 @@ export default function TopupPage() {
       return;
     }
     setCustomError("");
-    form.setValue("amount", v, { shouldValidate: true });
-    form.setValue("transferAmount", v, { shouldValidate: true });
+    openQrisModal(v);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -479,6 +496,12 @@ export default function TopupPage() {
     xhr.upload.addEventListener("progress", (ev) => {
       if (ev.lengthComputable) setUploadProgress(Math.round((ev.loaded / ev.total) * 100));
     });
+    // Revoke any previous object URL to avoid memory leaks
+    setPreviewObjectUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+    // Store preview URL before async upload
+    const localPreview = URL.createObjectURL(file);
+    setPreviewObjectUrl(localPreview);
+
     xhr.addEventListener("load", () => {
       try {
         const data = JSON.parse(xhr.responseText);
@@ -486,7 +509,7 @@ export default function TopupPage() {
           form.setValue("paymentProof", data.url, { shouldValidate: true });
           setUploadState("success");
           setUploadProgress(100);
-          toast({ title: "✅ Proof uploaded successfully!" });
+          toast({ title: "✅ Bukti berhasil diupload!" });
         } else {
           setUploadState("error");
           setUploadError({ code: "SERVER", message: data.message || "Upload failed." });
@@ -510,7 +533,13 @@ export default function TopupPage() {
     setUploadState("idle");
     setUploadProgress(0);
     setUploadError(null);
+    setPreviewObjectUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const closeQrisModal = () => {
+    setQrisOpen(false);
+    resetProof();
   };
 
   const handleConfirm = () => {
@@ -519,13 +548,14 @@ export default function TopupPage() {
       { data: { amount: values.amount, transferAmount: values.transferAmount, paymentProof: values.paymentProof } as any },
       {
         onSuccess: () => {
-          toast({ title: "🚀 Submitted!", description: "Waiting for owner to process." });
+          toast({ title: "🚀 Pembayaran dikirim!", description: "Menunggu konfirmasi dari owner." });
           setQrisOpen(false);
           resetProof();
           form.reset({ amount: 10000, transferAmount: 10000, paymentProof: "" });
+          refetchHistory();
         },
         onError: (err: any) => {
-          toast({ title: "Failed", description: err?.message || "Please try again.", variant: "destructive" });
+          toast({ title: "Gagal", description: err?.message || "Silakan coba lagi.", variant: "destructive" });
         },
       },
     );
@@ -542,11 +572,9 @@ export default function TopupPage() {
 
             {/* ── Page header ── */}
             <div className="relative px-5 pt-6 pb-3 overflow-hidden bg-white">
-              {/* Decorative stars */}
               <div className="absolute top-5 right-28 text-yellow-400 text-xl select-none pointer-events-none">★</div>
               <div className="absolute top-12 right-14 text-yellow-300 text-sm select-none pointer-events-none animate-bounce">★</div>
               <div className="absolute top-4 right-44 text-yellow-200 text-xs select-none pointer-events-none">✦</div>
-              {/* Character */}
               <div className="absolute right-3 top-0 text-[72px] select-none pointer-events-none opacity-85 leading-none">🧒</div>
 
               <div className="max-w-[65%]">
@@ -580,36 +608,21 @@ export default function TopupPage() {
             <div className="mx-4 mb-4 bg-white rounded-3xl border border-slate-100 shadow-sm p-4">
               <p className="font-extrabold text-slate-800 text-sm mb-3">Select Amount</p>
               <div className="grid grid-cols-3 gap-2.5 mb-4">
-                {PRESETS.map((p, i) => {
-                  const active = selectedAmount === p.amount;
-                  return (
-                    <motion.button
-                      key={p.amount}
-                      type="button"
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.04 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setPreset(p.amount)}
-                      className={`relative flex flex-col items-center py-3.5 px-2 rounded-2xl font-extrabold text-sm border transition-all ${
-                        active
-                          ? "bg-gradient-to-br from-purple-500 to-indigo-600 text-white border-transparent shadow-md shadow-purple-500/25"
-                          : "bg-slate-50 text-slate-700 border-slate-200 hover:border-purple-200 hover:bg-purple-50"
-                      }`}
-                    >
-                      {active && (
-                        <motion.span
-                          layoutId="preset-selected"
-                          className="absolute -top-1.5 -right-1.5 h-5 w-5 bg-white rounded-full flex items-center justify-center shadow-sm"
-                        >
-                          <CheckCircle2 className="h-3.5 w-3.5 text-purple-600" />
-                        </motion.span>
-                      )}
-                      <span className={`text-xs font-extrabold ${active ? "text-white/70" : "text-slate-400"}`}>TOP UP</span>
-                      <span className="text-sm font-extrabold mt-0.5 leading-tight">{p.label}</span>
-                    </motion.button>
-                  );
-                })}
+                {PRESETS.map((p, i) => (
+                  <motion.button
+                    key={p.amount}
+                    type="button"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.04 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setPreset(p.amount)}
+                    className="relative flex flex-col items-center py-3.5 px-2 rounded-2xl font-extrabold text-sm border transition-all bg-slate-50 text-slate-700 border-slate-200 hover:border-purple-300 hover:bg-purple-50 active:bg-purple-100"
+                  >
+                    <span className="text-xs font-extrabold text-slate-400">TOP UP</span>
+                    <span className="text-sm font-extrabold mt-0.5 leading-tight">{p.label}</span>
+                  </motion.button>
+                ))}
               </div>
 
               {/* Custom amount */}
@@ -624,6 +637,7 @@ export default function TopupPage() {
                       placeholder="Min: Rp 100"
                       value={customValue}
                       onChange={(e) => { setCustomValue(e.target.value); setCustomError(""); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyCustom(); } }}
                       className="pl-10 h-11 rounded-xl border-slate-200 bg-slate-50 text-sm font-bold focus-visible:ring-purple-500"
                     />
                   </div>
@@ -667,7 +681,7 @@ export default function TopupPage() {
             </div>
 
             {/* ── Top Up History ── */}
-            <div className="mx-4 mb-6">
+            <div className="mx-4 mb-8">
               <div className="flex items-center justify-between mb-3">
                 <p className="font-extrabold text-slate-800 text-sm">Top Up History</p>
                 <button
@@ -715,34 +729,13 @@ export default function TopupPage() {
               )}
             </div>
 
-            {/* ── Sticky Pay Button ── */}
-            <div className="sticky bottom-[64px] md:bottom-0 px-4 py-3 bg-white/95 backdrop-blur border-t border-slate-100 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
-              <motion.div whileTap={{ scale: 0.98 }}>
-                <Button
-                  type="button"
-                  className="w-full h-13 text-sm font-extrabold rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/30"
-                  onClick={() => {
-                    if (!selectedAmount || selectedAmount < 100) {
-                      toast({ title: "Please select an amount first!", variant: "destructive" });
-                      return;
-                    }
-                    setQrisOpen(true);
-                  }}
-                >
-                  Pay Now — Rp {(selectedAmount ?? 0).toLocaleString("id-ID")}
-                  <ChevronRight className="h-5 w-5 ml-1" />
-                </Button>
-              </motion.div>
-            </div>
-
-            {/* ── QRIS Dialog ── */}
-            <QRISDialog
+            {/* ── QRIS Modal ── */}
+            <QRISModal
               open={qrisOpen}
-              onClose={() => setQrisOpen(false)}
+              onClose={closeQrisModal}
               amount={selectedAmount ?? 0}
               settings={settings}
               token={token}
-              form={form}
               uploadState={uploadState}
               setUploadState={setUploadState}
               uploadProgress={uploadProgress}
@@ -752,6 +745,8 @@ export default function TopupPage() {
               fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
               handleFileChange={handleFileChange}
               resetProof={resetProof}
+              proofUrl={proofUrl}
+              previewObjectUrl={previewObjectUrl}
               onConfirm={handleConfirm}
               isPending={createTopup.isPending}
             />
