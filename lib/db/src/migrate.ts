@@ -45,8 +45,12 @@ async function run() {
     ALTER TABLE videos ADD COLUMN IF NOT EXISTS video_file_path text;
     ALTER TABLE topups ADD COLUMN IF NOT EXISTS transfer_amount double precision;
     ALTER TABLE topups ADD COLUMN IF NOT EXISTS amount_match_status text DEFAULT 'match';
+    ALTER TABLE videos ADD COLUMN IF NOT EXISTS uploader_type text;
+    ALTER TABLE videos ADD COLUMN IF NOT EXISTS thumbnail_path text;
+    ALTER TABLE videos ADD COLUMN IF NOT EXISTS storage_folder text;
+    ALTER TABLE videos ADD COLUMN IF NOT EXISTS bucket_name text;
   `);
-  console.log("✅  video_source_type / video_file_path / transfer_amount / amount_match_status columns ensured");
+  console.log("✅  video_source_type / video_file_path / transfer_amount / amount_match_status / uploader_type / thumbnail_path / storage_folder / bucket_name columns ensured");
 
   // 1. Back-fill referral codes
   const noCode = await db.select({ id: schema.usersTable.id })

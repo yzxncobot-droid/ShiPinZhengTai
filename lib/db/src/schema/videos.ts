@@ -53,6 +53,17 @@ export const videosTable = pgTable(
     videoSourceType: text("video_source_type").notNull().default("upload"),
     /** Supabase storage path for uploaded files (e.g. videos/abc.mp4). Null for external links. */
     videoFilePath: text("video_file_path"),
+    /**
+     * Multi-storage metadata — set at upload time, stored for auditing & path resolution.
+     *  uploaderType   → "creator" | "verified_creator" | "owner"
+     *  thumbnailPath  → Supabase storage path for the thumbnail file
+     *  storageFolder  → sub-folder used inside the bucket (e.g. "creator/videos")
+     *  bucketName     → Supabase bucket name (always "yzx" currently)
+     */
+    uploaderType:  text("uploader_type"),
+    thumbnailPath: text("thumbnail_path"),
+    storageFolder: text("storage_folder"),
+    bucketName:    text("bucket_name"),
     categoryId: uuid("category_id").references(() => categoriesTable.id, { onDelete: "set null" }),
     creatorId: uuid("creator_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
     deletedAt: timestamp("deleted_at"),

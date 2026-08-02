@@ -6,6 +6,8 @@ import {
   supabase, MEDIA_BUCKET,
   FOLDER_VIDEOS, FOLDER_THUMBNAILS, FOLDER_IMAGES, FOLDER_PAYMENTS,
   FOLDER_BUNDLES, FOLDER_BUNDLE_THUMBNAILS,
+  FOLDER_BY_UPLOADER_TYPE, FOLDER_VERIFIED_CREATOR_PAYMENTS,
+  UPLOADER_TYPES, type UploaderType,
   getPublicUrl, uploadWithRetry,
 } from "../lib/supabase";
 import { logger } from "../lib/logger";
@@ -104,6 +106,30 @@ async function uploadToMediaBucket(folder: string, file: Express.Multer.File) {
   }
 }
 
+/**
+ * Resolve the Supabase sub-folder for a video/thumbnail upload based on
+ * the uploader type.  Falls back to the legacy flat folder when no
+ * uploader type is supplied (backward-compatible).
+ */
+function resolveVideoFolder(uploaderType: string | undefined, kind: "videos" | "thumbnails"): {
+  folder: string;
+  uploaderType: UploaderType | null;
+} {
+  if (!uploaderType) {
+    return { folder: kind === "videos" ? FOLDER_VIDEOS : FOLDER_THUMBNAILS, uploaderType: null };
+  }
+
+  // Normalize: accept "Verified Creator" → "verified_creator", "Creator" → "creator", "Owner" → "owner"
+  const normalized = uploaderType.trim().toLowerCase().replace(/\s+/g, "_") as UploaderType;
+  if (!UPLOADER_TYPES.includes(normalized)) {
+    throw new Error(
+      `INVALID_UPLOADER_TYPE: Uploader type "${uploaderType}" tidak valid. ` +
+      `Gunakan salah satu: Creator, Verified Creator, Owner.`,
+    );
+  }
+  return { folder: FOLDER_BY_UPLOADER_TYPE[normalized][kind], uploaderType: normalized };
+}
+
 /** Build a user-friendly error message from a Supabase storage error. */
 function friendlyUploadError(err: any, bucket: string, folder: string): string {
   const msg = (err?.message ?? "").toLowerCase();
@@ -128,7 +154,14 @@ function friendlyUploadError(err: any, bucket: string, folder: string): string {
   return `Upload gagal (${bucket}/${folder}): ${err?.message ?? "Unknown error"}`;
 }
 
-// ── Video upload → yzx/videos/ ────────────────────────────────────────────────
+// ── Video upload → role-based folder (or legacy yzx/videos/) ─────────────────
+//
+//  Accepts optional field `uploaderType` in the request body:
+//    "Creator"          → yzx/creator/videos/
+//    "Verified Creator" → yzx/verified-creator/videos/
+//    "Owner"            → yzx/owner/videos/
+//    (omitted)          → yzx/videos/  (legacy, backward-compatible)
+//
 router.post(
   "/upload/video",
   authenticate,
@@ -138,17 +171,46 @@ router.post(
       res.status(400).json({ success: false, message: "Tidak ada file video yang dipilih." });
       return;
     }
+
+    let resolved: ReturnType<typeof resolveVideoFolder>;
     try {
-      const { path: storedPath, url } = await uploadToMediaBucket(FOLDER_VIDEOS, req.file);
-      res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: MEDIA_BUCKET });
+      resolved = resolveVideoFolder(req.body?.uploaderType, "videos");
     } catch (err: any) {
-      logger.error({ bucket: MEDIA_BUCKET, folder: FOLDER_VIDEOS, err }, "Video upload failed");
-      res.status(500).json({ success: false, message: friendlyUploadError(err, MEDIA_BUCKET, FOLDER_VIDEOS), detail: err?.message });
+      if (err.message.startsWith("INVALID_UPLOADER_TYPE")) {
+        res.status(400).json({ success: false, message: err.message.replace("INVALID_UPLOADER_TYPE: ", "") });
+        return;
+      }
+      throw err;
+    }
+
+    const { folder, uploaderType } = resolved;
+    try {
+      const { path: storedPath, url } = await uploadToMediaBucket(folder, req.file);
+      res.json({
+        success: true,
+        url,
+        path: storedPath,
+        filename: storedPath,
+        size: req.file.size,
+        bucket: MEDIA_BUCKET,
+        storageFolder: folder,
+        uploaderType: uploaderType ?? null,
+      });
+    } catch (err: any) {
+      logger.error({ bucket: MEDIA_BUCKET, folder, err }, "Video upload failed");
+      res.status(500).json({ success: false, message: friendlyUploadError(err, MEDIA_BUCKET, folder), detail: err?.message });
     }
   },
 );
 
-// ── Thumbnail upload → yzx/thumnails/ ────────────────────────────────────────
+// ── Thumbnail upload → role-based folder (or legacy yzx/thumnails/) ──────────
+//
+//  Accepts optional field `uploaderType` in the request body:
+//    "Creator"          → yzx/creator/thumbnails/
+//    "Verified Creator" → yzx/verified-creator/thumbnails/
+//    "Owner"            → yzx/owner/thumbnails/
+//    (omitted)          → yzx/thumnails/  (legacy, backward-compatible)
+//
 router.post(
   "/upload/thumbnail",
   authenticate,
@@ -158,12 +220,34 @@ router.post(
       res.status(400).json({ success: false, message: "Tidak ada file thumbnail yang dipilih." });
       return;
     }
+
+    let resolved: ReturnType<typeof resolveVideoFolder>;
     try {
-      const { path: storedPath, url } = await uploadToMediaBucket(FOLDER_THUMBNAILS, req.file);
-      res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: MEDIA_BUCKET });
+      resolved = resolveVideoFolder(req.body?.uploaderType, "thumbnails");
     } catch (err: any) {
-      logger.error({ bucket: MEDIA_BUCKET, folder: FOLDER_THUMBNAILS, err }, "Thumbnail upload failed");
-      res.status(500).json({ success: false, message: friendlyUploadError(err, MEDIA_BUCKET, FOLDER_THUMBNAILS), detail: err?.message });
+      if (err.message.startsWith("INVALID_UPLOADER_TYPE")) {
+        res.status(400).json({ success: false, message: err.message.replace("INVALID_UPLOADER_TYPE: ", "") });
+        return;
+      }
+      throw err;
+    }
+
+    const { folder, uploaderType } = resolved;
+    try {
+      const { path: storedPath, url } = await uploadToMediaBucket(folder, req.file);
+      res.json({
+        success: true,
+        url,
+        path: storedPath,
+        filename: storedPath,
+        size: req.file.size,
+        bucket: MEDIA_BUCKET,
+        storageFolder: folder,
+        uploaderType: uploaderType ?? null,
+      });
+    } catch (err: any) {
+      logger.error({ bucket: MEDIA_BUCKET, folder, err }, "Thumbnail upload failed");
+      res.status(500).json({ success: false, message: friendlyUploadError(err, MEDIA_BUCKET, folder), detail: err?.message });
     }
   },
 );
@@ -228,7 +312,7 @@ router.post(
   },
 );
 
-// ── Payment proof → yzx/payments/ ────────────────────────────────────────────
+// ── Payment proof → yzx/verified-creator/payments/ ───────────────────────────
 const proofUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_IMAGE_SIZE },
@@ -257,7 +341,9 @@ router.post(
 
     const userId = req.user.userId;
     const ext = extOf(req.file.originalname) || ".jpg";
-    const storagePath = `${FOLDER_PAYMENTS}/${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+    // Payment proofs always land in yzx/verified-creator/payments/ regardless of uploader type
+    const proofFolder = FOLDER_VERIFIED_CREATOR_PAYMENTS;
+    const storagePath = `${proofFolder}/${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
 
     logger.info({ userId, bucket: MEDIA_BUCKET, storagePath, size: req.file.size }, "UPLOAD START payment-proof");
 
@@ -276,13 +362,13 @@ router.post(
         url: publicUrl,
         path: savedPath,
         bucket: MEDIA_BUCKET,
-        folder: FOLDER_PAYMENTS,
+        folder: proofFolder,
         filename: storagePath,
         size: req.file.size,
       });
     } catch (err: any) {
-      logger.error({ bucket: MEDIA_BUCKET, folder: FOLDER_PAYMENTS, userId, storagePath, err: err?.message }, "UPLOAD ERROR payment-proof");
-      res.status(500).json({ success: false, message: friendlyUploadError(err, MEDIA_BUCKET, FOLDER_PAYMENTS), detail: err?.message });
+      logger.error({ bucket: MEDIA_BUCKET, folder: proofFolder, userId, storagePath, err: err?.message }, "UPLOAD ERROR payment-proof");
+      res.status(500).json({ success: false, message: friendlyUploadError(err, MEDIA_BUCKET, proofFolder), detail: err?.message });
     }
   },
 );
@@ -290,8 +376,13 @@ router.post(
 // ── Debug endpoint: Supabase connection & bucket status ───────────────────────
 router.get("/upload/debug", authenticate, async (req: Request, res: Response) => {
   const EXPECTED_FOLDERS = [
+    // Legacy folders (existing files live here)
     FOLDER_VIDEOS, FOLDER_THUMBNAILS, FOLDER_IMAGES,
     FOLDER_PAYMENTS, FOLDER_BUNDLES, FOLDER_BUNDLE_THUMBNAILS,
+    // Multi-storage role-based folders
+    "creator/videos", "creator/thumbnails",
+    "verified-creator/videos", "verified-creator/thumbnails", FOLDER_VERIFIED_CREATOR_PAYMENTS,
+    "owner/videos", "owner/thumbnails",
   ];
 
   const result: Record<string, any> = {

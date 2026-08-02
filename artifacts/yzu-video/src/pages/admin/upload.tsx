@@ -18,13 +18,39 @@ import {
 import { Switch } from "@/components/ui/switch";
 import {
   Loader2, UploadCloud, Video as VideoIcon, Image as ImageIcon,
-  Link as LinkIcon, CheckCircle2, Globe, Sparkles, Package,
+  Link as LinkIcon, CheckCircle2, Globe, Sparkles, Package, Users,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { adminFetch } from "@/lib/admin-api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+
+const UPLOADER_TYPE_OPTIONS = [
+  {
+    value: "Creator",
+    label: "Creator",
+    icon: "🎬",
+    description: "Folder: creator/videos",
+    color: "border-sky-400 bg-sky-50 text-sky-700",
+  },
+  {
+    value: "Verified Creator",
+    label: "Verified Creator",
+    icon: "✅",
+    description: "Folder: verified-creator/videos",
+    color: "border-green-400 bg-green-50 text-green-700",
+  },
+  {
+    value: "Owner",
+    label: "Owner",
+    icon: "👑",
+    description: "Folder: owner/videos",
+    color: "border-amber-400 bg-amber-50 text-amber-700",
+  },
+] as const;
+
+type UploaderTypeValue = "Creator" | "Verified Creator" | "Owner";
 
 const CONTENT_TYPE_OPTIONS = [
   {
@@ -84,6 +110,7 @@ const uploadSchema = z.object({
   videoUrl:        z.string().min(1, "Video wajib diisi"),
   videoFilePath:   z.string().optional(),
   thumbnail:       z.string().min(1, "Thumbnail wajib diupload"),
+  uploaderType:    z.enum(["Creator", "Verified Creator", "Owner"]).optional(),
 }).superRefine((data, ctx) => {
   if (data.videoSourceType === "external_link" && data.videoUrl && !isValidVideoLink(data.videoUrl)) {
     ctx.addIssue({
@@ -145,6 +172,14 @@ export default function AdminUploadVideo() {
   const [isSubmitting, setIsSubmitting]           = useState(false);
   const [uploadProgress, setUploadProgress]       = useState(0);
 
+  // Storage metadata returned from upload endpoints — stored and forwarded to POST /videos
+  const [uploadMeta, setUploadMeta] = useState<{
+    videoStorageFolder?: string;
+    thumbnailPath?: string;
+    thumbnailStorageFolder?: string;
+    bucketName?: string;
+  }>({});
+
   const videoInputRef = useRef<HTMLInputElement>(null);
   const thumbInputRef = useRef<HTMLInputElement>(null);
 
@@ -162,6 +197,7 @@ export default function AdminUploadVideo() {
       videoUrl: "",
       videoFilePath: "",
       thumbnail: "",
+      uploaderType: undefined,
     },
   });
 
@@ -194,9 +230,14 @@ export default function AdminUploadVideo() {
 
     const fd = new FormData();
     fd.append(formKey, file);
+    // Pass uploader type so the backend routes to the correct Supabase folder
+    const currentUploaderType = form.getValues("uploaderType");
+    if (currentUploaderType) fd.append("uploaderType", currentUploaderType);
 
     try {
-      const data = await new Promise<{ url: string; path?: string }>((resolve, reject) => {
+      const data = await new Promise<{
+        url: string; path?: string; storageFolder?: string; bucketName?: string;
+      }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.upload.addEventListener("progress", (e) => {
           if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100));
@@ -220,6 +261,23 @@ export default function AdminUploadVideo() {
       if (pathField && data.path) {
         form.setValue(pathField as keyof UploadForm, data.path, { shouldValidate: false });
       }
+
+      // Capture storage metadata for forwarding to video creation
+      if (isVideo) {
+        setUploadMeta(prev => ({
+          ...prev,
+          videoStorageFolder: data.storageFolder,
+          bucketName: data.bucketName ?? "yzx",
+        }));
+      } else {
+        setUploadMeta(prev => ({
+          ...prev,
+          thumbnailPath: data.path,
+          thumbnailStorageFolder: data.storageFolder,
+          bucketName: data.bucketName ?? "yzx",
+        }));
+      }
+
       toast({ title: `${isVideo ? "Video" : "Thumbnail"} berhasil diupload!` });
     } catch (err: any) {
       toast({ title: "Upload gagal", description: err.message, variant: "destructive" });
@@ -251,6 +309,11 @@ export default function AdminUploadVideo() {
           videoSourceType: values.videoSourceType,
           videoFilePath:   values.videoFilePath || null,
           thumbnail:       values.thumbnail || null,
+          // Multi-storage metadata
+          uploaderType:  values.uploaderType   || null,
+          thumbnailPath: uploadMeta.thumbnailPath || null,
+          storageFolder: uploadMeta.videoStorageFolder || null,
+          bucketName:    uploadMeta.bucketName || null,
         }),
       });
 
@@ -304,6 +367,57 @@ export default function AdminUploadVideo() {
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+
+              {/* ══════════════════════════════════════════════
+                  0. UPLOADER TYPE
+              ══════════════════════════════════════════════ */}
+              <SectionCard
+                icon={<Users className="h-4 w-4" />}
+                title="Tipe Uploader"
+                gradient="bg-gradient-to-r from-teal-500 to-cyan-600"
+              >
+                <FormField control={form.control} name="uploaderType" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-gray-700 font-semibold sr-only">Tipe Uploader</FormLabel>
+                    <FormDescription className="text-xs text-gray-500 mb-2">
+                      Pilih tipe uploader agar file tersimpan di folder Supabase yang tepat.
+                    </FormDescription>
+                    <FormControl>
+                      <div className="grid grid-cols-3 gap-3">
+                        {UPLOADER_TYPE_OPTIONS.map((opt) => {
+                          const isSelected = field.value === opt.value;
+                          return (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => field.onChange(isSelected ? undefined : opt.value)}
+                              className={`flex flex-col items-center text-center gap-1.5 py-4 px-2 rounded-xl border-2 transition-all font-medium text-sm
+                                ${isSelected
+                                  ? opt.color + " shadow-sm scale-[1.02]"
+                                  : "border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300"
+                                }`}
+                            >
+                              <span className="text-2xl">{opt.icon}</span>
+                              <span className="font-extrabold text-[12px] leading-tight">{opt.label}</span>
+                              <span className="text-[10px] leading-tight opacity-70">{opt.description}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                    {field.value && (
+                      <p className="text-xs text-teal-600 font-medium mt-1">
+                        ✓ File video akan disimpan di folder <code className="bg-teal-50 px-1 rounded">{
+                          field.value === "Creator" ? "creator/videos" :
+                          field.value === "Verified Creator" ? "verified-creator/videos" :
+                          "owner/videos"
+                        }</code>
+                      </p>
+                    )}
+                  </FormItem>
+                )} />
+              </SectionCard>
 
               {/* ══════════════════════════════════════════════
                   1. CONTENT TYPE

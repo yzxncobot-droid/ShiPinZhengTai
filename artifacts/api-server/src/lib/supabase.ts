@@ -40,12 +40,23 @@ export const supabase = createClient(
 /**
  * All media lives in the single "yzx" bucket (default) unless overridden via
  * env vars. Sub-folders within the bucket:
+ *
+ * Legacy (backward-compatible — existing files stay here):
  *   videos/            → uploaded video files          (yzx/videos)
  *   thumnails/         → video thumbnails              (yzx/thumnails) ← intentional typo matching Supabase bucket
  *   images/            → avatars, logos, banners, QRIS (yzx/images)
- *   payments/          → payment proof screenshots     (yzx/payments)
+ *   payments/          → legacy payment proofs         (yzx/payments)
  *   bundles/           → bundle video files            (yzx/bundles)
  *   bundle-thumbnails/ → bundle cover images           (yzx/bundle-thumbnails)
+ *
+ * Multi-storage (role-based — new uploads go here):
+ *   creator/videos/            → Creator video files
+ *   creator/thumbnails/        → Creator thumbnails
+ *   verified-creator/videos/   → Verified Creator video files
+ *   verified-creator/thumbnails/ → Verified Creator thumbnails
+ *   verified-creator/payments/ → Verified Creator payment proofs
+ *   owner/videos/              → Owner video files
+ *   owner/thumbnails/          → Owner thumbnails
  */
 export const MEDIA_BUCKET         = process.env.SUPABASE_VIDEOS_BUCKET    ?? "yzx";
 export const THUMBNAILS_BUCKET    = process.env.SUPABASE_THUMBNAILS_BUCKET ?? MEDIA_BUCKET;
@@ -54,7 +65,7 @@ export const PAYMENTS_BUCKET_NAME = process.env.SUPABASE_PAYMENTS_BUCKET   ?? ME
 /** @deprecated alias kept for call-sites still referencing PAYMENT_BUCKET */
 export const PAYMENT_BUCKET = MEDIA_BUCKET;
 
-/** Sub-folder names within MEDIA_BUCKET */
+// ── Legacy folder names (kept for backward-compat; existing files still live here) ──
 export const FOLDER_VIDEOS            = "videos";
 export const FOLDER_THUMBNAILS        = "thumnails";   // ← matches actual Supabase bucket folder name
 export const FOLDER_IMAGES            = "images";
@@ -64,6 +75,20 @@ export const FOLDER_BUNDLE_THUMBNAILS = "bundle-thumbnails";
 
 /** @deprecated use FOLDER_PAYMENTS */
 export const PAYMENTS_FOLDER = FOLDER_PAYMENTS;
+
+// ── Multi-storage: role-based folder paths ────────────────────────────────────
+export const UPLOADER_TYPES = ["creator", "verified_creator", "owner"] as const;
+export type UploaderType = typeof UPLOADER_TYPES[number];
+
+/** Map an uploader type to its video sub-folder. */
+export const FOLDER_BY_UPLOADER_TYPE: Record<UploaderType, { videos: string; thumbnails: string }> = {
+  creator:          { videos: "creator/videos",            thumbnails: "creator/thumbnails" },
+  verified_creator: { videos: "verified-creator/videos",   thumbnails: "verified-creator/thumbnails" },
+  owner:            { videos: "owner/videos",              thumbnails: "owner/thumbnails" },
+};
+
+/** Payment proofs always land here, regardless of uploader type. */
+export const FOLDER_VERIFIED_CREATOR_PAYMENTS = "verified-creator/payments";
 
 /** Build a public URL for a Supabase Storage object */
 export function getPublicUrl(bucket: string, path: string): string {

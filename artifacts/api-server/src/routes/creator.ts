@@ -60,6 +60,7 @@ router.post("/creator/videos", authenticate, requireCreatorBadge, async (req: Re
       bundleId, price, downloadable = false,
       videoSourceType = "upload", videoUrl, videoFilePath, thumbnail,
       tags, status = "published",
+      uploaderType, thumbnailPath, storageFolder, bucketName,
     } = req.body;
 
     if (!title?.trim()) {
@@ -87,6 +88,11 @@ router.post("/creator/videos", authenticate, requireCreatorBadge, async (req: Re
       tags: tags ?? null,
       status,
       creatorId: userId,
+      // Multi-storage metadata (optional)
+      uploaderType:  uploaderType  || null,
+      thumbnailPath: thumbnailPath || null,
+      storageFolder: storageFolder || null,
+      bucketName:    bucketName   || null,
     }).returning();
 
     logger.info({ videoId: video.id, creatorId: userId }, "Creator uploaded video");

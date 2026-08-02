@@ -245,6 +245,7 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
     const {
       title, description, thumbnail, videoUrl, videoSourceType, videoFilePath,
       price, downloadable, isFeatured, categoryId, tags, duration, scheduledAt, status = "published",
+      uploaderType, thumbnailPath, storageFolder, bucketName,
     } = req.body;
 
     // ── Required field guards ─────────────────────────────────────────────────
@@ -326,6 +327,11 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
       visibility:      visUpdates.visibility ?? "public",
       type:            visUpdates.type ?? "free",
       bundleExclusive: visUpdates.bundleExclusive ?? false,
+      // Multi-storage metadata (optional — only set when uploaderType is provided)
+      uploaderType:  uploaderType  || null,
+      thumbnailPath: thumbnailPath || null,
+      storageFolder: storageFolder || null,
+      bucketName:    bucketName   || null,
     };
 
     logger.info({ insertPayload }, "POST /videos — about to INSERT");
@@ -397,7 +403,11 @@ router.patch("/videos/:id", authenticate, requireRole("admin", "owner"), async (
     if (!existing) { res.status(404).json({ error: "Video tidak ditemukan" }); return; }
 
     const updates: any = { updatedAt: new Date() };
-    const scalarFields = ["title","description","thumbnail","videoUrl","price","downloadable","isFeatured","tags","duration","status"] as const;
+    const scalarFields = [
+      "title","description","thumbnail","videoUrl","price","downloadable","isFeatured","tags","duration","status",
+      // Multi-storage metadata
+      "uploaderType","thumbnailPath","storageFolder","bucketName",
+    ] as const;
     for (const f of scalarFields) {
       if (req.body[f] !== undefined) updates[f] = req.body[f];
     }

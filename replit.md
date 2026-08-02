@@ -8,8 +8,8 @@ A full-featured premium video platform with browsing, uploading, subscriptions, 
 |-------|------|
 | Frontend | React 19, Vite 7, Tailwind CSS 4, TanStack Query, Radix UI, Wouter |
 | Backend | Node.js 20, Express 5, esbuild |
-| Database | PostgreSQL (Replit managed) via Drizzle ORM |
-| Storage | Supabase (video/image/payment files) — optional; uploads disabled without it |
+| Database | Neon PostgreSQL (external, via `NEON_DATABASE_URL`) via Drizzle ORM |
+| Storage | Supabase Storage — single `yzx` bucket with role-based sub-folders |
 | Sessions/Cache | Upstash Redis — optional; app runs without it (no session invalidation or caching) |
 | Auth | JWT + username/password. Roles: `meril` (default user), `admin`, `owner` |
 
@@ -58,6 +58,22 @@ Schema is managed by Drizzle ORM. To push schema changes to the dev DB:
 ```bash
 pnpm --filter @workspace/db run push
 ```
+
+## Video Storage Architecture
+
+All files live in the single `yzx` Supabase bucket. New uploads use **role-based sub-folders** based on the selected Uploader Type in the admin upload form:
+
+| Uploader Type    | Videos folder               | Thumbnails folder               |
+|------------------|-----------------------------|---------------------------------|
+| Creator          | `creator/videos/`           | `creator/thumbnails/`           |
+| Verified Creator | `verified-creator/videos/`  | `verified-creator/thumbnails/`  |
+| Owner            | `owner/videos/`             | `owner/thumbnails/`             |
+
+Payment proofs always go to `verified-creator/payments/` regardless of uploader type.
+
+**Backward compatibility:** existing files in legacy folders (`videos/`, `thumnails/`, `payments/`, `bundles/`, `bundle-thumbnails/`) continue to work — nothing was deleted or moved.
+
+**DB metadata:** each video record now stores `uploader_type`, `thumbnail_path`, `storage_folder`, and `bucket_name` (all nullable for existing videos).
 
 ## API codegen
 
