@@ -20,6 +20,8 @@ import {
   isOwnerStorageAvailable,
   isBunnyStreamAvailable,
   resolveStorageType,
+  isPublicStorageAvailable,
+  uploadToPublicBucket,
 } from "../lib/storage";
 import type { UploadVideoResult, UploadThumbnailResult } from "../lib/storage";
 import { logger } from "../lib/logger";
@@ -337,7 +339,7 @@ router.post(
   },
 );
 
-// ── Generic image upload (avatars, logos, banners, QRIS…) → yzx/images/ ──────
+// ── Generic image upload (avatars, logos, banners, QRIS…) → public/images/ ───
 router.post(
   "/upload/image",
   authenticate,
@@ -347,21 +349,21 @@ router.post(
       res.status(400).json({ success: false, message: "Tidak ada file gambar yang dipilih." });
       return;
     }
-    if (!isSupabaseAvailable) {
+    if (!isPublicStorageAvailable) {
       res.status(503).json({ success: false, message: "Storage belum dikonfigurasi. Hubungi administrator." });
       return;
     }
     try {
-      const { path: storedPath, url } = await uploadToLegacyBucket(FOLDER_IMAGES, req.file);
-      res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: MEDIA_BUCKET });
+      const { path: storedPath, url } = await uploadToPublicBucket("public/images", req.file);
+      res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: "yzx" });
     } catch (err: any) {
-      logger.error({ folder: FOLDER_IMAGES, err }, "Image upload failed");
-      res.status(500).json({ success: false, message: friendlyUploadError(err, FOLDER_IMAGES), detail: err?.message });
+      logger.error({ folder: "public/images", err }, "Image upload failed");
+      res.status(500).json({ success: false, message: friendlyUploadError(err, "public/images"), detail: err?.message });
     }
   },
 );
 
-// ── Bundle video upload → yzx/bundles/ (legacy Supabase) ─────────────────────
+// ── Bundle video upload → public/bundles/ (PUBLIC Supabase) ──────────────────
 router.post(
   "/upload/bundle-video",
   authenticate,
@@ -371,21 +373,21 @@ router.post(
       res.status(400).json({ success: false, message: "Tidak ada file video bundle yang dipilih." });
       return;
     }
-    if (!isSupabaseAvailable) {
+    if (!isPublicStorageAvailable) {
       res.status(503).json({ success: false, message: "Storage belum dikonfigurasi. Hubungi administrator." });
       return;
     }
     try {
-      const { path: storedPath, url } = await uploadToLegacyBucket(FOLDER_BUNDLES, req.file);
-      res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: MEDIA_BUCKET });
+      const { path: storedPath, url } = await uploadToPublicBucket("public/bundles", req.file);
+      res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: "yzx" });
     } catch (err: any) {
-      logger.error({ folder: FOLDER_BUNDLES, err }, "Bundle video upload failed");
-      res.status(500).json({ success: false, message: friendlyUploadError(err, FOLDER_BUNDLES), detail: err?.message });
+      logger.error({ folder: "public/bundles", err }, "Bundle video upload failed");
+      res.status(500).json({ success: false, message: friendlyUploadError(err, "public/bundles"), detail: err?.message });
     }
   },
 );
 
-// ── Bundle thumbnail upload → yzx/bundle-thumbnails/ (legacy Supabase) ───────
+// ── Bundle thumbnail upload → public/bundle-thumbnails/ (PUBLIC Supabase) ────
 router.post(
   "/upload/bundle-thumbnail",
   authenticate,
@@ -395,16 +397,16 @@ router.post(
       res.status(400).json({ success: false, message: "Tidak ada file thumbnail bundle yang dipilih." });
       return;
     }
-    if (!isSupabaseAvailable) {
+    if (!isPublicStorageAvailable) {
       res.status(503).json({ success: false, message: "Storage belum dikonfigurasi. Hubungi administrator." });
       return;
     }
     try {
-      const { path: storedPath, url } = await uploadToLegacyBucket(FOLDER_BUNDLE_THUMBNAILS, req.file);
-      res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: MEDIA_BUCKET });
+      const { path: storedPath, url } = await uploadToPublicBucket("public/bundle-thumbnails", req.file);
+      res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: "yzx" });
     } catch (err: any) {
-      logger.error({ folder: FOLDER_BUNDLE_THUMBNAILS, err }, "Bundle thumbnail upload failed");
-      res.status(500).json({ success: false, message: friendlyUploadError(err, FOLDER_BUNDLE_THUMBNAILS), detail: err?.message });
+      logger.error({ folder: "public/bundle-thumbnails", err }, "Bundle thumbnail upload failed");
+      res.status(500).json({ success: false, message: friendlyUploadError(err, "public/bundle-thumbnails"), detail: err?.message });
     }
   },
 );

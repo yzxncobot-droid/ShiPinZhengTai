@@ -148,6 +148,27 @@ export const verifiedCreatorPublicStorage: StorageService = {
 };
 
 /**
+ * Upload any generic file (image, bundle video, bundle thumbnail) to the PUBLIC
+ * Supabase project under the given folder.
+ *
+ * Drop-in replacement for the legacy uploadToLegacyBucket() that required the
+ * now-unused SUPABASE_URL env var.
+ */
+export async function uploadToPublicBucket(
+  folder: string,
+  file: Express.Multer.File,
+): Promise<{ path: string; url: string }> {
+  checkAvailable();
+  const path = require("path");
+  const ext = path.extname(file.originalname).toLowerCase();
+  const storagePath = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+  const { path: savedPath, url } = await supabaseUploadWithRetry(
+    client, PUBLIC_SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
+  );
+  return { path: savedPath, url };
+}
+
+/**
  * Upload a payment proof — always goes to public/verified-creator/payments/{userId}/
  */
 export async function uploadPublicPaymentProof(

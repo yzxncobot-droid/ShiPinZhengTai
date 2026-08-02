@@ -18,6 +18,7 @@ export {
   verifiedCreatorPublicStorage,
   isPublicStorageAvailable,
   uploadPublicPaymentProof,
+  uploadToPublicBucket,
 } from "./public";
 export { ownerStorage, isOwnerStorageAvailable, isBunnyStreamAvailable } from "./owner";
 export type {
