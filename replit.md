@@ -95,19 +95,31 @@ pnpm --filter @workspace/db run push
 
 ## Video Storage Architecture
 
-All files live in the single `yzx` Supabase bucket. New uploads use **role-based sub-folders** based on the selected Uploader Type in the admin upload form:
+Two separate Supabase projects handle all file storage:
 
-| Uploader Type    | Videos folder               | Thumbnails folder               |
-|------------------|-----------------------------|---------------------------------|
-| Creator          | `creator/videos/`           | `creator/thumbnails/`           |
-| Verified Creator | `verified-creator/videos/`  | `verified-creator/thumbnails/`  |
-| Owner            | `owner/videos/`             | `owner/thumbnails/`             |
+### Supabase PUBLIC project (`PUBLIC_SUPABASE_URL`)
+Used for all **Creator** and **Verified Creator** uploads.
 
-Payment proofs always go to `verified-creator/payments/` regardless of uploader type.
+| Uploader Type    | Videos folder                        | Thumbnails folder                        |
+|------------------|--------------------------------------|------------------------------------------|
+| Creator          | `yzx/public/creator/videos/`         | `yzx/public/creator/thumbnails/`         |
+| Verified Creator | `yzx/public/verified-creator/videos/`| `yzx/public/verified-creator/thumbnails/`|
 
-**Backward compatibility:** existing files in legacy folders (`videos/`, `thumnails/`, `payments/`, `bundles/`, `bundle-thumbnails/`) continue to work — nothing was deleted or moved.
+Payment proofs: `yzx/public/verified-creator/payments/{userId}/`
 
-**DB metadata:** each video record now stores `uploader_type`, `thumbnail_path`, `storage_folder`, and `bucket_name` (all nullable for existing videos).
+### Supabase OWNER project (`OWNER_SUPABASE_URL`)
+Used exclusively for **Owner** and **Admin** uploads.
+
+| Uploader Type | Videos folder       | Thumbnails folder       |
+|---------------|---------------------|-------------------------|
+| Owner         | `yzx/owner/videos/` | `yzx/owner/thumbnails/` |
+
+### Routing logic
+- `creator` / `verified_creator` → PUBLIC Supabase → `storage_type = 'PUBLIC'`
+- `owner` → OWNER Supabase → `storage_type = 'OWNER'`
+- Legacy rows (pre-migration) with no `storage_type` are back-filled on startup.
+
+**Backward compatibility:** existing files in legacy folders continue to work — nothing was deleted or moved. The startup migration in `artifacts/api-server/src/lib/startup-migration.ts` back-fills `storage_type` from `uploader_type` on every boot.
 
 ## API codegen
 
