@@ -79,11 +79,6 @@ function RoleBadge({ role, subscriptionStatus }: { role?: string; subscriptionSt
       ✓ Creator
     </span>
   );
-  if (subscriptionStatus === "active") return (
-    <span className="flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 leading-none">
-      <Crown className="h-2.5 w-2.5" /> Premium
-    </span>
-  );
   return null;
 }
 

@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
 import {
-  Loader2, Camera, Wallet, Crown, ChevronRight, LogOut, Settings,
+  Loader2, Camera, Wallet, ChevronRight, LogOut, Settings,
   Bell, Shield, HelpCircle, Heart, Video, Star, Users, Gift,
   History, User, Lock, Moon, Sun, Award, Plus, Minus,
 } from "lucide-react";
@@ -204,11 +204,6 @@ export default function ProfilePage() {
                 <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${roleInfo.className}`}>
                   {roleInfo.label}
                 </span>
-                {currentUser.activeSubscription && (
-                  <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
-                    <Crown className="h-3 w-3 inline mr-1" />Premium
-                  </span>
-                )}
               </div>
               {currentUser.createdAt && (
                 <p className="text-white/50 text-[10px] font-medium mt-1.5">
@@ -242,7 +237,7 @@ export default function ProfilePage() {
                 {[
                   { label: "Top Up", icon: Plus, href: "/topup", color: "bg-purple-500" },
                   { label: "Riwayat", icon: History, href: "/history", color: "bg-blue-500" },
-                  { label: "Langganan", icon: Crown, href: "/subscriptions", color: "bg-amber-500" },
+                  { label: "Bundle", icon: Gift, href: "/bundles", color: "bg-pink-500" },
                 ].map((a) => (
                   <Link key={a.label} href={a.href}
                     className="flex flex-col items-center gap-1.5 py-3 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-purple-50 hover:border-purple-100 transition-colors"
@@ -289,7 +284,6 @@ export default function ProfilePage() {
                 <MenuItem icon={Wallet} label="Wallet & Saldo" href="/topup" iconBg="bg-gradient-to-br from-amber-500 to-orange-400" />
                 <MenuItem icon={History} label="Riwayat Transaksi" href="/history" iconBg="bg-gradient-to-br from-blue-500 to-sky-400" />
                 <MenuItem icon={Gift} label="Bundle Saya" href="/bundles/my" iconBg="bg-gradient-to-br from-pink-500 to-rose-400" />
-                <MenuItem icon={Crown} label="Langganan Premium" href="/subscriptions" iconBg="bg-gradient-to-br from-amber-400 to-yellow-400" />
               </div>
 
               <div className="px-4 pt-4 pb-2 border-t border-slate-50">

@@ -33,8 +33,8 @@ const REWARD_ICONS: Record<string, React.ElementType> = {
 const REWARD_LABELS: Record<string, string> = {
   wallet_balance: "Saldo Wallet",
   coins: "Koin",
-  premium_subscription: "Langganan Premium",
-  premium_video: "Video Premium",
+  premium_subscription: "Hadiah Eksklusif",
+  premium_video: "Video Eksklusif",
   bundle: "Bundle",
   coupon: "Kupon",
   redeem_code: "Kode Redeem",
@@ -48,7 +48,7 @@ function formatReward(type: string, value: string, amount?: number | null): stri
     const n = amount ?? parseFloat(value);
     return isNaN(n) ? value : `${n.toLocaleString("id-ID")}`;
   }
-  if (type === "premium_subscription") return `${value} hari Premium`;
+  if (type === "premium_subscription") return `${value} hari Eksklusif`;
   return value;
 }
 

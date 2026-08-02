@@ -1,6 +1,5 @@
-import { useState } from "react";
 import { useLocation } from "wouter";
-import { Crown, Star, Unlock, MonitorPlay, Sparkles, ShoppingCart, Cloud, Loader2, Gift } from "lucide-react";
+import { Unlock, MonitorPlay, Sparkles, ShoppingCart, Cloud, Loader2, Gift } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth";
@@ -31,10 +30,6 @@ export function PremiumLockScreen({ video }: PremiumLockScreenProps) {
   const price = video.price ?? 0;
   const walletBalance = user?.walletBalance ?? 0;
   const canAfford = walletBalance >= price;
-
-  const handleBuySubscription = () => {
-    setLocation("/subscriptions");
-  };
 
   const bundleTarget = video.bundles && video.bundles.length > 0 ? `/bundles?highlight=${video.bundles[0].id}` : "/bundles";
   const handleGoToBundle = () => {
@@ -84,28 +79,26 @@ export function PremiumLockScreen({ video }: PremiumLockScreenProps) {
       <div className="bg-gradient-to-b from-[#1e1b4b] to-[#312e81] p-8 relative overflow-hidden text-center text-white flex flex-col items-center justify-center">
         <Cloud className="absolute top-4 left-6 h-12 w-12 text-white/10 fill-white/10" />
         <Cloud className="absolute bottom-4 right-4 h-16 w-16 text-white/10 fill-white/10" />
-        <Star className="absolute top-10 right-8 h-6 w-6 text-yellow-300 fill-yellow-300 transform rotate-12" />
-        <Star className="absolute bottom-8 left-8 h-4 w-4 text-purple-300 fill-purple-300 transform -rotate-12" />
         
         <div className="relative mx-auto w-24 h-24 mb-4">
-          <div className="absolute inset-0 bg-yellow-400/20 blur-xl rounded-full" />
-          <svg className="w-full h-full drop-shadow-2xl" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 2C9.23858 2 7 4.23858 7 7V10H6C4.89543 10 4 10.8954 4 12V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V12C20 10.8954 19.1046 10 18 10H17V7C17 4.23858 14.7614 2 12 2ZM9 7C9 5.34315 10.3431 4 12 4C13.6569 4 15 5.34315 15 7V10H9V7ZM12 14C12.8284 14 13.5 14.6716 13.5 15.5C13.5 16.0354 13.2201 16.5053 12.8 16.7725V18C12.8 18.4418 12.4418 18.8 12 18.8C11.5582 18.8 11.2 18.4418 11.2 18V16.7725C10.7799 16.5053 10.5 16.0354 10.5 15.5C10.5 14.6716 11.1716 14 12 14Z" fill="#FBBF24"/>
-          </svg>
+          <div className="absolute inset-0 bg-purple-400/20 blur-xl rounded-full" />
+          <div className="w-full h-full rounded-full bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center shadow-2xl">
+            <ShoppingCart className="h-10 w-10 text-white" strokeWidth={1.5} />
+          </div>
         </div>
         
-        <Badge className="bg-gradient-to-r from-yellow-400 to-orange-400 text-yellow-900 border-none font-extrabold px-3 py-1 uppercase tracking-wider text-[10px] mb-3">
-          Produk Premium
+        <Badge className="bg-gradient-to-r from-purple-400 to-violet-500 text-white border-none font-extrabold px-3 py-1 uppercase tracking-wider text-[10px] mb-3">
+          Konten Berbayar
         </Badge>
         
-        <h2 className="text-xl md:text-2xl font-extrabold font-heading mb-2 leading-tight">Video ini hanya untuk member premium</h2>
-        <p className="text-[11px] md:text-sm font-medium text-indigo-200 px-4">Dapatkan akses penuh untuk menonton video ini dan semua konten premium lainnya.</p>
+        <h2 className="text-xl md:text-2xl font-extrabold font-heading mb-2 leading-tight">Video ini memerlukan pembelian</h2>
+        <p className="text-[11px] md:text-sm font-medium text-indigo-200 px-4">Beli video ini untuk mendapatkan akses penuh dan tonton kapan saja.</p>
       </div>
 
       {/* Body Panel */}
       <div className="p-5 bg-white">
         <div className="flex flex-wrap gap-2 mb-3">
-          <Badge className="bg-yellow-50 text-yellow-700 hover:bg-yellow-100 border-none font-extrabold text-[10px]">Premium Content</Badge>
+          <Badge className="bg-purple-50 text-purple-700 hover:bg-purple-100 border-none font-extrabold text-[10px]">Konten Eksklusif</Badge>
           <Badge className="bg-green-50 text-green-700 hover:bg-green-100 border-none font-extrabold text-[10px]">Aman & Terpercaya</Badge>
         </div>
         
@@ -134,41 +127,30 @@ export function PremiumLockScreen({ video }: PremiumLockScreenProps) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3">
           {video.bundleExclusive ? (
-            <>
-              <Button 
-                className="h-auto py-3 px-2 flex-col gap-1 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-500 text-white shadow-md shadow-pink-500/30 border-none col-span-2" 
-                onClick={handleGoToBundle}
-              >
-                <span className="font-extrabold text-[13px] flex items-center gap-1"><Gift className="h-4 w-4" /> Lihat Bundle</span>
-                <span className="text-[9px] font-bold opacity-90 leading-tight text-center px-1">Video ini hanya bisa dibuka dengan membeli bundle-nya</span>
-              </Button>
-            </>
+            <Button 
+              className="h-auto py-3 px-2 flex-col gap-1 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-500 text-white shadow-md shadow-pink-500/30 border-none" 
+              onClick={handleGoToBundle}
+            >
+              <span className="font-extrabold text-[13px] flex items-center gap-1"><Gift className="h-4 w-4" /> Lihat Bundle</span>
+              <span className="text-[9px] font-bold opacity-90 leading-tight text-center px-1">Video ini hanya bisa dibuka dengan membeli bundle-nya</span>
+            </Button>
           ) : (
-            <>
-              <Button 
-                className="h-auto py-3 px-2 flex-col gap-1 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-500 text-white shadow-md shadow-orange-500/30 border-none" 
-                onClick={handlePurchase}
-                disabled={purchaseMutation.isPending || !price}
-              >
-                {purchaseMutation.isPending ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <>
-                    <span className="font-extrabold text-[13px] flex items-center gap-1"><ShoppingCart className="h-4 w-4" /> Beli</span>
-                    <span className="text-[9px] font-bold opacity-90 leading-tight text-center px-1">Beli video ini sekali tonton</span>
-                  </>
-                )}
-              </Button>
-              <Button 
-                className="h-auto py-3 px-2 flex-col gap-1 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-md shadow-purple-500/30 border-none" 
-                onClick={handleBuySubscription}
-              >
-                <span className="font-extrabold text-[13px] flex items-center gap-1"><Crown className="h-4 w-4" /> Subscription</span>
-                <span className="text-[9px] font-bold opacity-90 leading-tight text-center px-1">Akses semua video premium</span>
-              </Button>
-            </>
+            <Button 
+              className="h-auto py-3 px-2 flex-col gap-1 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-500 text-white shadow-md shadow-orange-500/30 border-none" 
+              onClick={handlePurchase}
+              disabled={purchaseMutation.isPending || !price}
+            >
+              {purchaseMutation.isPending ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <>
+                  <span className="font-extrabold text-[13px] flex items-center gap-1"><ShoppingCart className="h-4 w-4" /> Beli Video</span>
+                  <span className="text-[9px] font-bold opacity-90 leading-tight text-center px-1">Beli video ini untuk akses selamanya</span>
+                </>
+              )}
+            </Button>
           )}
         </div>
       </div>

@@ -32,7 +32,7 @@ const BADGES: Record<string, { label: string; color: string; icon: string }> = {
   moderator:      { label: "Moderator",       color: "#10b981", icon: "🟢" },
   creator:        { label: "Creator",         color: "#f97316", icon: "✨" },
   vip:            { label: "VIP",             color: "#ec4899", icon: "💎" },
-  premium:        { label: "Premium",         color: "#f59e0b", icon: "⭐" },
+  premium:        { label: "VIP",             color: "#f59e0b", icon: "⭐" },
   official:       { label: "Official",        color: "#0ea5e9", icon: "🏅" },
   early_supporter:{ label: "Early Supporter", color: "#84cc16", icon: "🌱" },
   beta_tester:    { label: "Beta Tester",     color: "#a78bfa", icon: "🔬" },
@@ -400,11 +400,6 @@ export function UserProfileModal({ userId, open, onClose }: Props) {
                   )}
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
                     <RolePill role={profile.role} />
-                    {profile.subscriptionStatus === "active" && (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 flex items-center gap-0.5">
-                        <Star className="h-2.5 w-2.5" /> Premium
-                      </span>
-                    )}
                   </div>
                 </div>
                 {isOwner && (
@@ -494,9 +489,9 @@ export function UserProfileModal({ userId, open, onClose }: Props) {
                     </p>
                   </div>
                   <div className="bg-slate-50 rounded-xl p-3">
-                    <p className="text-xs text-slate-400 mb-0.5">Subscription</p>
-                    <p className={`font-bold ${profile.subscriptionStatus === "active" ? "text-amber-600" : "text-slate-500"}`}>
-                      {profile.subscriptionStatus === "active" ? "Premium" : "Free"}
+                    <p className="text-xs text-slate-400 mb-0.5">Status</p>
+                    <p className="font-bold text-slate-500">
+                      Member
                     </p>
                   </div>
                 </div>

@@ -92,7 +92,7 @@ export default function SearchPage() {
             </div>
             <h2 className="text-2xl font-heading font-bold mb-2">Search the Library</h2>
             <p className="text-muted-foreground max-w-md mx-auto">
-              Find your favorite premium videos, discover new content, and explore our massive collection.
+              Find your favorite videos, discover new content, and explore our massive collection.
             </p>
           </div>
         )}

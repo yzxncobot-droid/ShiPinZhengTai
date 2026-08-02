@@ -79,7 +79,7 @@ const REWARD_LABELS: Record<string, string> = {
   coin: "Koin",
   wallet_balance: "Saldo Wallet",
   bundle: "Bundle",
-  premium_membership: "Premium",
+  premium_membership: "Hadiah Eksklusif",
   video_unlock: "Video Unlock",
   badge: "Badge",
   coupon: "Kupon",

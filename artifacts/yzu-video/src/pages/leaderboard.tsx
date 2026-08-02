@@ -229,9 +229,9 @@ function PrizeModal({ open, onClose }: { open: boolean; onClose: () => void }) {
         </DialogHeader>
         <div className="space-y-3 mt-2">
           {[
-            { icon: "🥇", title: "Juara 1", color: "from-yellow-400/20 to-amber-500/10 border-yellow-400/40", items: ["Badge Eksklusif Golden Crown", "Saldo Rp 100.000", "Premium 30 Hari"] },
-            { icon: "🥈", title: "Juara 2", color: "from-slate-300/20 to-slate-400/10 border-slate-300/40", items: ["Badge Silver Crown", "Saldo Rp 50.000", "Premium 14 Hari"] },
-            { icon: "🥉", title: "Juara 3", color: "from-amber-700/20 to-orange-700/10 border-amber-600/40", items: ["Badge Bronze Crown", "Saldo Rp 25.000", "Premium 7 Hari"] },
+            { icon: "🥇", title: "Juara 1", color: "from-yellow-400/20 to-amber-500/10 border-yellow-400/40", items: ["Badge Eksklusif Golden Crown", "Saldo Rp 100.000", "Bundle Eksklusif 30 Hari"] },
+            { icon: "🥈", title: "Juara 2", color: "from-slate-300/20 to-slate-400/10 border-slate-300/40", items: ["Badge Silver Crown", "Saldo Rp 50.000", "Bundle Eksklusif 14 Hari"] },
+            { icon: "🥉", title: "Juara 3", color: "from-amber-700/20 to-orange-700/10 border-amber-600/40", items: ["Badge Bronze Crown", "Saldo Rp 25.000", "Bundle Eksklusif 7 Hari"] },
             { icon: "🏅", title: "Top 10", color: "from-purple-500/20 to-violet-500/10 border-purple-400/40", items: ["Badge Top Creator"] },
             { icon: "⭐", title: "Top 50", color: "from-blue-500/20 to-cyan-500/10 border-blue-400/40", items: ["Badge Elite Member"] },
           ].map((prize) => (

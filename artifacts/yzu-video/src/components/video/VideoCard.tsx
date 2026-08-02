@@ -26,8 +26,6 @@ function strHash(s: string): number {
 }
 
 export function VideoCard({ video, layout = "grid" }: VideoCardProps) {
-  const isPremium = video.type === "premium";
-
   // video.id is a UUID string — use a hash so modulo never produces NaN
   const hash = strHash(String(video.id));
   const badge = BADGES[hash % BADGES.length] ?? BADGES[0];

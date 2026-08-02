@@ -87,17 +87,6 @@ export function VerificationBadge({
     );
   }
 
-  // Premium subscriber (gold star)
-  if (subscriptionStatus === "active") {
-    return (
-      <Wrap show={showTooltip} tooltip="Premium Member">
-        <span className={`inline-flex items-center justify-center ${s.box} rounded-full bg-amber-100 shadow-sm shrink-0`}>
-          <Crown className={`${s.icon} text-amber-600`} />
-        </span>
-      </Wrap>
-    );
-  }
-
   return null;
 }
 

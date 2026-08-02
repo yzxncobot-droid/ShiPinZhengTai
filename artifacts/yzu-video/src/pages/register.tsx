@@ -103,7 +103,7 @@ export default function Register() {
             Buat Akun Baru
           </h1>
           <p className="text-muted-foreground mt-2 text-center">
-            Bergabung dengan platform streaming premium
+            Bergabung dengan platform video anak terbaik
           </p>
         </div>
 

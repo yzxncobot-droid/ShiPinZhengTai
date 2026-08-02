@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator, 
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
-import { Search, User, Wallet, Bell, History, Crown, LayoutDashboard, LogOut, MessageCircle, Send, Globe2, UploadCloud, Film, BadgeCheck, Gift, Trophy } from "lucide-react";
+import { Search, User, Wallet, Bell, History, LayoutDashboard, LogOut, MessageCircle, Send, Globe2, UploadCloud, Film, BadgeCheck, Gift, Trophy } from "lucide-react";
 import { SiInstagram, SiTiktok, SiFacebook, SiYoutube, SiDiscord } from "react-icons/si";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +25,7 @@ export function FunLogo({ className = "" }: { className?: string }) {
         </span>
       </div>
       <div className="bg-purple-100 rounded-full px-2 py-0.5 -mt-1">
-        <span className="text-[8px] font-extrabold text-purple-700 tracking-widest uppercase">Premium Kids Platform</span>
+        <span className="text-[8px] font-extrabold text-purple-700 tracking-widest uppercase">Kids Video Platform</span>
       </div>
     </div>
   );
@@ -110,12 +110,6 @@ export function Navbar() {
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-1.5 mt-2">
-                      {user.activeSubscription && (
-                        <Badge variant="secondary" className="bg-amber-100 text-amber-700 hover:bg-amber-200 border-none font-bold text-[10px]">
-                          <Crown className="mr-1 h-2.5 w-2.5" />
-                          {user.activeSubscription.subscription?.name || 'Premium'}
-                        </Badge>
-                      )}
                       {(user as any).verifiedCreator && (
                         <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-200 border-none font-bold text-[10px]">
                           <BadgeCheck className="mr-1 h-2.5 w-2.5" /> Verified Creator
@@ -221,7 +215,7 @@ export function Footer() {
           <div className="space-y-4 md:col-span-1">
             <FunLogo className="items-start" />
             <p className="text-slate-500 text-sm max-w-sm font-medium mt-4">
-              {settings?.footerText || "The premium video streaming platform for kids. Discover, watch, and learn in a safe, fun, and colorful environment."}
+              {settings?.footerText || "The best video platform for kids. Discover, watch, and learn in a safe, fun, and colorful environment."}
             </p>
           </div>
 
@@ -229,7 +223,7 @@ export function Footer() {
             <h4 className="font-heading font-extrabold text-slate-800">Links</h4>
             <ul className="space-y-2 text-sm font-medium text-slate-500">
               <li><Link href="/" className="hover:text-purple-600 transition-colors">Home</Link></li>
-              <li><Link href="/subscriptions" className="hover:text-purple-600 transition-colors">Premium</Link></li>
+              <li><Link href="/bundles" className="hover:text-purple-600 transition-colors">Bundles</Link></li>
               <li><Link href="/leaderboard" className="hover:text-purple-600 transition-colors">Leaderboard</Link></li>
               <li><Link href="/search" className="hover:text-purple-600 transition-colors">Search</Link></li>
             </ul>
@@ -287,7 +281,7 @@ export function Footer() {
           <p>© {new Date().getFullYear()} {siteName}. All rights reserved.</p>
           <div className="mt-4 md:mt-0 flex gap-4">
             <span className="text-purple-600 font-extrabold tracking-wider text-[10px] uppercase flex items-center gap-1.5 bg-purple-50 px-3 py-1.5 rounded-full">
-              <Globe2 className="h-3.5 w-3.5" /> Kids Premium Platform
+              <Globe2 className="h-3.5 w-3.5" /> Kids Video Platform
             </span>
           </div>
         </div>

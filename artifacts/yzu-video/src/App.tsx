@@ -14,7 +14,6 @@ import AdminMaintenancePage from "@/pages/admin/maintenance";
 import Home from "@/pages/home";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
-import Subscriptions from "@/pages/subscriptions";
 import TopupPage from "@/pages/topup";
 import HistoryPage from "@/pages/history";
 import LeaderboardPage from "@/pages/leaderboard";
@@ -75,7 +74,6 @@ function AppRouter() {
       <Route path="/" component={Home} />
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
-      <Route path="/subscriptions" component={Subscriptions} />
       <Route path="/topup" component={TopupPage} />
       <Route path="/history" component={HistoryPage} />
       <Route path="/profile" component={ProfilePage} />
