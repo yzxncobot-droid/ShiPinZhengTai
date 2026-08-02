@@ -17,7 +17,9 @@ import {
   uploadPaymentProof,
   isCreatorStorageAvailable,
   isVerifiedCreatorStorageAvailable,
+  isOwnerStorageAvailable,
   isBunnyStreamAvailable,
+  resolveStorageType,
 } from "../lib/storage";
 import type { UploadVideoResult, UploadThumbnailResult } from "../lib/storage";
 import { logger } from "../lib/logger";
@@ -177,15 +179,16 @@ router.post(
           filename:          result.path,
           size:              req.file.size,
           storageProvider:   result.storageProvider,
+          storageType:       result.storageType,
           storageFolder:     result.storageFolder ?? null,
           bucketName:        result.bucketName    ?? null,
           uploaderType:      normalized,
-          // Bunny-specific (null for Supabase providers)
+          // Bunny-specific (null for all new Supabase providers)
           bunnyVideoId:      result.bunnyVideoId      ?? null,
           bunnyPlaybackUrl:  result.bunnyPlaybackUrl  ?? null,
           bunnyLibraryId:    result.bunnyLibraryId    ?? null,
-          // Derived: videoSourceType hint for the frontend
-          videoSourceType:   normalized === "owner" ? "upload" : "upload",
+          // videoSourceType hint for the frontend
+          videoSourceType:   "upload",
         });
       } catch (err: any) {
         logger.error({ uploaderType: normalized, err }, "Video upload failed (multi-storage)");
@@ -264,6 +267,7 @@ router.post(
           filename:        result.path,
           size:            req.file.size,
           storageProvider: result.storageProvider,
+          storageType:     result.storageType,
           storageFolder:   result.storageFolder ?? null,
           bucketName:      result.bucketName    ?? null,
           uploaderType:    normalized,
@@ -485,35 +489,35 @@ router.post(
 router.get("/upload/debug", authenticate, async (req: Request, res: Response) => {
   const result: Record<string, any> = {
     timestamp: new Date().toISOString(),
+    architecture: "PUBLIC + OWNER (2 Supabase projects)",
     storageProviders: {
+      publicSupabase: {
+        description:      "Creator + Verified Creator uploads",
+        supabaseUrl:      process.env.PUBLIC_SUPABASE_URL ?? "(not set)",
+        serviceKeyPresent: !!process.env.PUBLIC_SUPABASE_SERVICE_KEY,
+        available:        isCreatorStorageAvailable,
+        bucket:           "yzx",
+        creatorVideoFolder:      "public/creator/videos",
+        creatorThumbFolder:      "public/creator/thumbnails",
+        vcVideoFolder:           "public/verified-creator/videos",
+        vcThumbFolder:           "public/verified-creator/thumbnails",
+        vcPaymentsFolder:        "public/verified-creator/payments",
+      },
+      ownerSupabase: {
+        description:      "Owner / Admin uploads",
+        supabaseUrl:      process.env.OWNER_SUPABASE_URL ?? "(not set)",
+        serviceKeyPresent: !!process.env.OWNER_SUPABASE_SERVICE_KEY,
+        available:        isOwnerStorageAvailable,
+        bucket:           "yzx",
+        videoFolder:      "owner/videos",
+        thumbFolder:      "owner/thumbnails",
+      },
       legacy: {
+        description:      "Pre-migration uploads (backward-compat)",
         supabaseUrl:      process.env.SUPABASE_URL ?? "(not set)",
         serviceKeyPresent: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
         available:        isSupabaseAvailable,
         bucket:           MEDIA_BUCKET,
-      },
-      creator: {
-        supabaseUrl:      process.env.CREATOR_SUPABASE_URL ?? "(not set)",
-        serviceKeyPresent: !!process.env.CREATOR_SUPABASE_SERVICE_ROLE_KEY,
-        available:        isCreatorStorageAvailable,
-        bucket:           "yzx",
-        videoFolder:      "creator/videos",
-        thumbFolder:      "creator/thumbnails",
-      },
-      verifiedCreator: {
-        supabaseUrl:      process.env.VERIFIED_CREATOR_SUPABASE_URL ?? "(not set)",
-        serviceKeyPresent: !!process.env.VERIFIED_CREATOR_SUPABASE_SERVICE_ROLE_KEY,
-        available:        isVerifiedCreatorStorageAvailable,
-        bucket:           "yzx",
-        videoFolder:      "verified-creator/videos",
-        thumbFolder:      "verified-creator/thumbnails",
-        paymentsFolder:   "verified-creator/payments",
-      },
-      bunnyStream: {
-        libraryId:     process.env.BUNNY_STREAM_LIBRARY_ID ?? "(not set)",
-        apiKeyPresent: !!process.env.BUNNY_STREAM_API_KEY,
-        cdnHostname:   process.env.BUNNY_CDN_HOSTNAME ?? "(not set — will use embed URL)",
-        available:     isBunnyStreamAvailable,
       },
     },
   };
@@ -527,21 +531,6 @@ router.get("/upload/debug", authenticate, async (req: Request, res: Response) =>
         : (buckets ?? []).map((b: any) => ({ name: b.name, public: b.public }));
     } catch (e: any) {
       result.storageProviders.legacy.connectError = e?.message;
-    }
-  }
-
-  // Test Bunny Stream connectivity
-  if (isBunnyStreamAvailable) {
-    try {
-      const bunnyRes = await fetch(
-        `https://video.bunnycdn.com/library/${process.env.BUNNY_STREAM_LIBRARY_ID}/videos?page=1&itemsPerPage=1`,
-        { headers: { "AccessKey": process.env.BUNNY_STREAM_API_KEY! } },
-      );
-      result.storageProviders.bunnyStream.connectionTest = bunnyRes.ok
-        ? "SUCCESS"
-        : `FAILED (${bunnyRes.status})`;
-    } catch (e: any) {
-      result.storageProviders.bunnyStream.connectError = e?.message;
     }
   }
 

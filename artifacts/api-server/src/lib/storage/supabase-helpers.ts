@@ -1,12 +1,12 @@
 /**
- * Shared Supabase storage helpers used by CreatorStorage and VerifiedCreatorStorage.
+ * Shared Supabase storage helpers used by all storage services.
  * Each storage service gets its own Supabase client instance (different project credentials).
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import path from "path";
 import { logger } from "../logger";
-import type { StorageProvider, UploadThumbnailResult, UploadVideoResult } from "./types";
+import type { StorageProvider, StorageType, UploadThumbnailResult, UploadVideoResult } from "./types";
 
 export function buildSupabaseClient(url: string, serviceKey: string): SupabaseClient {
   return createClient(
@@ -20,7 +20,7 @@ function extOf(filename: string): string {
   return path.extname(filename).toLowerCase();
 }
 
-function generateStoragePath(folder: string, originalName: string): string {
+export function generateStoragePath(folder: string, originalName: string): string {
   const ext = extOf(originalName);
   return `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
 }
@@ -75,6 +75,7 @@ export function makeSupabaseVideoResult(opts: {
   path: string;
   url: string;
   storageProvider: StorageProvider;
+  storageType: StorageType;
   bucketName: string;
   storageFolder: string;
 }): UploadVideoResult {
@@ -82,6 +83,7 @@ export function makeSupabaseVideoResult(opts: {
     url: opts.url,
     path: opts.path,
     storageProvider: opts.storageProvider,
+    storageType: opts.storageType,
     bunnyVideoId: null,
     bunnyPlaybackUrl: null,
     bunnyLibraryId: null,
@@ -95,6 +97,7 @@ export function makeSupabaseThumbnailResult(opts: {
   path: string;
   url: string;
   storageProvider: StorageProvider;
+  storageType: StorageType;
   bucketName: string;
   storageFolder: string;
 }): UploadThumbnailResult {
@@ -102,9 +105,8 @@ export function makeSupabaseThumbnailResult(opts: {
     url: opts.url,
     path: opts.path,
     storageProvider: opts.storageProvider,
+    storageType: opts.storageType,
     bucketName: opts.bucketName,
     storageFolder: opts.storageFolder,
   };
 }
-
-export { generateStoragePath };

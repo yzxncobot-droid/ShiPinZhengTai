@@ -1,6 +1,11 @@
 /**
  * StorageService factory — resolves the correct storage provider
- * based on the uploader type badge.
+ * based on the uploader type.
+ *
+ * NEW architecture (2 Supabase projects):
+ *   creator          → PublicStorage  (PUBLIC_SUPABASE_URL)
+ *   verified_creator → PublicStorage  (PUBLIC_SUPABASE_URL)
+ *   owner            → OwnerStorage   (OWNER_SUPABASE_URL)
  *
  * Usage:
  *   import { getStorageService } from "../lib/storage";
@@ -8,11 +13,16 @@
  *   const result  = await storage.uploadVideo(file, { title: "My Video" });
  */
 
-export { creatorStorage, isCreatorStorageAvailable } from "./creator";
-export { verifiedCreatorStorage, isVerifiedCreatorStorageAvailable, uploadPaymentProof } from "./verified-creator";
-export { ownerStorage, isBunnyStreamAvailable } from "./owner";
+export {
+  creatorPublicStorage,
+  verifiedCreatorPublicStorage,
+  isPublicStorageAvailable,
+  uploadPublicPaymentProof,
+} from "./public";
+export { ownerStorage, isOwnerStorageAvailable, isBunnyStreamAvailable } from "./owner";
 export type {
   StorageProvider,
+  StorageType,
   StorageService,
   UploadVideoResult,
   UploadThumbnailResult,
@@ -20,8 +30,7 @@ export type {
 } from "./types";
 
 import type { StorageService } from "./types";
-import { creatorStorage } from "./creator";
-import { verifiedCreatorStorage } from "./verified-creator";
+import { creatorPublicStorage, verifiedCreatorPublicStorage } from "./public";
 import { ownerStorage } from "./owner";
 
 export type NormalizedUploaderType = "creator" | "verified_creator" | "owner";
@@ -43,12 +52,15 @@ export function normalizeUploaderType(raw: string | undefined): NormalizedUpload
 
 /**
  * Returns the StorageService for the given uploader type.
- * Throws if the type is unknown.
+ *
+ *   creator          → PUBLIC Supabase
+ *   verified_creator → PUBLIC Supabase
+ *   owner            → OWNER Supabase
  */
 export function getStorageService(type: NormalizedUploaderType): StorageService {
   switch (type) {
-    case "creator":          return creatorStorage;
-    case "verified_creator": return verifiedCreatorStorage;
+    case "creator":          return creatorPublicStorage;
+    case "verified_creator": return verifiedCreatorPublicStorage;
     case "owner":            return ownerStorage;
     default: {
       const _: never = type;
@@ -56,3 +68,17 @@ export function getStorageService(type: NormalizedUploaderType): StorageService 
     }
   }
 }
+
+/**
+ * Resolve the storage_type string ("PUBLIC" | "OWNER") for a given uploader type.
+ */
+export function resolveStorageType(type: NormalizedUploaderType): "PUBLIC" | "OWNER" {
+  return type === "owner" ? "OWNER" : "PUBLIC";
+}
+
+// Re-export payment proof helper under the old name for backward compat in upload.ts
+export { uploadPublicPaymentProof as uploadPaymentProof } from "./public";
+
+// Legacy availability flags — kept for backward compat
+export { isPublicStorageAvailable as isCreatorStorageAvailable } from "./public";
+export { isPublicStorageAvailable as isVerifiedCreatorStorageAvailable } from "./public";

@@ -78,6 +78,13 @@ export const videosTable = pgTable(
     bunnyPlaybackUrl: text("bunny_playback_url"),
     /** Bunny Stream library ID — for constructing API calls and URLs */
     bunnyLibraryId:  text("bunny_library_id"),
+    /**
+     * High-level storage destination (set at upload time):
+     *  - "PUBLIC" → Creator or Verified Creator upload → PUBLIC Supabase project
+     *  - "OWNER"  → Owner/Admin upload → OWNER Supabase project
+     *  - null     → legacy upload (pre-migration rows)
+     */
+    storageType: text("storage_type"),
     categoryId: uuid("category_id").references(() => categoriesTable.id, { onDelete: "set null" }),
     creatorId: uuid("creator_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
     deletedAt: timestamp("deleted_at"),
