@@ -2,6 +2,7 @@
 - [Bundle system frontend](bundle-system-frontend.md) — detail page at /bundles/:id, watch page at /bundle/watch/:videoId; BundlePurchaseSuccess now redirects to /bundles/:id; POST /admin/upload auto-links video to bundle via PATCH /bundles/:id
 - [Bundle video access control](bundle-access-control.md) — GET /bundles/video/:videoId returns bundle+hasPurchased; watch page gates on hasPurchased; public video queries all filter visibility != hidden_bundle
 - [Video visibility system](visibility-system.md) — `videos.visibility` (public/premium/hidden_bundle) is authoritative; legacy type+bundleExclusive kept in sync
+- [Storage architecture v2 (PUBLIC + OWNER)](storage-v2.md) — Creator+VerifiedCreator → PUBLIC Supabase; Owner → OWNER Supabase; `storage_type` col added to videos; startup migration runs on boot
 - [Storage layout (Supabase)](storage-layout.md) — single `yzx` bucket with videos/, thumnails/, images/, payments/ sub-folders; use uploadWithRetry
 - [Yzu视频 JWT secret](yzu-video-jwt.md) — SESSION_SECRET env var is required at startup (no fallback allowed)
 - [Admin panel white-screen guards](admin-white-screen-guards.md) — ProtectedRoute/query-error patterns that caused blank admin pages on mobile

@@ -12,6 +12,7 @@ import { eq, and, desc, asc, ilike, gte, ne, or, sql, count, isNull } from "driz
 import { authenticate, optionalAuth, requireRole } from "../middlewares/auth";
 import { incrementVideoViews, invalidateCache, keys, TTL } from "../lib/redis";
 import { logger } from "../lib/logger";
+import { normalizeUploaderType, resolveStorageType } from "../lib/storage";
 
 const router = Router();
 
@@ -334,7 +335,12 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
       thumbnailPath:        thumbnailPath        || null,
       storageFolder:        storageFolder        || null,
       bucketName:           bucketName           || null,
-      // Bunny Stream metadata (set when uploaderType = "owner")
+      // Derive storage_type server-side from uploaderType — never trust client-supplied value
+      storageType: (() => {
+        const normalized = normalizeUploaderType(uploaderType);
+        return normalized ? resolveStorageType(normalized) : null;
+      })(),
+      // Storage provider tracking (set by upload route before calling POST /videos)
       videoStorageProvider: videoStorageProvider || null,
       bunnyVideoId:         bunnyVideoId         || null,
       bunnyPlaybackUrl:     bunnyPlaybackUrl     || null,
@@ -413,11 +419,17 @@ router.patch("/videos/:id", authenticate, requireRole("admin", "owner"), async (
     const scalarFields = [
       "title","description","thumbnail","videoUrl","price","downloadable","isFeatured","tags","duration","status",
       // Multi-storage metadata
-      "uploaderType","thumbnailPath","storageFolder","bucketName",
+      "thumbnailPath","storageFolder","bucketName",
       "videoStorageProvider","bunnyVideoId","bunnyPlaybackUrl","bunnyLibraryId",
     ] as const;
     for (const f of scalarFields) {
       if (req.body[f] !== undefined) updates[f] = req.body[f];
+    }
+    // uploaderType + storageType: derive storage_type server-side when uploaderType changes
+    if (req.body.uploaderType !== undefined) {
+      updates.uploaderType = req.body.uploaderType || null;
+      const normalized = normalizeUploaderType(req.body.uploaderType);
+      updates.storageType = normalized ? resolveStorageType(normalized) : null;
     }
     if (req.body.scheduledAt !== undefined) {
       updates.scheduledAt = req.body.scheduledAt ? new Date(req.body.scheduledAt) : null;

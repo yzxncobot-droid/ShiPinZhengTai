@@ -53,15 +53,20 @@ async function run() {
   `);
   console.log("✅  video_source_type / video_file_path / transfer_amount / amount_match_status / uploader_type / thumbnail_path / storage_folder / bucket_name / storage_type columns ensured");
 
-  // Back-fill storage_type from existing uploader_type data
+  // Back-fill storage_type from existing uploader_type data.
+  // Bunny Stream rows are intentionally excluded: their video_url is a Bunny
+  // CDN/embed URL, not an OWNER Supabase URL, so marking them OWNER would
+  // be inaccurate. They remain NULL until a dedicated real-location migration.
   await pool.query(`
     UPDATE videos
     SET storage_type = CASE
       WHEN uploader_type IN ('creator', 'verified_creator') THEN 'PUBLIC'
-      WHEN uploader_type = 'owner' THEN 'OWNER'
+      WHEN uploader_type = 'owner'                         THEN 'OWNER'
       ELSE NULL
     END
-    WHERE storage_type IS NULL AND uploader_type IS NOT NULL;
+    WHERE storage_type IS NULL
+      AND uploader_type IS NOT NULL
+      AND COALESCE(video_storage_provider, '') != 'bunny_stream';
   `);
   console.log("✅  storage_type back-filled from uploader_type for existing rows");
 

@@ -3,6 +3,15 @@
  * Each storage service gets its own Supabase client instance (different project credentials).
  */
 
+// Node 20 lacks native WebSocket; supabase-js v2 requires it for realtime init.
+// We only use the Storage API, but the realtime client is always constructed.
+// Polyfill with the `ws` package that ships as a direct dependency.
+if (typeof globalThis.WebSocket === "undefined") {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { WebSocket: WS } = require("ws");
+  (globalThis as any).WebSocket = WS;
+}
+
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import path from "path";
 import { logger } from "../logger";

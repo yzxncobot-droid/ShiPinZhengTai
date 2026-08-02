@@ -38,6 +38,9 @@ async function run() {
 
     // 3. Back-fill storage_type from uploader_type for existing rows that have
     //    uploader_type set but no storage_type yet.
+    // Bunny Stream rows are excluded: their video lives on Bunny CDN,
+    // not on OWNER Supabase. Marking them OWNER would be inaccurate.
+    // They stay NULL until the dedicated real-location migration (Task #3).
     const { rowCount: backfilled } = await client.query(`
       UPDATE videos
       SET storage_type = CASE
@@ -45,7 +48,9 @@ async function run() {
         WHEN uploader_type = 'owner'                         THEN 'OWNER'
         ELSE NULL
       END
-      WHERE storage_type IS NULL AND uploader_type IS NOT NULL
+      WHERE storage_type IS NULL
+        AND uploader_type IS NOT NULL
+        AND COALESCE(video_storage_provider, '') != 'bunny_stream'
     `);
     console.log(`✅  Back-filled storage_type for ${backfilled} existing rows`);
 

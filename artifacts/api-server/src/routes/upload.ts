@@ -168,6 +168,19 @@ router.post(
 
     // ── Multi-storage route (Creator / Verified Creator / Owner) ──────────────
     if (normalized) {
+      // Server-side role enforcement: OWNER storage requires admin or owner role.
+      // Do NOT trust the client-supplied uploaderType for authorization —
+      // validate against the authenticated user's resolved role.
+      if (normalized === "owner") {
+        const userRole = req.user?.role ?? "";
+        if (!["admin", "owner"].includes(userRole)) {
+          return res.status(403).json({
+            success: false,
+            message: "Hanya admin atau owner yang dapat mengupload ke OWNER storage.",
+          });
+        }
+      }
+
       const storage = getStorageService(normalized);
       const title   = req.body?.title ?? req.file.originalname ?? "Upload";
       try {
@@ -257,6 +270,17 @@ router.post(
 
     // ── Multi-storage route ───────────────────────────────────────────────────
     if (normalized) {
+      // Server-side role enforcement: OWNER storage requires admin or owner role.
+      if (normalized === "owner") {
+        const userRole = req.user?.role ?? "";
+        if (!["admin", "owner"].includes(userRole)) {
+          return res.status(403).json({
+            success: false,
+            message: "Hanya admin atau owner yang dapat mengupload ke OWNER storage.",
+          });
+        }
+      }
+
       const storage = getStorageService(normalized);
       try {
         const result: UploadThumbnailResult = await storage.uploadThumbnail(req.file);
