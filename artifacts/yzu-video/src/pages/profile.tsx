@@ -170,50 +170,56 @@ export default function ProfilePage() {
     <ProtectedRoute>
       <AppLayout>
         <div className="max-w-lg mx-auto pb-8">
-          {/* Hero Header */}
-          <div className="relative overflow-hidden gradient-funplus pt-12 pb-20 px-4">
-            <div className="absolute top-0 left-0 w-40 h-40 bg-white/10 rounded-full blur-3xl -translate-x-1/2" />
-            <div className="absolute bottom-0 right-0 w-56 h-56 bg-pink-400/20 rounded-full blur-3xl translate-x-1/3 translate-y-1/3" />
+          {/* Compact Hero Header */}
+          <div
+            className="relative overflow-hidden gradient-funplus pt-5 pb-5 px-4"
+            style={{ borderBottomLeftRadius: 24, borderBottomRightRadius: 24 }}
+          >
+            {/* Subtle decorative blobs — smaller and softer */}
+            <div className="absolute top-0 left-0 w-24 h-24 bg-white/8 rounded-full blur-2xl -translate-x-1/2" />
+            <div className="absolute bottom-0 right-0 w-32 h-32 bg-purple-300/15 rounded-full blur-2xl translate-x-1/4 translate-y-1/4" />
 
-            <div className="relative z-10 flex flex-col items-center text-center">
-              {/* Avatar */}
-              <div className="relative group mb-4">
-                <div className="h-[88px] w-[88px] rounded-full p-0.5 bg-gradient-to-br from-yellow-300 via-pink-400 to-purple-500 shadow-xl">
-                  <Avatar className="w-full h-full border-4 border-white">
+            <div className="relative z-10 flex items-center gap-4 px-1">
+              {/* Avatar — left-aligned in a row layout */}
+              <div className="relative flex-shrink-0">
+                <div className="h-[84px] w-[84px] rounded-full p-0.5 bg-gradient-to-br from-yellow-300 via-pink-400 to-purple-500 shadow-lg">
+                  <Avatar className="w-full h-full border-[3px] border-white">
                     <AvatarImage src={currentUser.avatar || ""} alt={currentUser.username} />
-                    <AvatarFallback className="bg-purple-100 text-purple-700 font-extrabold text-2xl">
+                    <AvatarFallback className="bg-purple-100 text-purple-700 font-extrabold text-xl">
                       {currentUser.username.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                 </div>
                 <button
                   onClick={() => !isUploading && avatarRef.current?.click()}
-                  className="absolute -bottom-1 -right-1 h-8 w-8 bg-white rounded-full flex items-center justify-center shadow-md border-2 border-purple-100 hover:scale-110 transition-transform"
+                  className="absolute -bottom-0.5 -right-0.5 h-7 w-7 bg-white rounded-full flex items-center justify-center shadow-md border-2 border-purple-100 hover:scale-110 transition-transform"
                 >
-                  {isUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-500" /> : <Camera className="h-3.5 w-3.5 text-purple-600" />}
+                  {isUploading ? <Loader2 className="h-3 w-3 animate-spin text-purple-500" /> : <Camera className="h-3 w-3 text-purple-600" />}
                 </button>
                 <input type="file" ref={avatarRef} className="hidden" accept="image/*" onChange={handleAvatarUpload} />
               </div>
 
-              {/* Name & role */}
-              <h2 className="text-xl font-heading font-extrabold text-white">{currentUser.username}</h2>
-              {currentUser.email && (
-                <p className="text-white/70 text-sm font-medium mt-0.5">{currentUser.email}</p>
-              )}
-              <div className="flex items-center gap-2 mt-2">
-                <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${roleInfo.className}`}>
-                  {roleInfo.label}
-                </span>
+              {/* Name & role — right of avatar */}
+              <div className="flex flex-col min-w-0">
+                <h2 className="text-base font-heading font-extrabold text-white leading-tight truncate">{currentUser.username}</h2>
+                {currentUser.email && (
+                  <p className="text-white/65 text-xs font-medium mt-0.5 truncate">{currentUser.email}</p>
+                )}
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full ${roleInfo.className}`}>
+                    {roleInfo.label}
+                  </span>
+                </div>
+                {currentUser.createdAt && (
+                  <p className="text-white/45 text-[9px] font-medium mt-1">
+                    Member sejak {new Date(currentUser.createdAt).toLocaleDateString("id-ID", { year: "numeric", month: "long" })}
+                  </p>
+                )}
               </div>
-              {currentUser.createdAt && (
-                <p className="text-white/50 text-[10px] font-medium mt-1.5">
-                  Member sejak {new Date(currentUser.createdAt).toLocaleDateString("id-ID", { year: "numeric", month: "long" })}
-                </p>
-              )}
             </div>
           </div>
 
-          <div className="px-4 -mt-10 space-y-4">
+          <div className="px-4 mt-3 space-y-3">
             {/* Wallet Card */}
             <motion.div
               initial={{ opacity: 0, y: 16 }}
