@@ -31,21 +31,21 @@ const UPLOADER_TYPE_OPTIONS = [
     value: "Creator",
     label: "Creator",
     icon: "🎬",
-    description: "Folder: creator/videos",
+    description: "Supabase Project 1",
     color: "border-sky-400 bg-sky-50 text-sky-700",
   },
   {
     value: "Verified Creator",
     label: "Verified Creator",
     icon: "✅",
-    description: "Folder: verified-creator/videos",
+    description: "Supabase Project 2",
     color: "border-green-400 bg-green-50 text-green-700",
   },
   {
     value: "Owner",
     label: "Owner",
     icon: "👑",
-    description: "Folder: owner/videos",
+    description: "Bunny Stream CDN",
     color: "border-amber-400 bg-amber-50 text-amber-700",
   },
 ] as const;
@@ -178,6 +178,11 @@ export default function AdminUploadVideo() {
     thumbnailPath?: string;
     thumbnailStorageFolder?: string;
     bucketName?: string;
+    // Bunny Stream (Owner uploads)
+    bunnyVideoId?: string | null;
+    bunnyPlaybackUrl?: string | null;
+    bunnyLibraryId?: string | null;
+    videoStorageProvider?: string | null;
   }>({});
 
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -237,6 +242,8 @@ export default function AdminUploadVideo() {
     try {
       const data = await new Promise<{
         url: string; path?: string; storageFolder?: string; bucketName?: string;
+        bunnyVideoId?: string | null; bunnyPlaybackUrl?: string | null;
+        bunnyLibraryId?: string | null; storageProvider?: string | null;
       }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.upload.addEventListener("progress", (e) => {
@@ -266,15 +273,19 @@ export default function AdminUploadVideo() {
       if (isVideo) {
         setUploadMeta(prev => ({
           ...prev,
-          videoStorageFolder: data.storageFolder,
-          bucketName: data.bucketName ?? "yzx",
+          videoStorageFolder:   data.storageFolder,
+          bucketName:           data.bucketName ?? undefined,
+          videoStorageProvider: data.storageProvider ?? null,
+          bunnyVideoId:         data.bunnyVideoId    ?? null,
+          bunnyPlaybackUrl:     data.bunnyPlaybackUrl ?? null,
+          bunnyLibraryId:       data.bunnyLibraryId  ?? null,
         }));
       } else {
         setUploadMeta(prev => ({
           ...prev,
-          thumbnailPath: data.path,
+          thumbnailPath:        data.path,
           thumbnailStorageFolder: data.storageFolder,
-          bucketName: data.bucketName ?? "yzx",
+          bucketName:           data.bucketName ?? undefined,
         }));
       }
 
@@ -310,10 +321,15 @@ export default function AdminUploadVideo() {
           videoFilePath:   values.videoFilePath || null,
           thumbnail:       values.thumbnail || null,
           // Multi-storage metadata
-          uploaderType:  values.uploaderType   || null,
-          thumbnailPath: uploadMeta.thumbnailPath || null,
-          storageFolder: uploadMeta.videoStorageFolder || null,
-          bucketName:    uploadMeta.bucketName || null,
+          uploaderType:         values.uploaderType            || null,
+          thumbnailPath:        uploadMeta.thumbnailPath       || null,
+          storageFolder:        uploadMeta.videoStorageFolder  || null,
+          bucketName:           uploadMeta.bucketName          || null,
+          // Bunny Stream metadata (Owner uploads)
+          videoStorageProvider: uploadMeta.videoStorageProvider ?? null,
+          bunnyVideoId:         uploadMeta.bunnyVideoId         ?? null,
+          bunnyPlaybackUrl:     uploadMeta.bunnyPlaybackUrl     ?? null,
+          bunnyLibraryId:       uploadMeta.bunnyLibraryId       ?? null,
         }),
       });
 
@@ -408,11 +424,14 @@ export default function AdminUploadVideo() {
                     <FormMessage />
                     {field.value && (
                       <p className="text-xs text-teal-600 font-medium mt-1">
-                        ✓ File video akan disimpan di folder <code className="bg-teal-50 px-1 rounded">{
-                          field.value === "Creator" ? "creator/videos" :
-                          field.value === "Verified Creator" ? "verified-creator/videos" :
-                          "owner/videos"
-                        }</code>
+                        {field.value === "Owner"
+                          ? <span>👑 Video → <code className="bg-amber-50 px-1 rounded">Bunny Stream CDN</code> · playback URL disimpan di Neon</span>
+                          : <span>✓ Video → <code className="bg-teal-50 px-1 rounded">{
+                              field.value === "Creator"
+                                ? "Supabase Project 1 · yzx/creator/videos"
+                                : "Supabase Project 2 · yzx/verified-creator/videos"
+                            }</code></span>
+                        }
                       </p>
                     )}
                   </FormItem>

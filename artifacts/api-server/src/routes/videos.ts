@@ -246,6 +246,8 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
       title, description, thumbnail, videoUrl, videoSourceType, videoFilePath,
       price, downloadable, isFeatured, categoryId, tags, duration, scheduledAt, status = "published",
       uploaderType, thumbnailPath, storageFolder, bucketName,
+      // Multi-storage provider tracking
+      videoStorageProvider, bunnyVideoId, bunnyPlaybackUrl, bunnyLibraryId,
     } = req.body;
 
     // ── Required field guards ─────────────────────────────────────────────────
@@ -328,10 +330,15 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
       type:            visUpdates.type ?? "free",
       bundleExclusive: visUpdates.bundleExclusive ?? false,
       // Multi-storage metadata (optional — only set when uploaderType is provided)
-      uploaderType:  uploaderType  || null,
-      thumbnailPath: thumbnailPath || null,
-      storageFolder: storageFolder || null,
-      bucketName:    bucketName   || null,
+      uploaderType:         uploaderType         || null,
+      thumbnailPath:        thumbnailPath        || null,
+      storageFolder:        storageFolder        || null,
+      bucketName:           bucketName           || null,
+      // Bunny Stream metadata (set when uploaderType = "owner")
+      videoStorageProvider: videoStorageProvider || null,
+      bunnyVideoId:         bunnyVideoId         || null,
+      bunnyPlaybackUrl:     bunnyPlaybackUrl     || null,
+      bunnyLibraryId:       bunnyLibraryId       || null,
     };
 
     logger.info({ insertPayload }, "POST /videos — about to INSERT");
@@ -407,6 +414,7 @@ router.patch("/videos/:id", authenticate, requireRole("admin", "owner"), async (
       "title","description","thumbnail","videoUrl","price","downloadable","isFeatured","tags","duration","status",
       // Multi-storage metadata
       "uploaderType","thumbnailPath","storageFolder","bucketName",
+      "videoStorageProvider","bunnyVideoId","bunnyPlaybackUrl","bunnyLibraryId",
     ] as const;
     for (const f of scalarFields) {
       if (req.body[f] !== undefined) updates[f] = req.body[f];

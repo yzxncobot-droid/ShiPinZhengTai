@@ -64,6 +64,20 @@ export const videosTable = pgTable(
     thumbnailPath: text("thumbnail_path"),
     storageFolder: text("storage_folder"),
     bucketName:    text("bucket_name"),
+    /**
+     * Multi-storage provider tracking (set at upload time):
+     *  - "supabase_creator"          → Supabase Project 1 (Creator badge)
+     *  - "supabase_verified_creator" → Supabase Project 2 (Verified Creator badge)
+     *  - "bunny_stream"              → Bunny Stream CDN   (Owner badge)
+     *  - null                        → legacy single-Supabase upload
+     */
+    videoStorageProvider: text("video_storage_provider"),
+    /** Bunny Stream video GUID — set when videoStorageProvider = "bunny_stream" */
+    bunnyVideoId:    text("bunny_video_id"),
+    /** Bunny Stream embed player URL — for display in an <iframe> */
+    bunnyPlaybackUrl: text("bunny_playback_url"),
+    /** Bunny Stream library ID — for constructing API calls and URLs */
+    bunnyLibraryId:  text("bunny_library_id"),
     categoryId: uuid("category_id").references(() => categoriesTable.id, { onDelete: "set null" }),
     creatorId: uuid("creator_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
     deletedAt: timestamp("deleted_at"),

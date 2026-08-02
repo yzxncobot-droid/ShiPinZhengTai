@@ -37,13 +37,47 @@ Both services start automatically via their configured workflows:
 
 ## Environment variables
 
+### Core (always required)
+
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `NEON_DATABASE_URL` | ✅ Set (Secret) | Primary PostgreSQL connection string (external Neon/Supabase DB with existing data) |
-| `DATABASE_URL` | Fallback only | Replit-managed PostgreSQL — NOT used; `NEON_DATABASE_URL` takes priority |
+| `NEON_DATABASE_URL` | ✅ Set (Secret) | Primary PostgreSQL connection string (external Neon DB with existing data) |
 | `SESSION_SECRET` | ✅ Set (Secret) | JWT signing secret |
-| `SUPABASE_URL` | ⚠️ Optional | Supabase project URL — file uploads disabled without it |
-| `SUPABASE_SERVICE_ROLE_KEY` | ⚠️ Optional | Supabase service key |
+| `DATABASE_URL` | Fallback only | Replit-managed PostgreSQL — NOT used; `NEON_DATABASE_URL` takes priority |
+
+### Legacy Supabase (single-project — bundle videos, images, Owner thumbnails)
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `SUPABASE_URL` | ⚠️ Optional | Legacy Supabase project URL — bundle/image/Owner-thumbnail uploads disabled without it |
+| `SUPABASE_SERVICE_ROLE_KEY` | ⚠️ Optional | Legacy Supabase service key |
+
+### Creator Storage (Supabase Project 1)
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `CREATOR_SUPABASE_URL` | ⚠️ Optional | Creator Supabase project URL — Creator uploads disabled without it |
+| `CREATOR_SUPABASE_SERVICE_ROLE_KEY` | ⚠️ Optional | Creator Supabase service key |
+
+### Verified Creator Storage (Supabase Project 2)
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `VERIFIED_CREATOR_SUPABASE_URL` | ⚠️ Optional | Verified Creator Supabase project URL |
+| `VERIFIED_CREATOR_SUPABASE_SERVICE_ROLE_KEY` | ⚠️ Optional | Verified Creator Supabase service key |
+
+### Owner Storage (Bunny Stream)
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `BUNNY_STREAM_LIBRARY_ID` | ⚠️ Optional | Bunny Stream library ID — Owner video uploads disabled without it |
+| `BUNNY_STREAM_API_KEY` | ⚠️ Optional | Bunny Stream API key (AccessKey) |
+| `BUNNY_CDN_HOSTNAME` | Optional | Pull-zone hostname (e.g. `vz-abc.b-cdn.net`). If not set, embed URL is used as `videoUrl`. |
+
+### Redis (caching/sessions)
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
 | `UPSTASH_REDIS_REST_URL` | ⚠️ Optional | Upstash Redis URL — sessions/caching disabled without it |
 | `UPSTASH_REDIS_REST_TOKEN` | ⚠️ Optional | Upstash Redis token |
 

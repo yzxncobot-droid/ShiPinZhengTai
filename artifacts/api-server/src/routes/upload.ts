@@ -3,13 +3,23 @@ import multer from "multer";
 import path from "path";
 import { authenticate } from "../middlewares/auth";
 import {
+  // Legacy Supabase (for backward-compat uploads without uploader type,
+  // bundle videos, bundle thumbnails, generic images)
   supabase, MEDIA_BUCKET,
   FOLDER_VIDEOS, FOLDER_THUMBNAILS, FOLDER_IMAGES, FOLDER_PAYMENTS,
   FOLDER_BUNDLES, FOLDER_BUNDLE_THUMBNAILS,
-  FOLDER_BY_UPLOADER_TYPE, FOLDER_VERIFIED_CREATOR_PAYMENTS,
-  UPLOADER_TYPES, type UploaderType,
   getPublicUrl, uploadWithRetry,
+  isSupabaseAvailable,
 } from "../lib/supabase";
+import {
+  getStorageService,
+  normalizeUploaderType,
+  uploadPaymentProof,
+  isCreatorStorageAvailable,
+  isVerifiedCreatorStorageAvailable,
+  isBunnyStreamAvailable,
+} from "../lib/storage";
+import type { UploadVideoResult, UploadThumbnailResult } from "../lib/storage";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -91,76 +101,55 @@ function withMulterErrorHandling(
   };
 }
 
-/** Streams a multer memory-storage file buffer into the media bucket under `folder/`. */
-async function uploadToMediaBucket(folder: string, file: Express.Multer.File) {
-  const ext = extOf(file.originalname);
-  const filename = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
-  logger.info({ bucket: MEDIA_BUCKET, folder, filename, size: file.size }, "UPLOAD START");
-  try {
-    const result = await uploadWithRetry(MEDIA_BUCKET, filename, file.buffer, file.mimetype, { upsert: false });
-    logger.info({ bucket: MEDIA_BUCKET, folder, path: result.path }, "UPLOAD SUCCESS");
-    return result;
-  } catch (err: any) {
-    logger.error({ bucket: MEDIA_BUCKET, folder, filename, err: err?.message }, "UPLOAD ERROR");
-    throw err;
-  }
-}
-
-/**
- * Resolve the Supabase sub-folder for a video/thumbnail upload based on
- * the uploader type.  Falls back to the legacy flat folder when no
- * uploader type is supplied (backward-compatible).
- */
-function resolveVideoFolder(uploaderType: string | undefined, kind: "videos" | "thumbnails"): {
-  folder: string;
-  uploaderType: UploaderType | null;
-} {
-  if (!uploaderType) {
-    return { folder: kind === "videos" ? FOLDER_VIDEOS : FOLDER_THUMBNAILS, uploaderType: null };
-  }
-
-  // Normalize: accept "Verified Creator" → "verified_creator", "Creator" → "creator", "Owner" → "owner"
-  const normalized = uploaderType.trim().toLowerCase().replace(/\s+/g, "_") as UploaderType;
-  if (!UPLOADER_TYPES.includes(normalized)) {
-    throw new Error(
-      `INVALID_UPLOADER_TYPE: Uploader type "${uploaderType}" tidak valid. ` +
-      `Gunakan salah satu: Creator, Verified Creator, Owner.`,
-    );
-  }
-  return { folder: FOLDER_BY_UPLOADER_TYPE[normalized][kind], uploaderType: normalized };
-}
-
-/** Build a user-friendly error message from a Supabase storage error. */
-function friendlyUploadError(err: any, bucket: string, folder: string): string {
+/** Build a user-friendly error message from a storage error. */
+function friendlyUploadError(err: any, context: string): string {
   const msg = (err?.message ?? "").toLowerCase();
   if (msg.includes("bucket") && msg.includes("not found")) {
-    return `Bucket tidak ditemukan: "${bucket}/${folder}". Pastikan bucket "${bucket}" sudah dibuat di Supabase Storage.`;
+    return `Bucket tidak ditemukan (${context}). Pastikan bucket sudah dibuat di Supabase Storage.`;
   }
   if (msg.includes("permission") || msg.includes("policy") || msg.includes("violates") || msg.includes("denied")) {
-    return `Akses ditolak oleh Supabase Storage (${bucket}/${folder}). Periksa RLS policy bucket.`;
+    return `Akses ditolak oleh storage (${context}). Periksa RLS policy atau API key.`;
   }
   if (msg.includes("already exists") || msg.includes("duplicate")) {
     return "File dengan nama yang sama sudah ada. Silakan coba lagi.";
   }
   if (msg.includes("too large") || msg.includes("size")) {
-    return "File terlalu besar menurut konfigurasi Supabase Storage.";
+    return "File terlalu besar menurut konfigurasi storage.";
   }
   if (msg.includes("network") || msg.includes("fetch") || msg.includes("timeout")) {
-    return "Gagal menghubungi Supabase Storage. Periksa koneksi server.";
+    return "Gagal menghubungi storage. Periksa koneksi server.";
   }
-  if (msg.includes("not configured") || msg.includes("belum diset")) {
-    return "Storage belum dikonfigurasi. Hubungi administrator.";
+  if (msg.includes("tidak dikonfigurasi") || msg.includes("belum diset") || msg.includes("not configured")) {
+    return err.message; // Already user-friendly (from our own storage services)
   }
-  return `Upload gagal (${bucket}/${folder}): ${err?.message ?? "Unknown error"}`;
+  if (msg.includes("gagal") || msg.includes("failed") || msg.includes("bunny")) {
+    return err.message.length < 300 ? err.message : `Upload gagal (${context}): error tidak terduga.`;
+  }
+  return `Upload gagal (${context}): ${err?.message ?? "Unknown error"}`;
 }
 
-// ── Video upload → role-based folder (or legacy yzx/videos/) ─────────────────
+/** Streams a multer memory-storage file buffer into the legacy media bucket under `folder/`. */
+async function uploadToLegacyBucket(folder: string, file: Express.Multer.File) {
+  const ext = extOf(file.originalname);
+  const filename = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+  logger.info({ bucket: MEDIA_BUCKET, folder, filename, size: file.size }, "UPLOAD START (legacy)");
+  try {
+    const result = await uploadWithRetry(MEDIA_BUCKET, filename, file.buffer, file.mimetype, { upsert: false });
+    logger.info({ bucket: MEDIA_BUCKET, folder, path: result.path }, "UPLOAD SUCCESS (legacy)");
+    return result;
+  } catch (err: any) {
+    logger.error({ bucket: MEDIA_BUCKET, folder, filename, err: err?.message }, "UPLOAD ERROR (legacy)");
+    throw err;
+  }
+}
+
+// ── Video upload ──────────────────────────────────────────────────────────────
 //
-//  Accepts optional field `uploaderType` in the request body:
-//    "Creator"          → yzx/creator/videos/
-//    "Verified Creator" → yzx/verified-creator/videos/
-//    "Owner"            → yzx/owner/videos/
-//    (omitted)          → yzx/videos/  (legacy, backward-compatible)
+//  Routing logic based on uploaderType:
+//    "Creator"          → CreatorStorage (Supabase Project 1 → yzx/creator/videos/)
+//    "Verified Creator" → VerifiedCreatorStorage (Supabase Project 2 → yzx/verified-creator/videos/)
+//    "Owner"            → OwnerStorage (Bunny Stream — returns playback URL)
+//    (omitted)          → Legacy Supabase (yzx/videos/ — backward-compatible)
 //
 router.post(
   "/upload/video",
@@ -172,44 +161,83 @@ router.post(
       return;
     }
 
-    let resolved: ReturnType<typeof resolveVideoFolder>;
-    try {
-      resolved = resolveVideoFolder(req.body?.uploaderType, "videos");
-    } catch (err: any) {
-      if (err.message.startsWith("INVALID_UPLOADER_TYPE")) {
-        res.status(400).json({ success: false, message: err.message.replace("INVALID_UPLOADER_TYPE: ", "") });
-        return;
+    const rawUploaderType = req.body?.uploaderType as string | undefined;
+    const normalized = normalizeUploaderType(rawUploaderType);
+
+    // ── Multi-storage route (Creator / Verified Creator / Owner) ──────────────
+    if (normalized) {
+      const storage = getStorageService(normalized);
+      const title   = req.body?.title ?? req.file.originalname ?? "Upload";
+      try {
+        const result: UploadVideoResult = await storage.uploadVideo(req.file, { title });
+        return res.json({
+          success: true,
+          url:               result.url,
+          path:              result.path,
+          filename:          result.path,
+          size:              req.file.size,
+          storageProvider:   result.storageProvider,
+          storageFolder:     result.storageFolder ?? null,
+          bucketName:        result.bucketName    ?? null,
+          uploaderType:      normalized,
+          // Bunny-specific (null for Supabase providers)
+          bunnyVideoId:      result.bunnyVideoId      ?? null,
+          bunnyPlaybackUrl:  result.bunnyPlaybackUrl  ?? null,
+          bunnyLibraryId:    result.bunnyLibraryId    ?? null,
+          // Derived: videoSourceType hint for the frontend
+          videoSourceType:   normalized === "owner" ? "upload" : "upload",
+        });
+      } catch (err: any) {
+        logger.error({ uploaderType: normalized, err }, "Video upload failed (multi-storage)");
+        return res.status(500).json({
+          success: false,
+          message: friendlyUploadError(err, `${normalized} storage`),
+          detail:  err?.message,
+        });
       }
-      throw err;
     }
 
-    const { folder, uploaderType } = resolved;
+    // ── Legacy route (no uploader type) ───────────────────────────────────────
+    if (!isSupabaseAvailable) {
+      return res.status(503).json({
+        success: false,
+        message: "Storage belum dikonfigurasi. Hubungi administrator.",
+      });
+    }
     try {
-      const { path: storedPath, url } = await uploadToMediaBucket(folder, req.file);
-      res.json({
+      const { path: storedPath, url } = await uploadToLegacyBucket(FOLDER_VIDEOS, req.file);
+      return res.json({
         success: true,
         url,
         path: storedPath,
         filename: storedPath,
         size: req.file.size,
+        storageProvider: "legacy",
         bucket: MEDIA_BUCKET,
-        storageFolder: folder,
-        uploaderType: uploaderType ?? null,
+        storageFolder: FOLDER_VIDEOS,
+        uploaderType: null,
+        bunnyVideoId: null,
+        bunnyPlaybackUrl: null,
+        bunnyLibraryId: null,
       });
     } catch (err: any) {
-      logger.error({ bucket: MEDIA_BUCKET, folder, err }, "Video upload failed");
-      res.status(500).json({ success: false, message: friendlyUploadError(err, MEDIA_BUCKET, folder), detail: err?.message });
+      logger.error({ folder: FOLDER_VIDEOS, err }, "Video upload failed (legacy)");
+      return res.status(500).json({
+        success: false,
+        message: friendlyUploadError(err, `legacy/${FOLDER_VIDEOS}`),
+        detail:  err?.message,
+      });
     }
   },
 );
 
-// ── Thumbnail upload → role-based folder (or legacy yzx/thumnails/) ──────────
+// ── Thumbnail upload ──────────────────────────────────────────────────────────
 //
-//  Accepts optional field `uploaderType` in the request body:
-//    "Creator"          → yzx/creator/thumbnails/
-//    "Verified Creator" → yzx/verified-creator/thumbnails/
-//    "Owner"            → yzx/owner/thumbnails/
-//    (omitted)          → yzx/thumnails/  (legacy, backward-compatible)
+//  Routing logic based on uploaderType (mirrors video upload):
+//    "Creator"          → CreatorStorage      (yzx/creator/thumbnails/)
+//    "Verified Creator" → VerifiedCreatorStorage (yzx/verified-creator/thumbnails/)
+//    "Owner"            → OwnerStorage thumbnail (yzx/owner/thumbnails/ in legacy Supabase)
+//    (omitted)          → Legacy Supabase     (yzx/thumnails/ — intentional typo compat)
 //
 router.post(
   "/upload/thumbnail",
@@ -221,33 +249,62 @@ router.post(
       return;
     }
 
-    let resolved: ReturnType<typeof resolveVideoFolder>;
-    try {
-      resolved = resolveVideoFolder(req.body?.uploaderType, "thumbnails");
-    } catch (err: any) {
-      if (err.message.startsWith("INVALID_UPLOADER_TYPE")) {
-        res.status(400).json({ success: false, message: err.message.replace("INVALID_UPLOADER_TYPE: ", "") });
-        return;
+    const rawUploaderType = req.body?.uploaderType as string | undefined;
+    const normalized = normalizeUploaderType(rawUploaderType);
+
+    // ── Multi-storage route ───────────────────────────────────────────────────
+    if (normalized) {
+      const storage = getStorageService(normalized);
+      try {
+        const result: UploadThumbnailResult = await storage.uploadThumbnail(req.file);
+        return res.json({
+          success: true,
+          url:             result.url,
+          path:            result.path,
+          filename:        result.path,
+          size:            req.file.size,
+          storageProvider: result.storageProvider,
+          storageFolder:   result.storageFolder ?? null,
+          bucketName:      result.bucketName    ?? null,
+          uploaderType:    normalized,
+        });
+      } catch (err: any) {
+        logger.error({ uploaderType: normalized, err }, "Thumbnail upload failed (multi-storage)");
+        return res.status(500).json({
+          success: false,
+          message: friendlyUploadError(err, `${normalized} thumbnail`),
+          detail:  err?.message,
+        });
       }
-      throw err;
     }
 
-    const { folder, uploaderType } = resolved;
+    // ── Legacy route ──────────────────────────────────────────────────────────
+    if (!isSupabaseAvailable) {
+      return res.status(503).json({
+        success: false,
+        message: "Storage belum dikonfigurasi. Hubungi administrator.",
+      });
+    }
     try {
-      const { path: storedPath, url } = await uploadToMediaBucket(folder, req.file);
-      res.json({
+      const { path: storedPath, url } = await uploadToLegacyBucket(FOLDER_THUMBNAILS, req.file);
+      return res.json({
         success: true,
         url,
         path: storedPath,
         filename: storedPath,
         size: req.file.size,
+        storageProvider: "legacy",
         bucket: MEDIA_BUCKET,
-        storageFolder: folder,
-        uploaderType: uploaderType ?? null,
+        storageFolder: FOLDER_THUMBNAILS,
+        uploaderType: null,
       });
     } catch (err: any) {
-      logger.error({ bucket: MEDIA_BUCKET, folder, err }, "Thumbnail upload failed");
-      res.status(500).json({ success: false, message: friendlyUploadError(err, MEDIA_BUCKET, folder), detail: err?.message });
+      logger.error({ folder: FOLDER_THUMBNAILS, err }, "Thumbnail upload failed (legacy)");
+      return res.status(500).json({
+        success: false,
+        message: friendlyUploadError(err, `legacy/${FOLDER_THUMBNAILS}`),
+        detail:  err?.message,
+      });
     }
   },
 );
@@ -262,17 +319,21 @@ router.post(
       res.status(400).json({ success: false, message: "Tidak ada file gambar yang dipilih." });
       return;
     }
+    if (!isSupabaseAvailable) {
+      res.status(503).json({ success: false, message: "Storage belum dikonfigurasi. Hubungi administrator." });
+      return;
+    }
     try {
-      const { path: storedPath, url } = await uploadToMediaBucket(FOLDER_IMAGES, req.file);
+      const { path: storedPath, url } = await uploadToLegacyBucket(FOLDER_IMAGES, req.file);
       res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: MEDIA_BUCKET });
     } catch (err: any) {
-      logger.error({ bucket: MEDIA_BUCKET, folder: FOLDER_IMAGES, err }, "Image upload failed");
-      res.status(500).json({ success: false, message: friendlyUploadError(err, MEDIA_BUCKET, FOLDER_IMAGES), detail: err?.message });
+      logger.error({ folder: FOLDER_IMAGES, err }, "Image upload failed");
+      res.status(500).json({ success: false, message: friendlyUploadError(err, FOLDER_IMAGES), detail: err?.message });
     }
   },
 );
 
-// ── Bundle video upload → yzx/bundles/ ───────────────────────────────────────
+// ── Bundle video upload → yzx/bundles/ (legacy Supabase) ─────────────────────
 router.post(
   "/upload/bundle-video",
   authenticate,
@@ -282,17 +343,21 @@ router.post(
       res.status(400).json({ success: false, message: "Tidak ada file video bundle yang dipilih." });
       return;
     }
+    if (!isSupabaseAvailable) {
+      res.status(503).json({ success: false, message: "Storage belum dikonfigurasi. Hubungi administrator." });
+      return;
+    }
     try {
-      const { path: storedPath, url } = await uploadToMediaBucket(FOLDER_BUNDLES, req.file);
+      const { path: storedPath, url } = await uploadToLegacyBucket(FOLDER_BUNDLES, req.file);
       res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: MEDIA_BUCKET });
     } catch (err: any) {
-      logger.error({ bucket: MEDIA_BUCKET, folder: FOLDER_BUNDLES, err }, "Bundle video upload failed");
-      res.status(500).json({ success: false, message: friendlyUploadError(err, MEDIA_BUCKET, FOLDER_BUNDLES), detail: err?.message });
+      logger.error({ folder: FOLDER_BUNDLES, err }, "Bundle video upload failed");
+      res.status(500).json({ success: false, message: friendlyUploadError(err, FOLDER_BUNDLES), detail: err?.message });
     }
   },
 );
 
-// ── Bundle thumbnail upload → yzx/bundle-thumbnails/ ─────────────────────────
+// ── Bundle thumbnail upload → yzx/bundle-thumbnails/ (legacy Supabase) ───────
 router.post(
   "/upload/bundle-thumbnail",
   authenticate,
@@ -302,17 +367,26 @@ router.post(
       res.status(400).json({ success: false, message: "Tidak ada file thumbnail bundle yang dipilih." });
       return;
     }
+    if (!isSupabaseAvailable) {
+      res.status(503).json({ success: false, message: "Storage belum dikonfigurasi. Hubungi administrator." });
+      return;
+    }
     try {
-      const { path: storedPath, url } = await uploadToMediaBucket(FOLDER_BUNDLE_THUMBNAILS, req.file);
+      const { path: storedPath, url } = await uploadToLegacyBucket(FOLDER_BUNDLE_THUMBNAILS, req.file);
       res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: MEDIA_BUCKET });
     } catch (err: any) {
-      logger.error({ bucket: MEDIA_BUCKET, folder: FOLDER_BUNDLE_THUMBNAILS, err }, "Bundle thumbnail upload failed");
-      res.status(500).json({ success: false, message: friendlyUploadError(err, MEDIA_BUCKET, FOLDER_BUNDLE_THUMBNAILS), detail: err?.message });
+      logger.error({ folder: FOLDER_BUNDLE_THUMBNAILS, err }, "Bundle thumbnail upload failed");
+      res.status(500).json({ success: false, message: friendlyUploadError(err, FOLDER_BUNDLE_THUMBNAILS), detail: err?.message });
     }
   },
 );
 
 // ── Payment proof → yzx/verified-creator/payments/ ───────────────────────────
+//
+//  Payment proofs ALWAYS go to Supabase Project 2 (Verified Creator project)
+//  regardless of the uploader type. Falls back to legacy Supabase if
+//  Verified Creator credentials are not set.
+//
 const proofUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_IMAGE_SIZE },
@@ -340,93 +414,135 @@ router.post(
     }
 
     const userId = req.user.userId;
-    const ext = extOf(req.file.originalname) || ".jpg";
-    // Payment proofs always land in yzx/verified-creator/payments/ regardless of uploader type
-    const proofFolder = FOLDER_VERIFIED_CREATOR_PAYMENTS;
-    const storagePath = `${proofFolder}/${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
 
-    logger.info({ userId, bucket: MEDIA_BUCKET, storagePath, size: req.file.size }, "UPLOAD START payment-proof");
+    // Primary: Verified Creator Supabase Project 2
+    if (isVerifiedCreatorStorageAvailable) {
+      try {
+        const result = await uploadPaymentProof(req.file, userId);
+        logger.info({ userId, path: result.path }, "Payment proof uploaded to VerifiedCreator storage");
+        return res.json({
+          success: true,
+          url:     result.url,
+          path:    result.path,
+          bucket:  result.bucketName,
+          folder:  result.storageFolder,
+          filename: result.path,
+          size:    req.file.size,
+          storageProvider: result.storageProvider,
+        });
+      } catch (err: any) {
+        logger.error({ userId, err: err?.message }, "Payment proof upload failed (VC storage)");
+        return res.status(500).json({
+          success: false,
+          message: friendlyUploadError(err, "verified-creator/payments"),
+          detail:  err?.message,
+        });
+      }
+    }
+
+    // Fallback: legacy Supabase (if VC credentials not configured)
+    if (!isSupabaseAvailable) {
+      return res.status(503).json({
+        success: false,
+        message:
+          "Payment proof storage tidak tersedia. " +
+          "Set VERIFIED_CREATOR_SUPABASE_URL dan VERIFIED_CREATOR_SUPABASE_SERVICE_ROLE_KEY.",
+      });
+    }
+
+    logger.warn({ userId }, "Payment proof falling back to legacy Supabase (VC credentials not set)");
+    const proofFolder = "verified-creator/payments";
+    const ext = extOf(req.file.originalname) || ".jpg";
+    const storagePath = `${proofFolder}/${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
 
     try {
       const { path: savedPath, url: publicUrl } = await uploadWithRetry(
-        MEDIA_BUCKET,
-        storagePath,
-        req.file.buffer,
-        req.file.mimetype,
-        { upsert: false, maxRetries: 3 },
+        MEDIA_BUCKET, storagePath, req.file.buffer, req.file.mimetype, { upsert: false, maxRetries: 3 },
       );
-
-      logger.info({ userId, path: savedPath }, "Payment proof uploaded successfully");
-      res.json({
+      logger.info({ userId, path: savedPath }, "Payment proof uploaded (legacy fallback)");
+      return res.json({
         success: true,
-        url: publicUrl,
-        path: savedPath,
-        bucket: MEDIA_BUCKET,
-        folder: proofFolder,
+        url:     publicUrl,
+        path:    savedPath,
+        bucket:  MEDIA_BUCKET,
+        folder:  proofFolder,
         filename: storagePath,
-        size: req.file.size,
+        size:    req.file.size,
+        storageProvider: "legacy",
       });
     } catch (err: any) {
-      logger.error({ bucket: MEDIA_BUCKET, folder: proofFolder, userId, storagePath, err: err?.message }, "UPLOAD ERROR payment-proof");
-      res.status(500).json({ success: false, message: friendlyUploadError(err, MEDIA_BUCKET, proofFolder), detail: err?.message });
+      logger.error({ userId, storagePath, err: err?.message }, "Payment proof upload failed (legacy)");
+      return res.status(500).json({
+        success: false,
+        message: friendlyUploadError(err, `legacy/${proofFolder}`),
+        detail:  err?.message,
+      });
     }
   },
 );
 
-// ── Debug endpoint: Supabase connection & bucket status ───────────────────────
+// ── Debug endpoint: all storage provider statuses ─────────────────────────────
 router.get("/upload/debug", authenticate, async (req: Request, res: Response) => {
-  const EXPECTED_FOLDERS = [
-    // Legacy folders (existing files live here)
-    FOLDER_VIDEOS, FOLDER_THUMBNAILS, FOLDER_IMAGES,
-    FOLDER_PAYMENTS, FOLDER_BUNDLES, FOLDER_BUNDLE_THUMBNAILS,
-    // Multi-storage role-based folders
-    "creator/videos", "creator/thumbnails",
-    "verified-creator/videos", "verified-creator/thumbnails", FOLDER_VERIFIED_CREATOR_PAYMENTS,
-    "owner/videos", "owner/thumbnails",
-  ];
-
   const result: Record<string, any> = {
-    supabaseUrl: process.env.SUPABASE_URL ?? "(not set)",
-    serviceKeyPresent: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-    mediaBucket: MEDIA_BUCKET,
-    expectedFolders: EXPECTED_FOLDERS,
-    buckets: [],
-    mediaBucketStatus: null,
-    mediaBucketPublic: null,
-    listError: null,
-    uploadTestResult: null,
-    uploadTestError: null,
     timestamp: new Date().toISOString(),
+    storageProviders: {
+      legacy: {
+        supabaseUrl:      process.env.SUPABASE_URL ?? "(not set)",
+        serviceKeyPresent: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+        available:        isSupabaseAvailable,
+        bucket:           MEDIA_BUCKET,
+      },
+      creator: {
+        supabaseUrl:      process.env.CREATOR_SUPABASE_URL ?? "(not set)",
+        serviceKeyPresent: !!process.env.CREATOR_SUPABASE_SERVICE_ROLE_KEY,
+        available:        isCreatorStorageAvailable,
+        bucket:           "yzx",
+        videoFolder:      "creator/videos",
+        thumbFolder:      "creator/thumbnails",
+      },
+      verifiedCreator: {
+        supabaseUrl:      process.env.VERIFIED_CREATOR_SUPABASE_URL ?? "(not set)",
+        serviceKeyPresent: !!process.env.VERIFIED_CREATOR_SUPABASE_SERVICE_ROLE_KEY,
+        available:        isVerifiedCreatorStorageAvailable,
+        bucket:           "yzx",
+        videoFolder:      "verified-creator/videos",
+        thumbFolder:      "verified-creator/thumbnails",
+        paymentsFolder:   "verified-creator/payments",
+      },
+      bunnyStream: {
+        libraryId:     process.env.BUNNY_STREAM_LIBRARY_ID ?? "(not set)",
+        apiKeyPresent: !!process.env.BUNNY_STREAM_API_KEY,
+        cdnHostname:   process.env.BUNNY_CDN_HOSTNAME ?? "(not set — will use embed URL)",
+        available:     isBunnyStreamAvailable,
+      },
+    },
   };
 
-  try {
-    const { data: buckets, error: listErr } = await supabase.storage.listBuckets();
-    if (listErr) {
-      result.listError = { message: listErr.message, statusCode: (listErr as any).statusCode };
-    } else {
-      result.buckets = (buckets ?? []).map((b: any) => ({ name: b.name, public: b.public }));
-      const mediaBucket = (buckets ?? []).find((b: any) => b.name === MEDIA_BUCKET);
-      result.mediaBucketStatus = mediaBucket ? "found" : "NOT_FOUND";
-      result.mediaBucketPublic = mediaBucket?.public ?? null;
+  // Test legacy Supabase connectivity
+  if (isSupabaseAvailable) {
+    try {
+      const { data: buckets, error } = await supabase.storage.listBuckets();
+      result.storageProviders.legacy.buckets = error
+        ? { error: error.message }
+        : (buckets ?? []).map((b: any) => ({ name: b.name, public: b.public }));
+    } catch (e: any) {
+      result.storageProviders.legacy.connectError = e?.message;
     }
-  } catch (e: any) {
-    result.listError = { message: e?.message ?? String(e) };
   }
 
-  // Test upload to yzx/payments/debug/
-  const tinyPng = Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==",
-    "base64",
-  );
-  const testPath = `${FOLDER_PAYMENTS}/debug/${req.user!.userId}-${Date.now()}.png`;
-  try {
-    const { path: savedPath, url } = await uploadWithRetry(MEDIA_BUCKET, testPath, tinyPng, "image/png", { upsert: true });
-    result.uploadTestResult = "SUCCESS";
-    result.uploadTestUrl = url;
-    await supabase.storage.from(MEDIA_BUCKET).remove([savedPath]);
-  } catch (e: any) {
-    result.uploadTestResult = "FAILED";
-    result.uploadTestError = { message: e?.message ?? String(e) };
+  // Test Bunny Stream connectivity
+  if (isBunnyStreamAvailable) {
+    try {
+      const bunnyRes = await fetch(
+        `https://video.bunnycdn.com/library/${process.env.BUNNY_STREAM_LIBRARY_ID}/videos?page=1&itemsPerPage=1`,
+        { headers: { "AccessKey": process.env.BUNNY_STREAM_API_KEY! } },
+      );
+      result.storageProviders.bunnyStream.connectionTest = bunnyRes.ok
+        ? "SUCCESS"
+        : `FAILED (${bunnyRes.status})`;
+    } catch (e: any) {
+      result.storageProviders.bunnyStream.connectError = e?.message;
+    }
   }
 
   res.json(result);
