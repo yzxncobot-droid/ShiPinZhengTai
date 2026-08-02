@@ -28,29 +28,38 @@ import { adminFetch } from "@/lib/admin-api";
 
 const UPLOADER_TYPE_OPTIONS = [
   {
-    value: "Creator",
-    label: "Creator",
-    icon: "🎬",
-    description: "Supabase Project 1",
+    value: "Public",
+    label: "Public",
+    icon: "🌐",
+    description: "API Public",
     color: "border-sky-400 bg-sky-50 text-sky-700",
-  },
-  {
-    value: "Verified Creator",
-    label: "Verified Creator",
-    icon: "✅",
-    description: "Supabase Project 2",
-    color: "border-green-400 bg-green-50 text-green-700",
   },
   {
     value: "Owner",
     label: "Owner",
     icon: "👑",
-    description: "Bunny Stream CDN",
+    description: "API Owner",
     color: "border-amber-400 bg-amber-50 text-amber-700",
+  },
+  {
+    value: "Media",
+    label: "Media",
+    icon: "🖼️",
+    description: "API Media",
+    color: "border-violet-400 bg-violet-50 text-violet-700",
   },
 ] as const;
 
-type UploaderTypeValue = "Creator" | "Verified Creator" | "Owner";
+type UploaderTypeValue = "Public" | "Owner" | "Media";
+
+/** Map UI uploader type to the value the backend upload endpoints expect. */
+function toApiUploaderType(uiType: UploaderTypeValue | undefined): string | undefined {
+  if (!uiType) return undefined;
+  if (uiType === "Public") return "Creator";
+  if (uiType === "Owner")  return "Owner";
+  // "Media" uses the /upload/image endpoint directly — no uploaderType needed
+  return undefined;
+}
 
 const CONTENT_TYPE_OPTIONS = [
   {
@@ -110,7 +119,7 @@ const uploadSchema = z.object({
   videoUrl:        z.string().min(1, "Video wajib diisi"),
   videoFilePath:   z.string().optional(),
   thumbnail:       z.string().min(1, "Thumbnail wajib diupload"),
-  uploaderType:    z.enum(["Creator", "Verified Creator", "Owner"]).optional(),
+  uploaderType:    z.enum(["Public", "Owner", "Media"]).optional(),
 }).superRefine((data, ctx) => {
   if (data.videoSourceType === "external_link" && data.videoUrl && !isValidVideoLink(data.videoUrl)) {
     ctx.addIssue({
@@ -233,11 +242,28 @@ export default function AdminUploadVideo() {
     setUploading(true);
     setUploadProgress(0);
 
+    const currentUploaderType = form.getValues("uploaderType") as UploaderTypeValue | undefined;
+
+    // For "Media" type: thumbnails go to /api/upload/image (MEDIA Supabase);
+    //                   videos still go to /api/upload/video (legacy path).
+    // For "Public" type: send uploaderType "Creator" → PUBLIC Supabase.
+    // For "Owner" type:  send uploaderType "Owner"   → OWNER Supabase.
+    let resolvedEndpoint = endpoint;
+    if (!isVideo && currentUploaderType === "Media") {
+      resolvedEndpoint = "/api/upload/image";
+    }
+
     const fd = new FormData();
-    fd.append(formKey, file);
-    // Pass uploader type so the backend routes to the correct Supabase folder
-    const currentUploaderType = form.getValues("uploaderType");
-    if (currentUploaderType) fd.append("uploaderType", currentUploaderType);
+    if (!isVideo && currentUploaderType === "Media") {
+      // /upload/image expects field "image"
+      fd.append("image", file);
+    } else {
+      fd.append(formKey, file);
+    }
+
+    // Pass translated uploaderType so backend routes to the correct storage folder
+    const apiUploaderType = toApiUploaderType(currentUploaderType);
+    if (apiUploaderType) fd.append("uploaderType", apiUploaderType);
 
     try {
       const data = await new Promise<{
@@ -259,7 +285,7 @@ export default function AdminUploadVideo() {
           }
         });
         xhr.addEventListener("error", () => reject(new Error("Network error")));
-        xhr.open("POST", endpoint);
+        xhr.open("POST", resolvedEndpoint);
         xhr.setRequestHeader("Authorization", `Bearer ${token}`);
         xhr.send(fd);
       });
@@ -320,8 +346,8 @@ export default function AdminUploadVideo() {
           videoSourceType: values.videoSourceType,
           videoFilePath:   values.videoFilePath || null,
           thumbnail:       values.thumbnail || null,
-          // Multi-storage metadata
-          uploaderType:         values.uploaderType            || null,
+          // Multi-storage metadata — translate UI value to API value before sending
+          uploaderType:         toApiUploaderType(values.uploaderType as UploaderTypeValue | undefined) || null,
           thumbnailPath:        uploadMeta.thumbnailPath       || null,
           storageFolder:        uploadMeta.videoStorageFolder  || null,
           bucketName:           uploadMeta.bucketName          || null,
@@ -424,14 +450,9 @@ export default function AdminUploadVideo() {
                     <FormMessage />
                     {field.value && (
                       <p className="text-xs text-teal-600 font-medium mt-1">
-                        {field.value === "Owner"
-                          ? <span>👑 Video → <code className="bg-amber-50 px-1 rounded">Bunny Stream CDN</code> · playback URL disimpan di Neon</span>
-                          : <span>✓ Video → <code className="bg-teal-50 px-1 rounded">{
-                              field.value === "Creator"
-                                ? "Supabase Project 1 · yzx/creator/videos"
-                                : "Supabase Project 2 · yzx/verified-creator/videos"
-                            }</code></span>
-                        }
+                        {field.value === "Public"  && <span>🌐 Video → <code className="bg-sky-50 px-1 rounded">API Public · PUBLIC Supabase</code></span>}
+                        {field.value === "Owner"   && <span>👑 Video → <code className="bg-amber-50 px-1 rounded">API Owner · OWNER Supabase</code></span>}
+                        {field.value === "Media"   && <span>🖼️ Video → <code className="bg-violet-50 px-1 rounded">API Media · MEDIA Supabase</code></span>}
                       </p>
                     )}
                   </FormItem>

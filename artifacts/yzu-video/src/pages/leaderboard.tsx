@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Trophy, Crown, Medal, Star, Search, Bell, ChevronRight,
-  ArrowLeft, Gift, RefreshCw, Flame, TrendingUp, Eye, Upload, Zap,
+  ArrowLeft, RefreshCw, Flame, TrendingUp, Eye, Upload, Zap,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link, useLocation } from "wouter";
@@ -217,48 +217,6 @@ function LeaderboardSkeleton() {
   );
 }
 
-// ── Prize modal ───────────────────────────────────────────────────────────────
-function PrizeModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-sm rounded-3xl bg-gradient-to-b from-[#2d1060] to-[#1a0a2e] border border-purple-500/30 text-white">
-        <DialogHeader>
-          <DialogTitle className="text-center text-xl font-black text-white flex items-center justify-center gap-2">
-            <Gift className="h-5 w-5 text-yellow-400" /> Hadiah Leaderboard
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 mt-2">
-          {[
-            { icon: "🥇", title: "Juara 1", color: "from-yellow-400/20 to-amber-500/10 border-yellow-400/40", items: ["Badge Eksklusif Golden Crown", "Saldo Rp 100.000", "Bundle Eksklusif 30 Hari"] },
-            { icon: "🥈", title: "Juara 2", color: "from-slate-300/20 to-slate-400/10 border-slate-300/40", items: ["Badge Silver Crown", "Saldo Rp 50.000", "Bundle Eksklusif 14 Hari"] },
-            { icon: "🥉", title: "Juara 3", color: "from-amber-700/20 to-orange-700/10 border-amber-600/40", items: ["Badge Bronze Crown", "Saldo Rp 25.000", "Bundle Eksklusif 7 Hari"] },
-            { icon: "🏅", title: "Top 10", color: "from-purple-500/20 to-violet-500/10 border-purple-400/40", items: ["Badge Top Creator"] },
-            { icon: "⭐", title: "Top 50", color: "from-blue-500/20 to-cyan-500/10 border-blue-400/40", items: ["Badge Elite Member"] },
-          ].map((prize) => (
-            <div key={prize.title} className={`rounded-2xl bg-gradient-to-r ${prize.color} border p-3`}>
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="text-xl">{prize.icon}</span>
-                <span className="font-bold text-sm text-white">{prize.title}</span>
-              </div>
-              <ul className="space-y-0.5">
-                {prize.items.map((item) => (
-                  <li key={item} className="text-white/70 text-xs flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-purple-400 shrink-0" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-        <Button onClick={onClose} className="w-full mt-2 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-bold">
-          Tutup
-        </Button>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // ── Point system info ─────────────────────────────────────────────────────────
 const POINT_TABLE = [
   { activity: "Menonton video sampai selesai", points: "+10" },
@@ -276,7 +234,6 @@ export default function LeaderboardPage() {
   const [, setLocation] = useLocation();
   const [category, setCategory] = useState<Category>("all");
   const [period, setPeriod] = useState<Period>("weekly");
-  const [showPrizes, setShowPrizes] = useState(false);
   const [showPointInfo, setShowPointInfo] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
 
@@ -306,9 +263,6 @@ export default function LeaderboardPage() {
     <AppLayout>
       {/* Confetti for top-3 users */}
       {showConfetti && <Confetti />}
-
-      {/* Prize Modal */}
-      <PrizeModal open={showPrizes} onClose={() => setShowPrizes(false)} />
 
       {/* Point Info Modal */}
       <Dialog open={showPointInfo} onOpenChange={setShowPointInfo}>
@@ -371,25 +325,12 @@ export default function LeaderboardPage() {
             <div className="absolute inset-0 overflow-hidden">
               <div className="absolute -top-4 -right-4 w-32 h-32 bg-yellow-400/20 rounded-full blur-2xl" />
               <div className="absolute -bottom-4 -left-4 w-24 h-24 bg-pink-500/20 rounded-full blur-2xl" />
-              <div className="absolute top-1/2 right-8 text-6xl opacity-30 -translate-y-1/2 select-none">🏆</div>
             </div>
             <div className="relative">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-purple-200 text-xs font-semibold uppercase tracking-widest mb-1">FUN+ Leaderboard</p>
-                  <h2 className="text-white font-black text-lg md:text-xl leading-tight">
-                    Jadilah yang terbaik dan<br />menangkan badge eksklusif!
-                  </h2>
-                  <Button
-                    size="sm"
-                    onClick={() => setShowPrizes(true)}
-                    className="mt-3 bg-yellow-400 hover:bg-yellow-300 text-yellow-900 font-black rounded-full text-xs px-4 h-8"
-                  >
-                    <Gift className="h-3.5 w-3.5 mr-1.5" /> Lihat Hadiah
-                  </Button>
-                </div>
-                <div className="text-5xl">🏆</div>
-              </div>
+              <p className="text-purple-200 text-xs font-semibold uppercase tracking-widest mb-1">FUN+ Leaderboard</p>
+              <h2 className="text-white font-black text-lg md:text-xl leading-tight">
+                Jadilah yang terbaik dan<br />menangkan badge eksklusif!
+              </h2>
             </div>
           </motion.div>
 
