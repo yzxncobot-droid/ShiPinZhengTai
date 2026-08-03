@@ -28,6 +28,7 @@ import maintenanceRouter from "./maintenance";
 import creatorRouter from "./creator";
 import socialRouter from "./social";
 import redeemRouter from "./redeem";
+import revenueRouter from "./revenue";
 
 const router: IRouter = Router();
 
@@ -60,5 +61,6 @@ router.use(maintenanceRouter);
 router.use(creatorRouter);
 router.use(socialRouter);
 router.use(redeemRouter);
+router.use(revenueRouter);
 
 export default router;

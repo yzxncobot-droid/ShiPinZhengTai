@@ -80,3 +80,7 @@ channel = "stable-25_05"
 [userenv.shared]
 SUPABASE_URL = "https://ndbnxvwldywbhjjuorye.supabase.co"
 UPSTASH_REDIS_REST_URL = "https://adequate-elf-43259.upstash.io"
+
+[[ports]]
+localPort = 8080
+externalPort = 80

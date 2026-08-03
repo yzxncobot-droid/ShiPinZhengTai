@@ -1,13 +1,25 @@
 /**
  * Idempotent startup migration — runs once when the API server boots.
  *
- * Each migration step runs in its own try/catch so a failure in one section
- * does not block subsequent sections. All statements use IF NOT EXISTS / WHERE IS NULL.
+ * TWO phases:
+ *
+ *  runCriticalStartupMigration()
+ *    Financial schema (revenue_shares, payout_status enum).
+ *    Must succeed before the server accepts any traffic.
+ *    Throws on failure so the caller can process.exit(1).
+ *
+ *  runBestEffortStartupMigration()
+ *    Column additions, back-fills, and other non-critical schema tweaks.
+ *    Each step runs in its own try/catch; a failure is logged as a warning
+ *    but does NOT prevent the server from serving requests.
  */
 
 import { pool } from "@workspace/db";
 import { logger } from "./logger";
 
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+/** Runs a SQL statement and swallows errors (logs warning). */
 async function runStep(client: any, name: string, sql: string): Promise<void> {
   try {
     await client.query(sql);
@@ -17,12 +29,110 @@ async function runStep(client: any, name: string, sql: string): Promise<void> {
   }
 }
 
-export async function runStartupMigration(): Promise<void> {
+/** Runs a SQL statement and THROWS on failure (for financial schema). */
+async function runCriticalStep(client: any, name: string, sql: string): Promise<void> {
+  try {
+    await client.query(sql);
+    logger.info(`startup-migration: ${name} — OK`);
+  } catch (err: any) {
+    logger.error({ err: err?.message }, `startup-migration: ${name} — FAILED (critical)`);
+    throw err;
+  }
+}
+
+// ─── phase 1: critical financial schema (must succeed before traffic) ────────
+
+/**
+ * Creates the payout_status enum and revenue_shares table if they do not
+ * exist, and applies all column/constraint migrations to support bundle rows.
+ *
+ * Runs inside a single client connection and propagates errors — the server
+ * entry point must call this before listening and exit(1) on failure.
+ */
+export async function runCriticalStartupMigration(): Promise<void> {
   const client = await pool.connect();
   try {
-    // ── 0. role enum — add new values (idempotent; ADD VALUE IF NOT EXISTS) ─
-    // PostgreSQL does not support IF NOT EXISTS for ALTER TYPE ADD VALUE before
-    // v9.6, but all modern versions do.  Each value must be in its own statement.
+    // payout_status enum
+    await runCriticalStep(client, "payout_status enum", `
+      DO $$ BEGIN
+        CREATE TYPE payout_status AS ENUM ('pending', 'paid', 'cancelled');
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
+    `);
+
+    // revenue_shares base table — purchase_id / video_id start nullable so the
+    // subsequent ALTER TABLE statements are idempotent on fresh databases too.
+    await runCriticalStep(client, "revenue_shares table", `
+      CREATE TABLE IF NOT EXISTS revenue_shares (
+        id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        purchase_id     uuid REFERENCES video_purchases(id) ON DELETE CASCADE,
+        bundle_purchase_id uuid REFERENCES bundle_purchases(id) ON DELETE CASCADE,
+        video_id        uuid REFERENCES videos(id) ON DELETE CASCADE,
+        creator_id      uuid REFERENCES users(id) ON DELETE SET NULL,
+        buyer_id        uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        video_price     double precision NOT NULL,
+        creator_share   double precision NOT NULL,
+        platform_share  double precision NOT NULL,
+        share_rate      double precision NOT NULL,
+        creator_role    text NOT NULL,
+        payout_status   payout_status NOT NULL DEFAULT 'paid',
+        payout_date     timestamp,
+        created_at      timestamp NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    // Ensure purchase_id and video_id are nullable on tables that pre-date
+    // the bundle-row support (idempotent; no-op if already nullable).
+    await runCriticalStep(client, "revenue_shares purchase_id nullable", `
+      ALTER TABLE revenue_shares ALTER COLUMN purchase_id DROP NOT NULL;
+    `);
+    await runCriticalStep(client, "revenue_shares video_id nullable", `
+      ALTER TABLE revenue_shares ALTER COLUMN video_id DROP NOT NULL;
+    `);
+
+    // bundle_purchase_id column (idempotent)
+    await runCriticalStep(client, "revenue_shares bundle_purchase_id column", `
+      ALTER TABLE revenue_shares
+        ADD COLUMN IF NOT EXISTS bundle_purchase_id uuid
+          REFERENCES bundle_purchases(id) ON DELETE CASCADE;
+    `);
+
+    // Integrity constraint: exactly one of purchase_id / bundle_purchase_id
+    await runCriticalStep(client, "revenue_shares source check constraint", `
+      ALTER TABLE revenue_shares DROP CONSTRAINT IF EXISTS revenue_shares_source_check;
+      ALTER TABLE revenue_shares ADD CONSTRAINT revenue_shares_source_check
+        CHECK (
+          (purchase_id IS NOT NULL AND bundle_purchase_id IS NULL) OR
+          (purchase_id IS NULL     AND bundle_purchase_id IS NOT NULL)
+        );
+    `);
+
+    // Indexes (all idempotent)
+    await runCriticalStep(client, "revenue_shares indexes", `
+      CREATE INDEX IF NOT EXISTS revenue_shares_purchase_id_idx        ON revenue_shares(purchase_id);
+      CREATE INDEX IF NOT EXISTS revenue_shares_bundle_purchase_id_idx ON revenue_shares(bundle_purchase_id);
+      CREATE INDEX IF NOT EXISTS revenue_shares_creator_id_idx         ON revenue_shares(creator_id);
+      CREATE INDEX IF NOT EXISTS revenue_shares_buyer_id_idx           ON revenue_shares(buyer_id);
+      CREATE INDEX IF NOT EXISTS revenue_shares_video_id_idx           ON revenue_shares(video_id);
+      CREATE INDEX IF NOT EXISTS revenue_shares_created_at_idx         ON revenue_shares(created_at);
+      CREATE INDEX IF NOT EXISTS revenue_shares_payout_status_idx      ON revenue_shares(payout_status);
+    `);
+  } finally {
+    client.release();
+  }
+}
+
+// ─── phase 2: best-effort schema tweaks (non-critical) ───────────────────────
+
+/**
+ * Applies column additions, back-fills, and other non-critical schema patches.
+ * Failures are logged as warnings but do NOT prevent the server from serving
+ * requests.
+ */
+export async function runBestEffortStartupMigration(): Promise<void> {
+  const client = await pool.connect();
+  try {
+    // ── 0. role enum — add new values ───────────────────────────────────────
     await runStep(client, "role enum: add 'creator'", `
       ALTER TYPE role ADD VALUE IF NOT EXISTS 'creator';
     `);
@@ -56,15 +166,6 @@ export async function runStartupMigration(): Promise<void> {
     `);
 
     // ── 3. notifications table columns ──────────────────────────────────────
-    //
-    // The `category` column (and related social/payment columns) were added to
-    // the Drizzle schema but never migrated to the live DB.  Because the column
-    // is defined as notNull() in the schema, Drizzle always names it explicitly
-    // in every INSERT, causing every notification write to fail with:
-    //   "column category of relation notifications does not exist"
-    //
-    // We run this as a separate step so a missing `videos` table (e.g. in a
-    // fresh Replit DB) does not block this critical fix.
     await runStep(client, "notifications columns", `
       ALTER TABLE notifications ADD COLUMN IF NOT EXISTS category       text NOT NULL DEFAULT 'system';
       ALTER TABLE notifications ADD COLUMN IF NOT EXISTS actor_id       uuid REFERENCES users(id) ON DELETE SET NULL;
@@ -74,8 +175,17 @@ export async function runStartupMigration(): Promise<void> {
       ALTER TABLE notifications ADD COLUMN IF NOT EXISTS reference_id   text;
       ALTER TABLE notifications ADD COLUMN IF NOT EXISTS action_url     text;
     `);
-
   } finally {
     client.release();
   }
+}
+
+/**
+ * @deprecated Use runCriticalStartupMigration() + runBestEffortStartupMigration() instead.
+ * Kept for backward compatibility — runs both phases, treating the critical phase
+ * as best-effort for callers that have not been updated yet.
+ */
+export async function runStartupMigration(): Promise<void> {
+  await runCriticalStartupMigration();
+  await runBestEffortStartupMigration();
 }

@@ -3,7 +3,7 @@ import { db } from "@workspace/db";
 import {
   bundlesTable, bundleVideosTable, bundlePurchasesTable,
   videosTable, usersTable, transactionsTable, notificationsTable,
-  walletTransactionsTable, walletsTable,
+  walletTransactionsTable, walletsTable, revenueSharesTable,
 } from "@workspace/db";
 import { eq, and, inArray, asc, gte, sql, isNull } from "drizzle-orm";
 import { authenticate, optionalAuth, requireRole } from "../middlewares/auth";
@@ -368,6 +368,21 @@ router.post("/bundles/:id/purchase", authenticate, async (req, res) => {
         userId, title: "Bundle Purchased",
         message: `You now own the "${bundle.title}" bundle forever.`,
         type: "purchase",
+      });
+
+      // ── Revenue share record — bundles are platform-managed (no individual
+      // creator), so the platform keeps 100% of the bundle price.
+      await tx.insert(revenueSharesTable).values({
+        bundlePurchaseId: purchase.id,
+        creatorId: null,
+        buyerId: userId,
+        videoPrice: price,
+        creatorShare: 0,
+        platformShare: price,
+        shareRate: 0,
+        creatorRole: "platform",
+        payoutStatus: "paid",
+        payoutDate: new Date(),
       });
 
       return { purchase };

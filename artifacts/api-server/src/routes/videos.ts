@@ -5,7 +5,7 @@ import {
   commentsTable, userSubscriptionsTable,
   videoPurchasesTable, transactionsTable, notificationsTable,
   bundlesTable, bundleVideosTable, bundlePurchasesTable,
-  walletTransactionsTable, walletsTable,
+  walletTransactionsTable, walletsTable, revenueSharesTable,
 } from "@workspace/db";
 import { legacyToVisibility, visibilityToLegacy } from "@workspace/db";
 import { eq, and, desc, asc, ilike, gte, ne, or, sql, count, isNull } from "drizzle-orm";
@@ -584,6 +584,31 @@ router.post("/videos/:id/purchase", authenticate, async (req, res) => {
         userId, title: "Video Purchased",
         message: `You now have permanent access to "${video.title}".`,
         type: "purchase",
+      });
+
+      // ── Insert revenue_share record ─────────────────────────────────────────
+      // Always record the split so admin/creator can see history.
+      // For admin/owner uploads (no creator) creatorShare = 0, platformShare = price.
+      const platformEarnings = video.price! - creatorEarnings;
+      const shareRate = isCreatorUpload ? (1 - taxRate) : 0;
+      const uploaderRoleLabel = isCreatorUpload
+        ? (creator!.verifiedCreator ? "verified_creator" : "creator")
+        : "platform";
+
+      // Creator wallet is credited atomically inside this same transaction,
+      // so the row is immediately settled — mark it paid with a timestamp.
+      await tx.insert(revenueSharesTable).values({
+        purchaseId: purchase.id,
+        videoId: id,
+        creatorId: isCreatorUpload ? video.creatorId! : null,
+        buyerId: userId,
+        videoPrice: video.price!,
+        creatorShare: creatorEarnings,
+        platformShare: platformEarnings,
+        shareRate,
+        creatorRole: uploaderRoleLabel,
+        payoutStatus: "paid",
+        payoutDate: new Date(),
       });
 
       // Credit creator earnings (after platform tax)
