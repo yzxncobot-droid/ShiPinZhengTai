@@ -500,6 +500,12 @@ router.post("/videos/:id/like", authenticate, async (req, res) => {
 });
 
 // ── POST /videos/:id/purchase — buy a premium video ──────────────────────────
+//
+// Tax / premium rates (deducted from creator earnings):
+//   Verified Creator  → 25% tax  (creator earns 75% of price)
+//   Creator           → 50% tax  (creator earns 50% of price)
+//   Admin / Owner     → no tax applied (platform upload)
+//
 router.post("/videos/:id/purchase", authenticate, async (req, res) => {
   const id = req.params.id as string;
   const userId = req.user!.userId;
@@ -518,10 +524,31 @@ router.post("/videos/:id/purchase", authenticate, async (req, res) => {
     .where(and(eq(videoPurchasesTable.userId, userId), eq(videoPurchasesTable.videoId, id))).limit(1);
   if (existingPurchase) { res.status(400).json({ error: "Already purchased" }); return; }
 
+  // Fetch creator info to calculate tax-based earnings
+  const [creator] = video.creatorId
+    ? await db.select({
+        id: usersTable.id,
+        creatorBadge: usersTable.creatorBadge,
+        verifiedCreator: usersTable.verifiedCreator,
+        walletBalance: usersTable.walletBalance,
+      }).from(usersTable).where(eq(usersTable.id, video.creatorId!)).limit(1)
+    : [null];
+
+  // Determine creator earnings after platform tax
+  const isCreatorUpload = creator && video.creatorId !== userId &&
+    (creator.creatorBadge || creator.verifiedCreator);
+  const TAX_VERIFIED_CREATOR = 0.25; // 25% platform tax for Verified Creator
+  const TAX_CREATOR          = 0.50; // 50% platform tax for Creator
+  const taxRate = creator?.verifiedCreator ? TAX_VERIFIED_CREATOR : TAX_CREATOR;
+  const creatorEarnings = isCreatorUpload
+    ? Math.floor(video.price! * (1 - taxRate))
+    : 0;
+
   const newBalance = user.walletBalance - video.price;
 
   try {
     const result = await db.transaction(async (tx) => {
+      // Deduct from buyer
       await tx.update(usersTable).set({
         walletBalance: newBalance,
         totalSpent: sql`${usersTable.totalSpent} + ${video.price}`,
@@ -558,6 +585,49 @@ router.post("/videos/:id/purchase", authenticate, async (req, res) => {
         message: `You now have permanent access to "${video.title}".`,
         type: "purchase",
       });
+
+      // Credit creator earnings (after platform tax)
+      if (isCreatorUpload && creatorEarnings > 0) {
+        const taxPercent = Math.round(taxRate * 100);
+        const creatorNewBalance = (creator!.walletBalance ?? 0) + creatorEarnings;
+
+        await tx.update(usersTable).set({
+          walletBalance: creatorNewBalance,
+          updatedAt: new Date(),
+        }).where(eq(usersTable.id, video.creatorId!));
+
+        await tx.update(walletsTable).set({
+          balance: creatorNewBalance,
+          totalEarned: sql`${walletsTable.totalEarned} + ${creatorEarnings}`,
+          updatedAt: new Date(),
+          lastTransactionAt: new Date(),
+        }).where(eq(walletsTable.userId, video.creatorId!));
+
+        await tx.insert(walletTransactionsTable).values({
+          userId: video.creatorId!,
+          type: "revenue_share",
+          amount: creatorEarnings,
+          balanceAfter: creatorNewBalance,
+          description: `Pendapatan video: ${video.title} (tarif premium ${taxPercent}%)`,
+          referenceType: "video",
+          referenceId: purchase.id,
+        });
+
+        await tx.insert(transactionsTable).values({
+          userId: video.creatorId!,
+          type: "revenue_share",
+          amount: creatorEarnings,
+          description: `Pendapatan video: ${video.title} (tarif premium ${taxPercent}%)`,
+          referenceId: purchase.id,
+        });
+
+        await tx.insert(notificationsTable).values({
+          userId: video.creatorId!,
+          title: "Video Terjual 🎉",
+          message: `Video "${video.title}" dibeli. Kamu mendapat Rp ${creatorEarnings.toLocaleString("id-ID")} (tarif premium ${taxPercent}%).`,
+          type: "purchase",
+        });
+      }
 
       return purchase;
     });

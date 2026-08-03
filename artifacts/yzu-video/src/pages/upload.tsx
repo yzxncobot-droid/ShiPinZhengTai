@@ -176,6 +176,16 @@ export default function CreatorUploadPage() {
     const fd = new FormData();
     fd.append(formKey, file);
 
+    // Auto-determine uploaderType from user role so backend routes to the
+    // correct Supabase project (PUBLIC for Creator/Verified Creator).
+    // Admin/Owner use the admin upload page — no uploaderType needed here.
+    const uploaderType = u?.verifiedCreator
+      ? "Verified Creator"
+      : u?.creatorBadge
+      ? "Creator"
+      : null;
+    if (uploaderType) fd.append("uploaderType", uploaderType);
+
     try {
       const data = await new Promise<{ url: string; path?: string }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();

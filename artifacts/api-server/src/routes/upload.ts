@@ -1,6 +1,9 @@
 import { Router, Request, Response, NextFunction } from "express";
 import multer from "multer";
 import path from "path";
+import { eq } from "drizzle-orm";
+import { db } from "@workspace/db";
+import { usersTable } from "@workspace/db";
 import { authenticate } from "../middlewares/auth";
 import {
   // Legacy Supabase (for backward-compat uploads without uploader type,
@@ -26,7 +29,7 @@ import {
   uploadToMediaStorage,
   uploadBundleThumbnailToMedia,
 } from "../lib/storage";
-import type { UploadVideoResult, UploadThumbnailResult } from "../lib/storage";
+import type { UploadVideoResult, UploadThumbnailResult, NormalizedUploaderType } from "../lib/storage";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -150,13 +153,74 @@ async function uploadToLegacyBucket(folder: string, file: Express.Multer.File) {
   }
 }
 
+/**
+ * Resolve the authoritative NormalizedUploaderType for an authenticated user.
+ *
+ * Security contract:
+ *   - Admin / Owner: client-supplied uploaderType is trusted (they select their
+ *     storage via the admin upload page). Returns null when no type is supplied
+ *     (signals caller to use the legacy route).
+ *   - All other users: storage tier is determined ENTIRELY from DB-stored creator
+ *     flags. The client-supplied value is unconditionally ignored to prevent
+ *     privilege escalation (e.g. Creator claiming Verified Creator tier).
+ *
+ * Returns:
+ *   { type: NormalizedUploaderType | null }  — null means "use legacy route"
+ *   { error: string; status: number }         — caller should return this HTTP error
+ */
+async function resolveUploaderType(
+  userId: string,
+  userRole: string,
+  clientUploaderType: string | undefined,
+): Promise<{ type: NormalizedUploaderType | null } | { error: string; status: number }> {
+  const isAdminOrOwner = ["admin", "owner"].includes(userRole);
+
+  if (isAdminOrOwner) {
+    // Admins/owners choose storage via admin upload page; trust their explicit choice.
+    // If omitted, return null → caller falls through to legacy route.
+    const normalized = normalizeUploaderType(clientUploaderType);
+    return { type: normalized }; // may be null (legacy) or a specific type
+  }
+
+  // Non-admin/owner: ALWAYS resolve from DB — never trust the client value.
+  const [userFlags] = await db
+    .select({ creatorBadge: usersTable.creatorBadge, verifiedCreator: usersTable.verifiedCreator })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+
+  if (!userFlags) {
+    return { error: "Pengguna tidak ditemukan.", status: 404 };
+  }
+
+  const clientNormalized = normalizeUploaderType(clientUploaderType);
+
+  if (userFlags.verifiedCreator) {
+    if (clientNormalized && clientNormalized !== "verified_creator") {
+      logger.warn({ userId, clientType: clientNormalized }, "Upload: client uploaderType overridden → verified_creator");
+    }
+    return { type: "verified_creator" };
+  }
+
+  if (userFlags.creatorBadge) {
+    if (clientNormalized && clientNormalized !== "creator") {
+      logger.warn({ userId, clientType: clientNormalized }, "Upload: client uploaderType overridden → creator");
+    }
+    return { type: "creator" };
+  }
+
+  return {
+    error: "Anda tidak memiliki izin untuk mengupload. Creator badge diperlukan.",
+    status: 403,
+  };
+}
+
 // ── Video upload ──────────────────────────────────────────────────────────────
 //
-//  Routing logic based on uploaderType:
-//    "Creator"          → CreatorStorage (Supabase Project 1 → yzx/creator/videos/)
-//    "Verified Creator" → VerifiedCreatorStorage (Supabase Project 2 → yzx/verified-creator/videos/)
-//    "Owner"            → OwnerStorage (Bunny Stream — returns playback URL)
-//    (omitted)          → Legacy Supabase (yzx/videos/ — backward-compatible)
+//  Storage routing is always resolved server-side from authenticated user flags:
+//    verifiedCreator = true  → PUBLIC Supabase (verified-creator folder)
+//    creatorBadge = true     → PUBLIC Supabase (creator folder)
+//    admin / owner           → OWNER Supabase (or client-selected storage)
 //
 router.post(
   "/upload/video",
@@ -168,24 +232,24 @@ router.post(
       return;
     }
 
-    const rawUploaderType = req.body?.uploaderType as string | undefined;
-    const normalized = normalizeUploaderType(rawUploaderType);
+    const userRole = req.user?.role ?? "";
+    const isAdminOrOwner = ["admin", "owner"].includes(userRole);
+
+    // Resolve storage tier server-side (never trust client for creator tier)
+    const resolved = await resolveUploaderType(
+      req.user!.userId,
+      userRole,
+      req.body?.uploaderType as string | undefined,
+    );
+
+    if ("error" in resolved) {
+      return res.status(resolved.status).json({ success: false, message: resolved.error });
+    }
+
+    const normalized = resolved.type;
 
     // ── Multi-storage route (Creator / Verified Creator / Owner) ──────────────
     if (normalized) {
-      // Server-side role enforcement: OWNER storage requires admin or owner role.
-      // Do NOT trust the client-supplied uploaderType for authorization —
-      // validate against the authenticated user's resolved role.
-      if (normalized === "owner") {
-        const userRole = req.user?.role ?? "";
-        if (!["admin", "owner"].includes(userRole)) {
-          return res.status(403).json({
-            success: false,
-            message: "Hanya admin atau owner yang dapat mengupload ke OWNER storage.",
-          });
-        }
-      }
-
       const storage = getStorageService(normalized);
       const title   = req.body?.title ?? req.file.originalname ?? "Upload";
       try {
@@ -218,7 +282,7 @@ router.post(
       }
     }
 
-    // ── Legacy route (no uploader type) ───────────────────────────────────────
+    // ── Legacy route (no uploader type — admin/owner without explicit type) ────
     if (!isSupabaseAvailable) {
       return res.status(503).json({
         success: false,
@@ -254,11 +318,10 @@ router.post(
 
 // ── Thumbnail upload ──────────────────────────────────────────────────────────
 //
-//  Routing logic based on uploaderType (mirrors video upload):
-//    "Creator"          → CreatorStorage      (yzx/creator/thumbnails/)
-//    "Verified Creator" → VerifiedCreatorStorage (yzx/verified-creator/thumbnails/)
-//    "Owner"            → OwnerStorage thumbnail (yzx/owner/thumbnails/ in legacy Supabase)
-//    (omitted)          → Legacy Supabase     (yzx/thumnails/ — intentional typo compat)
+//  Storage routing is always resolved server-side (mirrors video upload):
+//    verifiedCreator = true  → PUBLIC Supabase (verified-creator thumbnails)
+//    creatorBadge = true     → PUBLIC Supabase (creator thumbnails)
+//    admin / owner           → client-selected storage, or legacy if omitted
 //
 router.post(
   "/upload/thumbnail",
@@ -270,22 +333,23 @@ router.post(
       return;
     }
 
-    const rawUploaderType = req.body?.uploaderType as string | undefined;
-    const normalized = normalizeUploaderType(rawUploaderType);
+    const userRole = req.user?.role ?? "";
+
+    // Resolve storage tier server-side (creator tier is never client-trusted)
+    const resolved = await resolveUploaderType(
+      req.user!.userId,
+      userRole,
+      req.body?.uploaderType as string | undefined,
+    );
+
+    if ("error" in resolved) {
+      return res.status(resolved.status).json({ success: false, message: resolved.error });
+    }
+
+    const normalized = resolved.type;
 
     // ── Multi-storage route ───────────────────────────────────────────────────
     if (normalized) {
-      // Server-side role enforcement: OWNER storage requires admin or owner role.
-      if (normalized === "owner") {
-        const userRole = req.user?.role ?? "";
-        if (!["admin", "owner"].includes(userRole)) {
-          return res.status(403).json({
-            success: false,
-            message: "Hanya admin atau owner yang dapat mengupload ke OWNER storage.",
-          });
-        }
-      }
-
       const storage = getStorageService(normalized);
       try {
         const result: UploadThumbnailResult = await storage.uploadThumbnail(req.file);
@@ -311,7 +375,7 @@ router.post(
       }
     }
 
-    // ── Legacy route ──────────────────────────────────────────────────────────
+    // ── Legacy route (admin/owner with no explicit uploaderType) ──────────────
     if (!isSupabaseAvailable) {
       return res.status(503).json({
         success: false,
