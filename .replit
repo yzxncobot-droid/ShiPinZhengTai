@@ -84,3 +84,7 @@ UPSTASH_REDIS_REST_URL = "https://adequate-elf-43259.upstash.io"
 [[ports]]
 localPort = 8080
 externalPort = 80
+
+[[ports]]
+localPort = 21561
+externalPort = 3000
