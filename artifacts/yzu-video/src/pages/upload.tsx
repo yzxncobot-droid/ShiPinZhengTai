@@ -176,14 +176,12 @@ export default function CreatorUploadPage() {
     const fd = new FormData();
     fd.append(formKey, file);
 
-    // Auto-determine uploaderType from user role so backend routes to the
-    // correct Supabase project (PUBLIC for Creator/Verified Creator).
-    // Admin/Owner use the admin upload page — no uploaderType needed here.
-    const uploaderType = u?.verifiedCreator
-      ? "Verified Creator"
-      : u?.creatorBadge
-      ? "Creator"
-      : null;
+    // Auto-determine uploaderType so backend routes to PUBLIC Supabase.
+    // Verified Creator: flag OR role === 'verified_creator'
+    // Creator:          flag OR role === 'creator' / 'verified_creator'
+    const isVerifiedCreator = !!u?.verifiedCreator || u?.role === "verified_creator";
+    const isCreator         = !!u?.creatorBadge    || u?.role === "creator" || u?.role === "verified_creator";
+    const uploaderType = isVerifiedCreator ? "Verified Creator" : isCreator ? "Creator" : null;
     if (uploaderType) fd.append("uploaderType", uploaderType);
 
     try {
@@ -289,15 +287,21 @@ export default function CreatorUploadPage() {
     setLocation("/login");
     return null;
   }
-  // Admin/Owner without creator badge must use their own admin upload page —
-  // the profile dropdown upload is exclusively for Creator / Verified Creator
-  // and routes everything to PUBLIC Supabase.
-  if ((u?.role === "admin" || u?.role === "owner") && !u?.creatorBadge) {
+
+  // Creator access = creatorBadge flag OR role is 'creator' / 'verified_creator'
+  const hasCreatorAccess =
+    !!u?.creatorBadge ||
+    u?.role === "creator" ||
+    u?.role === "verified_creator";
+
+  // Admin/Owner without any creator access must use their admin upload page.
+  const isAdminOrOwner = u?.role === "admin" || u?.role === "owner";
+  if (isAdminOrOwner && !hasCreatorAccess) {
     const adminPath = u?.role === "owner" ? "/owner" : "/admin";
     setLocation(adminPath);
     return null;
   }
-  if (!u?.creatorBadge) {
+  if (!hasCreatorAccess) {
     return <NotAuthorized />;
   }
 

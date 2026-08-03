@@ -126,18 +126,28 @@ export default function MyVideoPage() {
   const LIMIT = 10;
 
   // ── Queries ──────────────────────────────────────────────────────────────────
+  // Verified Creator access: boolean flag OR role === 'verified_creator'
+  const isVerifiedCreator =
+    !!u?.verifiedCreator || u?.role === "verified_creator";
+  const isAdminOrOwner = u?.role === "admin" || u?.role === "owner";
+  // Creator access: badge flag OR role is 'creator'/'verified_creator'
+  const isCreator =
+    !!u?.creatorBadge ||
+    u?.role === "creator" ||
+    u?.role === "verified_creator";
+
   const { data: videosData, isLoading: videosLoading } = useQuery({
     queryKey: ["creator-videos", page],
     queryFn: () => adminFetch<{ data: CreatorVideo[]; total: number; page: number; limit: number }>(
       `/creator/my-videos?page=${page}&limit=${LIMIT}`
     ),
-    enabled: !!token && (!!u?.verifiedCreator || u?.role === "admin" || u?.role === "owner"),
+    enabled: !!token && (isVerifiedCreator || isAdminOrOwner),
   });
 
   const { data: stats } = useQuery({
     queryKey: ["creator-stats"],
     queryFn: () => adminFetch<StatsData>("/creator/stats"),
-    enabled: !!token && (!!u?.verifiedCreator || u?.role === "admin" || u?.role === "owner"),
+    enabled: !!token && (isVerifiedCreator || isAdminOrOwner),
   });
 
   const deleteMutation = useMutation({
@@ -164,10 +174,12 @@ export default function MyVideoPage() {
     );
   }
   if (!token || !user) { setLocation("/login"); return null; }
-  if (!u?.creatorBadge && u?.role !== "admin" && u?.role !== "owner") {
+  // Creator role or badge required (role='creator'/'verified_creator' both qualify)
+  if (!isCreator && !isAdminOrOwner) {
     return <NotAuthorized />;
   }
-  if (!u?.verifiedCreator && u?.role !== "admin" && u?.role !== "owner") {
+  // My Video requires Verified Creator (or admin/owner) — plain Creator cannot access
+  if (!isVerifiedCreator && !isAdminOrOwner) {
     return <NotAuthorized isVerified />;
   }
 

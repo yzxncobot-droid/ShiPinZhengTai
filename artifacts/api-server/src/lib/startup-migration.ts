@@ -20,6 +20,13 @@ async function runStep(client: any, name: string, sql: string): Promise<void> {
 export async function runStartupMigration(): Promise<void> {
   const client = await pool.connect();
   try {
+    // ── 0. role enum — add new values (idempotent; ADD VALUE IF NOT EXISTS) ─
+    // PostgreSQL does not support IF NOT EXISTS for ALTER TYPE ADD VALUE before
+    // v9.6, but all modern versions do.  Each value must be in its own statement.
+    await runStep(client, "role enum: add 'creator'", `
+      ALTER TYPE role ADD VALUE IF NOT EXISTS 'creator';
+    `);
+
     // ── 1. videos table columns ─────────────────────────────────────────────
     await runStep(client, "videos columns", `
       ALTER TABLE videos ADD COLUMN IF NOT EXISTS video_source_type text NOT NULL DEFAULT 'upload';

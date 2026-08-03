@@ -188,10 +188,14 @@ async function resolveUploaderType(
   }
 
   // For ALL other cases — including admin/owner reaching the profile dropdown
-  // upload page without an explicit uploaderType — resolve from DB creator flags.
+  // upload page without an explicit uploaderType — resolve from DB creator flags/role.
   // This guarantees Creator / Verified Creator always land on PUBLIC Supabase.
   const [userFlags] = await db
-    .select({ creatorBadge: usersTable.creatorBadge, verifiedCreator: usersTable.verifiedCreator })
+    .select({
+      creatorBadge:    usersTable.creatorBadge,
+      verifiedCreator: usersTable.verifiedCreator,
+      role:            usersTable.role,
+    })
     .from(usersTable)
     .where(eq(usersTable.id, userId))
     .limit(1);
@@ -200,7 +204,12 @@ async function resolveUploaderType(
     return { error: "Pengguna tidak ditemukan.", status: 404 };
   }
 
-  if (userFlags.verifiedCreator) {
+  // Derive capabilities from role (role = 'creator'/'verified_creator' grants
+  // access even if the legacy boolean flags are still false)
+  const effectiveVerified = userFlags.verifiedCreator || userFlags.role === "verified_creator";
+  const effectiveCreator  = userFlags.creatorBadge    || userFlags.role === "creator" || userFlags.role === "verified_creator";
+
+  if (effectiveVerified) {
     const clientNormalized = normalizeUploaderType(clientUploaderType);
     if (clientNormalized && clientNormalized !== "verified_creator") {
       logger.warn({ userId, clientType: clientNormalized }, "Upload: client uploaderType overridden → verified_creator");
@@ -208,7 +217,7 @@ async function resolveUploaderType(
     return { type: "verified_creator" };
   }
 
-  if (userFlags.creatorBadge) {
+  if (effectiveCreator) {
     const clientNormalized = normalizeUploaderType(clientUploaderType);
     if (clientNormalized && clientNormalized !== "creator") {
       logger.warn({ userId, clientType: clientNormalized }, "Upload: client uploaderType overridden → creator");
@@ -216,7 +225,7 @@ async function resolveUploaderType(
     return { type: "creator" };
   }
 
-  // No creator badge — admin/owner must use the admin upload page.
+  // No creator access — admin/owner must use the admin upload page.
   if (isAdminOrOwner) {
     return {
       error: "Admin/Owner tanpa creator badge harus menggunakan halaman Upload Admin, bukan profile dropdown.",

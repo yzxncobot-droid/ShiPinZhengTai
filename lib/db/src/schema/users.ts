@@ -7,14 +7,20 @@ import { z } from "zod/v4";
 
 /**
  * Application roles:
- *  meril  – standard viewer / subscriber (the default consumer role)
- *  admin  – content manager; can upload, edit, moderate
- *  owner  – full access including payments and role management
+ *  meril            – standard viewer / subscriber (the default consumer role)
+ *  creator          – can upload videos via Public Supabase; no Dashboard or My Video access
+ *  verified_creator – can upload videos via Public Supabase + access My Video (own videos only)
+ *  moderator        – content moderation (no upload or admin panel)
+ *  admin            – content manager; can upload, edit, moderate (full admin panel)
+ *  owner            – full access including payments and role management
  *
- * Note: the legacy "user" value is retained so existing rows aren't broken.
- * New registrations default to "meril". Frontend should treat "user" === "meril".
+ * Notes:
+ *  - The legacy "user" value is retained so existing rows aren't broken.
+ *    New registrations default to "meril". Frontend should treat "user" === "meril".
+ *  - creator/verified_creator roles grant the same upload capabilities as the
+ *    boolean creatorBadge/verifiedCreator flags; role takes precedence when set.
  */
-export const roleEnum = pgEnum("role", ["user", "meril", "moderator", "verified_creator", "admin", "owner"]);
+export const roleEnum = pgEnum("role", ["user", "meril", "moderator", "creator", "verified_creator", "admin", "owner"]);
 
 export const subscriptionStatusEnum = pgEnum("subscription_status_enum", [
   "none", "active", "expired",
@@ -88,7 +94,9 @@ export const insertUserSchema = createInsertSchema(usersTable).omit({
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof usersTable.$inferSelect;
 
-/** Roles that have any elevated privilege. */
+/** Roles that have any elevated privilege (admin panel access). */
 export const STAFF_ROLES = ["moderator", "admin", "owner"] as const;
+/** Roles that can upload videos via the profile dropdown (Public Supabase). */
+export const CREATOR_ROLES = ["creator", "verified_creator"] as const;
 /** All known roles (including legacy "user"). */
-export type UserRole = "user" | "meril" | "moderator" | "verified_creator" | "admin" | "owner";
+export type UserRole = "user" | "meril" | "moderator" | "creator" | "verified_creator" | "admin" | "owner";

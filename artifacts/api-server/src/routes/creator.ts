@@ -19,17 +19,41 @@ const router = Router();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Fetch the live creator flags for the authenticated user. */
+/**
+ * Fetch the effective creator flags for the authenticated user.
+ *
+ * Creator capabilities are granted by EITHER:
+ *   a) The boolean flag columns (creatorBadge / verifiedCreator), OR
+ *   b) The role column ("creator" → creatorBadge; "verified_creator" → both flags)
+ *
+ * Role takes effect even if the boolean flags are still false, so assigning
+ * role = 'creator' or 'verified_creator' is sufficient without also flipping
+ * the legacy boolean columns.
+ */
 async function getCreatorFlags(userId: string) {
   const [row] = await db
-    .select({ creatorBadge: usersTable.creatorBadge, verifiedCreator: usersTable.verifiedCreator })
+    .select({
+      creatorBadge:    usersTable.creatorBadge,
+      verifiedCreator: usersTable.verifiedCreator,
+      role:            usersTable.role,
+    })
     .from(usersTable)
     .where(eq(usersTable.id, userId))
     .limit(1);
-  return row ?? { creatorBadge: false, verifiedCreator: false };
+
+  if (!row) return { creatorBadge: false, verifiedCreator: false };
+
+  // Derive capabilities from role (role is authoritative over boolean flags)
+  const roleIsCreator         = row.role === "creator" || row.role === "verified_creator";
+  const roleIsVerifiedCreator = row.role === "verified_creator";
+
+  return {
+    creatorBadge:    row.creatorBadge    || roleIsCreator,
+    verifiedCreator: row.verifiedCreator || roleIsVerifiedCreator,
+  };
 }
 
-/** Middleware: reject requests if user doesn't have creator_badge. */
+/** Middleware: reject requests if user doesn't have creator access (badge or role). */
 async function requireCreatorBadge(req: Request, res: Response, next: Function) {
   if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
   const flags = await getCreatorFlags(req.user.userId);
@@ -40,7 +64,7 @@ async function requireCreatorBadge(req: Request, res: Response, next: Function) 
   next();
 }
 
-/** Middleware: reject requests if user doesn't have verified_creator. */
+/** Middleware: reject requests if user doesn't have verified creator access. */
 async function requireVerifiedCreator(req: Request, res: Response, next: Function) {
   if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
   const flags = await getCreatorFlags(req.user.userId);
