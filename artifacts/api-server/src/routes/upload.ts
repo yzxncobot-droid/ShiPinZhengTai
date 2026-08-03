@@ -616,70 +616,117 @@ router.post(
 
 // ── Debug endpoint: all storage provider statuses ─────────────────────────────
 router.get("/upload/debug", authenticate, async (req: Request, res: Response) => {
-  const result: Record<string, any> = {
-    timestamp: new Date().toISOString(),
-    architecture: "PUBLIC + OWNER + MEDIA (3 Supabase projects)",
-    storageProviders: {
-      publicSupabase: {
-        description:      "Creator + Verified Creator video uploads",
-        supabaseUrl:      process.env.PUBLIC_SUPABASE_URL ?? "(not set)",
-        serviceKeyPresent: !!process.env.PUBLIC_SUPABASE_SERVICE_KEY,
-        available:        isCreatorStorageAvailable,
-        bucket:           "yzx",
-        creatorVideoFolder:      "public/creator/videos",
-        creatorThumbFolder:      "public/creator/thumbnails",
-        vcVideoFolder:           "public/verified-creator/videos",
-        vcThumbFolder:           "public/verified-creator/thumbnails",
-        vcPaymentsFolder:        "public/verified-creator/payments",
-      },
-      ownerSupabase: {
-        description:      "Owner / Admin video uploads",
-        supabaseUrl:      process.env.OWNER_SUPABASE_URL ?? "(not set)",
-        serviceKeyPresent: !!process.env.OWNER_SUPABASE_SERVICE_KEY,
-        available:        isOwnerStorageAvailable,
-        bucket:           "yzx",
-        videoFolder:      "owner/videos",
-        thumbFolder:      "owner/thumbnails",
-      },
-      mediaSupabase: {
-        description:      "Media assets: avatars, QRIS, banners, bundle images",
-        supabaseUrl:      process.env.MEDIA_SUPABASE_URL ?? "(not set)",
-        serviceKeyPresent: !!process.env.MEDIA_SUPABASE_SERVICE_KEY,
-        available:        isMediaStorageAvailable,
-        bucket:           process.env.MEDIA_SUPABASE_BUCKET ?? "yzx",
-        folders: {
-          avatars:           "media/avatars",
-          qris:              "media/qris",
-          banners:           "media/banners",
-          bundleThumbnails:  "media/bundle-thumbnails",
-          bundleBanners:     "media/bundle-banners",
-          logos:             "media/logos",
-          images:            "media/images",
-        },
-      },
-      legacy: {
-        description:      "Pre-migration uploads (backward-compat read-only)",
-        supabaseUrl:      process.env.SUPABASE_URL ?? "(not set)",
-        serviceKeyPresent: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-        available:        isSupabaseAvailable,
-        bucket:           MEDIA_BUCKET,
-      },
-    },
-  };
+  const { buildSupabaseClient, getJwtRole } = await import("../lib/storage/supabase-helpers");
 
-  // Test legacy Supabase connectivity
-  if (isSupabaseAvailable) {
+  /** Live-test a Supabase project: list buckets and check bucket existence. */
+  async function probeProject(url: string, key: string, bucket: string) {
+    if (!url || !key) return { status: "not_configured" };
+    const keyRole = getJwtRole(key);
+    const client  = buildSupabaseClient(url, key);
     try {
-      const { data: buckets, error } = await supabase.storage.listBuckets();
-      result.storageProviders.legacy.buckets = error
-        ? { error: error.message }
-        : (buckets ?? []).map((b: any) => ({ name: b.name, public: b.public }));
+      const { data: buckets, error } = await client.storage.listBuckets();
+      if (error) return { status: "error", keyRole, error: error.message };
+      const found = (buckets ?? []).find((b: any) => b.name === bucket);
+      return {
+        status: "ok",
+        keyRole,
+        bucket,
+        bucketExists: !!found,
+        bucketPublic: found?.public ?? null,
+        allBuckets: (buckets ?? []).map((b: any) => ({ name: b.name, public: b.public })),
+        warning: keyRole !== "service_role"
+          ? `Key role is "${keyRole}" — only service_role bypasses RLS. Uploads will fail!`
+          : undefined,
+      };
     } catch (e: any) {
-      result.storageProviders.legacy.connectError = e?.message;
+      return { status: "connect_error", keyRole, error: e?.message };
     }
   }
 
-  res.json(result);
+  const mediaBucket = process.env.MEDIA_SUPABASE_BUCKET ?? "yzx";
+
+  const [publicProbe, ownerProbe, mediaProbe] = await Promise.all([
+    probeProject(
+      process.env.PUBLIC_SUPABASE_URL ?? "",
+      process.env.PUBLIC_SUPABASE_SERVICE_KEY ?? "",
+      "yzx",
+    ),
+    probeProject(
+      process.env.OWNER_SUPABASE_URL ?? "",
+      process.env.OWNER_SUPABASE_SERVICE_KEY ?? "",
+      "yzx",
+    ),
+    probeProject(
+      process.env.MEDIA_SUPABASE_URL ?? "",
+      process.env.MEDIA_SUPABASE_SERVICE_KEY ?? "",
+      mediaBucket,
+    ),
+  ]);
+
+  // Legacy probe
+  let legacyProbe: Record<string, any> = { status: "not_configured" };
+  if (isSupabaseAvailable) {
+    try {
+      const { data: buckets, error } = await supabase.storage.listBuckets();
+      legacyProbe = error
+        ? { status: "error", error: error.message }
+        : {
+            status: "ok",
+            keyRole: getJwtRole(process.env.SUPABASE_SERVICE_ROLE_KEY ?? ""),
+            buckets: (buckets ?? []).map((b: any) => ({ name: b.name, public: b.public })),
+          };
+    } catch (e: any) {
+      legacyProbe = { status: "connect_error", error: e?.message };
+    }
+  }
+
+  res.json({
+    timestamp: new Date().toISOString(),
+    architecture: "PUBLIC + OWNER + MEDIA (3 Supabase projects)",
+    note: "All uploads use service_role keys server-side — RLS is bypassed. " +
+          "If keyRole shows 'anon', replace the secret with the service_role key.",
+    storageProviders: {
+      publicSupabase: {
+        description: "Creator + Verified Creator video uploads",
+        url:         process.env.PUBLIC_SUPABASE_URL ?? "(not set)",
+        available:   isCreatorStorageAvailable,
+        folders: {
+          creatorVideos:      "public/creator/videos",
+          creatorThumbs:      "public/creator/thumbnails",
+          vcVideos:           "public/verified-creator/videos",
+          vcThumbs:           "public/verified-creator/thumbnails",
+          vcPayments:         "public/verified-creator/payments",
+        },
+        probe: publicProbe,
+      },
+      ownerSupabase: {
+        description: "Owner / Admin video uploads",
+        url:         process.env.OWNER_SUPABASE_URL ?? "(not set)",
+        available:   isOwnerStorageAvailable,
+        folders: { videos: "owner/videos", thumbnails: "owner/thumbnails" },
+        probe: ownerProbe,
+      },
+      mediaSupabase: {
+        description: "Avatars, QRIS, banners, bundle images",
+        url:         process.env.MEDIA_SUPABASE_URL ?? "(not set)",
+        available:   isMediaStorageAvailable,
+        bucket:      mediaBucket,
+        folders: {
+          avatars: "media/avatars", qris: "media/qris", banners: "media/banners",
+          bundleThumbnails: "media/bundle-thumbnails", bundleBanners: "media/bundle-banners",
+          logos: "media/logos", images: "media/images",
+        },
+        probe: mediaProbe,
+      },
+      legacy: {
+        description: "Pre-migration uploads (backward-compat read-only)",
+        url:         process.env.SUPABASE_URL ?? "(not set)",
+        available:   isSupabaseAvailable,
+        bucket:      MEDIA_BUCKET,
+        probe:       legacyProbe,
+      },
+    },
+  });
 });
 
 export default router;

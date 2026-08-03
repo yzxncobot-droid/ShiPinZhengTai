@@ -68,6 +68,75 @@ export async function supabaseUploadWithRetry(
   throw lastError ?? new Error("Supabase upload failed after retries");
 }
 
+/**
+ * Decode a Supabase JWT (without verifying the signature) and return the `role`
+ * claim.  Returns "unknown" if the token cannot be parsed.
+ *
+ * Supabase service_role JWTs carry `{ "role": "service_role" }`.
+ * Anon JWTs carry `{ "role": "anon" }`.
+ * Using an anon key for server-side uploads will be blocked by RLS.
+ */
+export function getJwtRole(jwt: string): string {
+  try {
+    const payload = jwt.split(".")[1];
+    if (!payload) return "unknown";
+    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return decoded?.role ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * Ensure the given bucket exists in the Supabase project.
+ * Creates it (public=true, fileSizeLimit=524288000 i.e. 500 MB) if absent.
+ * Silently ignores "already exists" errors.
+ * Logs a warning (non-fatal) for any other error.
+ *
+ * Call this during server startup as a best-effort step — never let it block
+ * the server from starting.
+ */
+export async function ensureBucket(
+  client: SupabaseClient,
+  bucket: string,
+  label: string,
+): Promise<void> {
+  // Step 1 — try to fetch the bucket; if it exists we're done.
+  const { data: existing, error: getErr } = await client.storage.getBucket(bucket);
+  if (existing) {
+    logger.info({ bucket, label }, "Storage: bucket exists — OK");
+    return;
+  }
+
+  // getBucket can return a 400/404 when the bucket doesn't exist (varies by
+  // Supabase version); ignore that and try to create it.
+
+  // Step 2 — create the bucket (public so uploaded files are readable by URL).
+  const { error: createErr } = await client.storage.createBucket(bucket, {
+    public: true,
+  });
+  if (!createErr) {
+    logger.info({ bucket, label }, "Storage: bucket created");
+    return;
+  }
+
+  // Treat "already exists" / "duplicate" / plan-limit errors as success —
+  // the bucket is present (or was just created by a concurrent request).
+  const msg = createErr.message.toLowerCase();
+  if (
+    msg.includes("already exists") ||
+    msg.includes("duplicate") ||
+    msg.includes("exceeded") ||  // free-tier plan limit — bucket may still exist
+    msg.includes("maximum allowed")
+  ) {
+    logger.info({ bucket, label, hint: createErr.message }, "Storage: bucket already exists or plan limit — OK");
+    return;
+  }
+
+  // Anything else is unexpected — warn but don't crash the server.
+  logger.warn({ bucket, label, error: createErr.message }, "Storage: ensureBucket warning (non-fatal)");
+}
+
 export async function supabaseDeleteFile(
   client: SupabaseClient,
   bucket: string,

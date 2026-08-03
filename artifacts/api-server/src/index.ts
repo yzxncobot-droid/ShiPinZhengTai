@@ -4,6 +4,7 @@ import {
   runCriticalStartupMigration,
   runBestEffortStartupMigration,
 } from "./lib/startup-migration";
+import { ensureStorageBuckets } from "./lib/storage/setup";
 
 const rawPort = process.env["PORT"];
 
@@ -40,5 +41,14 @@ app.listen(port, (err) => {
   // Best-effort: adds columns, back-fills, etc. Failures are warnings only.
   runBestEffortStartupMigration().catch((e) =>
     logger.warn({ err: e?.message }, "startup-migration: unexpected error"),
+  );
+
+  // Best-effort: validate service_role keys and auto-create the `yzx` bucket
+  // in every configured Supabase project (PUBLIC / OWNER / MEDIA).
+  // A missing bucket is the most common cause of "violates row-level security"
+  // errors on fresh Supabase projects — service_role bypasses RLS for objects
+  // once the bucket exists.
+  ensureStorageBuckets().catch((e) =>
+    logger.warn({ err: e?.message }, "Storage bucket setup: unexpected error"),
   );
 });
