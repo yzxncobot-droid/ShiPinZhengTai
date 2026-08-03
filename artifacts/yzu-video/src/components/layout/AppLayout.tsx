@@ -139,8 +139,9 @@ export function Navbar() {
                     <span>Profile</span>
                   </DropdownMenuItem>
 
-                  {/* Creator menu items */}
-                  {((user as any).creatorBadge || user.role === 'admin' || user.role === 'owner') && (
+                  {/* Creator menu items — profile dropdown upload is for Creator/Verified Creator only.
+                      Admin/Owner have their own upload flow inside the admin panel. */}
+                  {(user as any).creatorBadge && (
                     <DropdownMenuItem onClick={() => setLocation('/upload')} className="cursor-pointer rounded-xl font-medium">
                       <UploadCloud className="mr-2 h-4 w-4 text-pink-500" />
                       <span>Upload Video</span>

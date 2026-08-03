@@ -157,12 +157,17 @@ async function uploadToLegacyBucket(folder: string, file: Express.Multer.File) {
  * Resolve the authoritative NormalizedUploaderType for an authenticated user.
  *
  * Security contract:
- *   - Admin / Owner: client-supplied uploaderType is trusted (they select their
- *     storage via the admin upload page). Returns null when no type is supplied
- *     (signals caller to use the legacy route).
+ *   - Admin / Owner with explicit uploaderType: trusted (they select storage on
+ *     the admin upload page). Explicit type is passed through as-is.
+ *   - Admin / Owner WITHOUT explicit uploaderType: they are accessing the profile
+ *     dropdown upload page. Resolve from their DB creator flags exactly like
+ *     regular users. If they have no creator badge either, return 403.
  *   - All other users: storage tier is determined ENTIRELY from DB-stored creator
  *     flags. The client-supplied value is unconditionally ignored to prevent
  *     privilege escalation (e.g. Creator claiming Verified Creator tier).
+ *
+ * Profile-dropdown uploads (Creator / Verified Creator) ALWAYS route to
+ * PUBLIC Supabase — never Owner or Media.
  *
  * Returns:
  *   { type: NormalizedUploaderType | null }  — null means "use legacy route"
@@ -175,14 +180,16 @@ async function resolveUploaderType(
 ): Promise<{ type: NormalizedUploaderType | null } | { error: string; status: number }> {
   const isAdminOrOwner = ["admin", "owner"].includes(userRole);
 
-  if (isAdminOrOwner) {
-    // Admins/owners choose storage via admin upload page; trust their explicit choice.
-    // If omitted, return null → caller falls through to legacy route.
+  if (isAdminOrOwner && clientUploaderType) {
+    // Admin/Owner explicitly chose a storage type (admin upload page).
+    // Trust the explicit value; null means fall back to legacy.
     const normalized = normalizeUploaderType(clientUploaderType);
     return { type: normalized }; // may be null (legacy) or a specific type
   }
 
-  // Non-admin/owner: ALWAYS resolve from DB — never trust the client value.
+  // For ALL other cases — including admin/owner reaching the profile dropdown
+  // upload page without an explicit uploaderType — resolve from DB creator flags.
+  // This guarantees Creator / Verified Creator always land on PUBLIC Supabase.
   const [userFlags] = await db
     .select({ creatorBadge: usersTable.creatorBadge, verifiedCreator: usersTable.verifiedCreator })
     .from(usersTable)
@@ -193,9 +200,8 @@ async function resolveUploaderType(
     return { error: "Pengguna tidak ditemukan.", status: 404 };
   }
 
-  const clientNormalized = normalizeUploaderType(clientUploaderType);
-
   if (userFlags.verifiedCreator) {
+    const clientNormalized = normalizeUploaderType(clientUploaderType);
     if (clientNormalized && clientNormalized !== "verified_creator") {
       logger.warn({ userId, clientType: clientNormalized }, "Upload: client uploaderType overridden → verified_creator");
     }
@@ -203,10 +209,19 @@ async function resolveUploaderType(
   }
 
   if (userFlags.creatorBadge) {
+    const clientNormalized = normalizeUploaderType(clientUploaderType);
     if (clientNormalized && clientNormalized !== "creator") {
       logger.warn({ userId, clientType: clientNormalized }, "Upload: client uploaderType overridden → creator");
     }
     return { type: "creator" };
+  }
+
+  // No creator badge — admin/owner must use the admin upload page.
+  if (isAdminOrOwner) {
+    return {
+      error: "Admin/Owner tanpa creator badge harus menggunakan halaman Upload Admin, bukan profile dropdown.",
+      status: 403,
+    };
   }
 
   return {

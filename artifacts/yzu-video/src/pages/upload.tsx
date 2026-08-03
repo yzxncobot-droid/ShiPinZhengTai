@@ -199,10 +199,13 @@ export default function CreatorUploadPage() {
           if (xhr.status >= 200 && xhr.status < 300 && parsed?.success !== false) {
             resolve(parsed);
           } else {
-            reject(new Error(parsed?.message ?? "Upload gagal"));
+            // Prefer the server's detailed error; fall back to generic message
+            const serverMsg = parsed?.message ?? "Upload gagal";
+            const serverDetail = parsed?.detail ? ` — ${parsed.detail}` : "";
+            reject(new Error(`${serverMsg}${serverDetail}`));
           }
         });
-        xhr.addEventListener("error", () => reject(new Error("Network error")));
+        xhr.addEventListener("error", () => reject(new Error("Tidak dapat terhubung ke server. Periksa koneksi internet.")));
         xhr.open("POST", endpoint);
         xhr.setRequestHeader("Authorization", `Bearer ${token}`);
         xhr.send(fd);
@@ -286,7 +289,15 @@ export default function CreatorUploadPage() {
     setLocation("/login");
     return null;
   }
-  if (!u?.creatorBadge && u?.role !== "admin" && u?.role !== "owner") {
+  // Admin/Owner without creator badge must use their own admin upload page —
+  // the profile dropdown upload is exclusively for Creator / Verified Creator
+  // and routes everything to PUBLIC Supabase.
+  if ((u?.role === "admin" || u?.role === "owner") && !u?.creatorBadge) {
+    const adminPath = u?.role === "owner" ? "/owner" : "/admin";
+    setLocation(adminPath);
+    return null;
+  }
+  if (!u?.creatorBadge) {
     return <NotAuthorized />;
   }
 

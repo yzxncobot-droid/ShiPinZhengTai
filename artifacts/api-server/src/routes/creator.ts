@@ -13,6 +13,7 @@ import {
 import { eq, and, desc, count, sql, isNull } from "drizzle-orm";
 import { authenticate } from "../middlewares/auth";
 import { logger } from "../lib/logger";
+import { resolveStorageType } from "../lib/storage";
 
 const router = Router();
 
@@ -72,6 +73,12 @@ router.post("/creator/videos", authenticate, requireCreatorBadge, async (req: Re
       return;
     }
 
+    // Derive storage_type server-side from DB creator flags — never trust client value.
+    // Profile-dropdown uploads for Creator / Verified Creator always go to PUBLIC Supabase.
+    const flags = await getCreatorFlags(userId);
+    const dbUploaderType = flags.verifiedCreator ? "verified_creator" : "creator";
+    const derivedStorageType: "PUBLIC" | "OWNER" = resolveStorageType(dbUploaderType);
+
     const [video] = await db.insert(videosTable).values({
       title: title.trim(),
       description: description?.trim() ?? null,
@@ -88,11 +95,12 @@ router.post("/creator/videos", authenticate, requireCreatorBadge, async (req: Re
       tags: tags ?? null,
       status,
       creatorId: userId,
-      // Multi-storage metadata (optional)
-      uploaderType:  uploaderType  || null,
+      // Multi-storage metadata
+      uploaderType:  dbUploaderType,          // authoritative server-side value
       thumbnailPath: thumbnailPath || null,
       storageFolder: storageFolder || null,
       bucketName:    bucketName   || null,
+      storageType:   derivedStorageType,      // always PUBLIC for creator/verified_creator
     }).returning();
 
     logger.info({ videoId: video.id, creatorId: userId }, "Creator uploaded video");
