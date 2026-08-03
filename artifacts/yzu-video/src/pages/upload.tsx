@@ -145,6 +145,13 @@ export default function CreatorUploadPage() {
   const [thumbProgress, setThumbProgress]       = useState(0);
   const [xhrRef] = useState<{ current: XMLHttpRequest | null }>({ current: null });
 
+  // Storage metadata returned from upload endpoints — forwarded to POST /creator/videos
+  const [uploadMeta, setUploadMeta] = useState<{
+    videoStorageFolder?: string;
+    thumbnailPath?: string;
+    bucketName?: string;
+  }>({});
+
   const videoInputRef = useRef<HTMLInputElement>(null);
   const thumbInputRef = useRef<HTMLInputElement>(null);
 
@@ -185,7 +192,9 @@ export default function CreatorUploadPage() {
     if (uploaderType) fd.append("uploaderType", uploaderType);
 
     try {
-      const data = await new Promise<{ url: string; path?: string }>((resolve, reject) => {
+      const data = await new Promise<{
+        url: string; path?: string; storageFolder?: string; bucketName?: string;
+      }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         if (isVid) xhrRef.current = xhr;
         xhr.upload.addEventListener("progress", (e) => {
@@ -211,6 +220,22 @@ export default function CreatorUploadPage() {
 
       form.setValue(urlField as keyof UploadForm, data.url, { shouldValidate: true });
       if (isVid && data.path) form.setValue("videoFilePath", data.path);
+
+      // Capture storage metadata to forward when creating the video record
+      if (isVid) {
+        setUploadMeta(prev => ({
+          ...prev,
+          videoStorageFolder: data.storageFolder,
+          bucketName: data.bucketName ?? undefined,
+        }));
+      } else {
+        setUploadMeta(prev => ({
+          ...prev,
+          thumbnailPath: data.path,
+          bucketName: data.bucketName ?? prev.bucketName,
+        }));
+      }
+
       toast({ title: `${isVid ? "Video" : "Thumbnail"} berhasil diupload! ✅` });
     } catch (err: any) {
       toast({ title: "Upload gagal", description: err.message, variant: "destructive" });
@@ -247,6 +272,10 @@ export default function CreatorUploadPage() {
           categoryId:    values.categoryId || null,
           videoFilePath: values.videoFilePath || null,
           thumbnail:     values.thumbnail || null,
+          // Forward storage metadata captured from upload endpoints
+          storageFolder: uploadMeta.videoStorageFolder || null,
+          thumbnailPath: uploadMeta.thumbnailPath      || null,
+          bucketName:    uploadMeta.bucketName         || null,
         }),
       });
 
@@ -261,7 +290,15 @@ export default function CreatorUploadPage() {
               body: JSON.stringify({ videoIds: [...currentIds, created.id] }),
             });
           }
-        } catch {}
+        } catch (bundleErr: any) {
+          toast({
+            title: "Video dibuat, tapi gagal ditambahkan ke bundle",
+            description: bundleErr.message ?? "Tambahkan manual dari menu Bundle.",
+            variant: "destructive",
+          });
+          setIsSubmitting(false);
+          return;
+        }
       }
 
       toast({ title: "🎉 Video berhasil dipublikasi!" });
@@ -414,7 +451,7 @@ export default function CreatorUploadPage() {
                     }
                     <span>{src === "upload" ? "Upload File" : "Link Video"}</span>
                     <span className="text-[10px] text-slate-400">
-                      {src === "upload" ? "MP4, MOV, AVI, MKV, WebM" : "YouTube, Vimeo, MP4"}
+                      {src === "upload" ? "MP4, MOV, WebM" : "YouTube, Vimeo, MP4"}
                     </span>
                   </button>
                 ))}
@@ -429,7 +466,7 @@ export default function CreatorUploadPage() {
                       <div>
                         <input
                           type="file"
-                          accept="video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm,.mp4,.mov,.avi,.mkv,.webm"
+                          accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
                           className="hidden" ref={videoInputRef}
                           onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], "video")}
                         />
@@ -462,7 +499,7 @@ export default function CreatorUploadPage() {
                               <>
                                 <UploadCloud className="h-9 w-9 text-sky-400 mb-2" />
                                 <p className="text-sm font-semibold text-slate-700">Pilih atau drag file video</p>
-                                <p className="text-xs text-slate-400 mt-1">MP4, MOV, AVI, MKV, WebM • maks 500 MB</p>
+                                <p className="text-xs text-slate-400 mt-1">MP4, MOV, WebM • maks 500 MB</p>
                               </>
                             )}
                           </div>

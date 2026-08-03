@@ -452,7 +452,7 @@ export default function AdminUploadVideo() {
                       <p className="text-xs text-teal-600 font-medium mt-1">
                         {field.value === "Public"  && <span>🌐 Video → <code className="bg-sky-50 px-1 rounded">API Public · PUBLIC Supabase</code></span>}
                         {field.value === "Owner"   && <span>👑 Video → <code className="bg-amber-50 px-1 rounded">API Owner · OWNER Supabase</code></span>}
-                        {field.value === "Media"   && <span>🖼️ Video → <code className="bg-violet-50 px-1 rounded">API Media · MEDIA Supabase</code></span>}
+                        {field.value === "Media"   && <span>🖼️ Thumbnail → <code className="bg-violet-50 px-1 rounded">MEDIA Supabase</code> · Video → storage default</span>}
                       </p>
                     )}
                   </FormItem>
@@ -620,7 +620,7 @@ export default function AdminUploadVideo() {
                         <div>
                           <input
                             type="file"
-                            accept="video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm,.mp4,.mov,.avi,.mkv,.webm"
+                            accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
                             className="hidden"
                             ref={videoInputRef}
                             onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], "video")}

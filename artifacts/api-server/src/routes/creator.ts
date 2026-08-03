@@ -84,7 +84,7 @@ router.post("/creator/videos", authenticate, requireCreatorBadge, async (req: Re
       title, description, categoryId, visibility = "public",
       bundleId, price, downloadable = false,
       videoSourceType = "upload", videoUrl, videoFilePath, thumbnail,
-      tags, status = "published",
+      tags,
       uploaderType, thumbnailPath, storageFolder, bucketName,
     } = req.body;
 
@@ -117,7 +117,7 @@ router.post("/creator/videos", authenticate, requireCreatorBadge, async (req: Re
       videoFilePath: videoFilePath ?? null,
       thumbnail: thumbnail ?? null,
       tags: tags ?? null,
-      status,
+      status: "published",  // always publish immediately; never trust client-supplied status
       creatorId: userId,
       // Multi-storage metadata
       uploaderType:  dbUploaderType,          // authoritative server-side value
