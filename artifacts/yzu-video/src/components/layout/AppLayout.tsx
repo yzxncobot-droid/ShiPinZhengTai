@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator, 
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
-import { Search, User, Wallet, Bell, History, LayoutDashboard, LogOut, MessageCircle, Send, Globe2, UploadCloud, Film, BadgeCheck, Gift, Trophy } from "lucide-react";
+import { Search, User, Wallet, Bell, History, LayoutDashboard, LogOut, MessageCircle, Send, Globe2, UploadCloud, Film, Gift, Trophy } from "lucide-react";
 import { SiInstagram, SiTiktok, SiFacebook, SiYoutube, SiDiscord } from "react-icons/si";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -47,15 +47,13 @@ export function Navbar() {
 
   const isOwner = user?.role === "owner";
   const isAdmin = user?.role === "admin";
-  const isCreator = user?.role === "creator" || user?.role === "verified_creator"
-    || (user as any)?.creatorBadge || (user as any)?.verifiedCreator;
 
-  // Permission from any active custom role
-  const hasCustomUpload = customRoles?.some((r: any) => r.permUploadVideo) ?? false;
-  const hasCustomMyVideo = customRoles?.some((r: any) => r.permMyVideo) ?? false;
+  // Permission comes exclusively from active custom roles (never badge flags)
+  const hasCustomUpload  = customRoles?.some((r: any) => r.permUploadVideo) ?? false;
+  const hasCustomMyVideo = customRoles?.some((r: any) => r.permMyVideo)    ?? false;
 
-  const canUpload  = isOwner || isAdmin || isCreator || hasCustomUpload;
-  const canMyVideo = isOwner || isAdmin || isCreator || hasCustomMyVideo;
+  const canUpload  = isOwner || isAdmin || hasCustomUpload;
+  const canMyVideo = isOwner || isAdmin || hasCustomMyVideo;
 
   const handleLogout = () => {
     logout();
@@ -123,26 +121,29 @@ export function Navbar() {
                     <div className="flex flex-col space-y-1">
                       <div className="flex items-center gap-1.5">
                         <p className="text-sm font-extrabold leading-none text-slate-800">{user.username}</p>
-                        {(user as any).verifiedCreator && (
-                          <BadgeCheck className="h-4 w-4 text-blue-500 shrink-0" aria-label="Verified Creator" />
-                        )}
                       </div>
                       <p className="text-xs leading-none text-slate-500 mt-1">
                         {user.email}
                       </p>
                     </div>
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {(user as any).verifiedCreator && (
-                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-200 border-none font-bold text-[10px]">
-                          <BadgeCheck className="mr-1 h-2.5 w-2.5" /> Verified Creator
-                        </Badge>
-                      )}
-                      {(user as any).creatorBadge && !(user as any).verifiedCreator && (
-                        <Badge variant="secondary" className="bg-purple-100 text-purple-700 hover:bg-purple-200 border-none font-bold text-[10px]">
-                          <UploadCloud className="mr-1 h-2.5 w-2.5" /> Creator
-                        </Badge>
-                      )}
-                    </div>
+                    {customRoles && customRoles.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {customRoles.slice(0, 2).map((r: any) => (
+                          <Badge
+                            key={r.id}
+                            variant="secondary"
+                            className="border-none font-bold text-[10px]"
+                            style={{
+                              backgroundColor: `${r.color}20`,
+                              color: r.color,
+                            }}
+                          >
+                            {r.emoji && <span className="mr-1">{r.emoji}</span>}
+                            {r.name}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator className="my-1" />
                   

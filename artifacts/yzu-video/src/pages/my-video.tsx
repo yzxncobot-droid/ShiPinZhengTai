@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { adminFetch as apiFetch } from "@/lib/admin-api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,8 +22,6 @@ import {
   Video, Plus, Search, MoreVertical, Edit, Trash2, Copy, BarChart2,
   Eye, Heart, Upload, ShieldAlert, Loader2, TrendingUp, Film, Star,
 } from "lucide-react";
-
-type UserWithBadge = { creatorBadge?: boolean; verifiedCreator?: boolean } & Record<string, any>;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface CreatorVideo {
@@ -89,7 +88,7 @@ function StatCard({ icon: Icon, label, value, gradient }: {
 }
 
 // ─── Not Authorized ───────────────────────────────────────────────────────────
-function NotAuthorized({ isVerified }: { isVerified?: boolean }) {
+function NotAuthorized({ currentRole }: { currentRole?: { name: string; emoji?: string | null } | null }) {
   const [, setLocation] = useLocation();
   return (
     <AppLayout>
@@ -99,11 +98,15 @@ function NotAuthorized({ isVerified }: { isVerified?: boolean }) {
         </div>
         <h2 className="text-xl font-heading font-extrabold text-slate-800">Akses Ditolak</h2>
         <p className="text-slate-500 text-sm max-w-sm">
-          {isVerified
-            ? "Kamu membutuhkan Verified Creator Badge untuk mengakses My Video dashboard."
-            : "Kamu membutuhkan Creator Badge untuk mengakses halaman ini."}
-          {" "}Hubungi admin untuk mendapatkan akses.
+          Role kamu belum memiliki permission <strong>My Video</strong>.
+          Hubungi admin untuk mendapatkan akses.
         </p>
+        {currentRole && (
+          <div className="flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-full text-sm font-semibold text-slate-600">
+            {currentRole.emoji && <span>{currentRole.emoji}</span>}
+            <span>Role saat ini: {currentRole.name}</span>
+          </div>
+        )}
         <Button onClick={() => setLocation("/profile")} className="rounded-full bg-purple-600 hover:bg-purple-700 text-white font-bold">
           Kembali ke Profil
         </Button>
@@ -118,36 +121,38 @@ export default function MyVideoPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const qc = useQueryClient();
-  const u = user as UserWithBadge | null | undefined;
 
   const [search, setSearch] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const LIMIT = 10;
 
-  // ── Queries ──────────────────────────────────────────────────────────────────
-  // Verified Creator access: boolean flag OR role === 'verified_creator'
-  const isVerifiedCreator =
-    !!u?.verifiedCreator || u?.role === "verified_creator";
-  const isAdminOrOwner = u?.role === "admin" || u?.role === "owner";
-  // Creator access: badge flag OR role is 'creator'/'verified_creator'
-  const isCreator =
-    !!u?.creatorBadge ||
-    u?.role === "creator" ||
-    u?.role === "verified_creator";
+  // ── Permission: read from active custom roles (source of truth) ──────────────
+  const { data: customRoles, isLoading: rolesLoading } = useQuery<any[]>({
+    queryKey: ["my-custom-roles"],
+    queryFn: () => apiFetch("/users/me/custom-roles"),
+    enabled: !!token,
+    staleTime: 60_000,
+  });
+
+  const isAdminOrOwner = user?.role === "admin" || user?.role === "owner";
+  const hasMyVideoPermission = isAdminOrOwner || (customRoles?.some((r: any) => r.permMyVideo) ?? false);
+
+  // Top-priority custom role for display in the access-denied screen
+  const topCustomRole = customRoles?.[0] ?? null;
 
   const { data: videosData, isLoading: videosLoading } = useQuery({
     queryKey: ["creator-videos", page],
-    queryFn: () => adminFetch<{ data: CreatorVideo[]; total: number; page: number; limit: number }>(
+    queryFn: () => apiFetch<{ data: CreatorVideo[]; total: number; page: number; limit: number }>(
       `/creator/my-videos?page=${page}&limit=${LIMIT}`
     ),
-    enabled: !!token && (isVerifiedCreator || isAdminOrOwner),
+    enabled: !!token && hasMyVideoPermission,
   });
 
   const { data: stats } = useQuery({
     queryKey: ["creator-stats"],
-    queryFn: () => adminFetch<StatsData>("/creator/stats"),
-    enabled: !!token && (isVerifiedCreator || isAdminOrOwner),
+    queryFn: () => apiFetch<StatsData>("/creator/stats"),
+    enabled: !!token && hasMyVideoPermission,
   });
 
   const deleteMutation = useMutation({
@@ -164,7 +169,7 @@ export default function MyVideoPage() {
   });
 
   // ── Auth guards ──────────────────────────────────────────────────────────────
-  if (authLoading) {
+  if (authLoading || rolesLoading) {
     return (
       <AppLayout>
         <div className="flex min-h-[60vh] items-center justify-center">
@@ -174,13 +179,9 @@ export default function MyVideoPage() {
     );
   }
   if (!token || !user) { setLocation("/login"); return null; }
-  // Creator role or badge required (role='creator'/'verified_creator' both qualify)
-  if (!isCreator && !isAdminOrOwner) {
-    return <NotAuthorized />;
-  }
-  // My Video requires Verified Creator (or admin/owner) — plain Creator cannot access
-  if (!isVerifiedCreator && !isAdminOrOwner) {
-    return <NotAuthorized isVerified />;
+  // Permission check: read from active custom roles (never badge flags)
+  if (!hasMyVideoPermission) {
+    return <NotAuthorized currentRole={topCustomRole} />;
   }
 
   const videos: CreatorVideo[] = videosData?.data ?? [];

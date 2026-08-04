@@ -60,6 +60,20 @@ export async function runCriticalStartupMigration(): Promise<void> {
       END $$;
     `);
 
+    // video_purchases — required by revenue_shares FK; create first if absent.
+    await runCriticalStep(client, "video_purchases table", `
+      CREATE TABLE IF NOT EXISTS video_purchases (
+        id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        video_id   uuid NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+        price      double precision NOT NULL,
+        created_at timestamp NOT NULL DEFAULT NOW(),
+        UNIQUE (user_id, video_id)
+      );
+      CREATE INDEX IF NOT EXISTS video_purchases_user_id_idx  ON video_purchases(user_id);
+      CREATE INDEX IF NOT EXISTS video_purchases_video_id_idx ON video_purchases(video_id);
+    `);
+
     // revenue_shares base table — purchase_id / video_id start nullable so the
     // subsequent ALTER TABLE statements are idempotent on fresh databases too.
     await runCriticalStep(client, "revenue_shares table", `

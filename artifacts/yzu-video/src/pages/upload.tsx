@@ -3,8 +3,10 @@ import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useQuery } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useListCategories, useListBundles } from "@workspace/api-client-react";
+import { adminFetch } from "@/lib/admin-api";
 import { Button } from "@/components/ui/button";
 import {
   Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage,
@@ -21,11 +23,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import { adminFetch } from "@/lib/admin-api";
 import { motion } from "framer-motion";
-
-// ─── Type helpers ─────────────────────────────────────────────────────────────
-type UserWithBadge = { creatorBadge?: boolean; verifiedCreator?: boolean } & Record<string, any>;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const CONTENT_TYPE_OPTIONS = [
@@ -105,7 +103,7 @@ function SectionCard({ icon, title, gradient, children }: {
 }
 
 // ─── Not Authorized ───────────────────────────────────────────────────────────
-function NotAuthorized() {
+function NotAuthorized({ currentRole }: { currentRole?: { name: string; emoji?: string | null } | null }) {
   const [, setLocation] = useLocation();
   return (
     <AppLayout>
@@ -115,9 +113,15 @@ function NotAuthorized() {
         </div>
         <h2 className="text-xl font-heading font-extrabold text-slate-800">Akses Ditolak</h2>
         <p className="text-slate-500 text-sm max-w-sm">
-          Kamu membutuhkan <strong>Creator Badge</strong> untuk mengakses halaman ini.
+          Role kamu belum memiliki permission <strong>Upload</strong>.
           Hubungi admin untuk mendapatkan akses.
         </p>
+        {currentRole && (
+          <div className="flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-full text-sm font-semibold text-slate-600">
+            {currentRole.emoji && <span>{currentRole.emoji}</span>}
+            <span>Role saat ini: {currentRole.name}</span>
+          </div>
+        )}
         <Button onClick={() => setLocation("/profile")} className="rounded-full bg-purple-600 hover:bg-purple-700 text-white font-bold">
           Kembali ke Profil
         </Button>
@@ -131,7 +135,14 @@ export default function CreatorUploadPage() {
   const { user, token, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const u = user as UserWithBadge | null | undefined;
+
+  // Fetch user's active custom roles — permission source of truth
+  const { data: customRoles, isLoading: rolesLoading } = useQuery<any[]>({
+    queryKey: ["my-custom-roles"],
+    queryFn: () => adminFetch("/users/me/custom-roles"),
+    enabled: !!token,
+    staleTime: 60_000,
+  });
 
   const { data: categoriesRaw } = useListCategories();
   const { data: bundlesRaw } = useListBundles();
@@ -183,13 +194,8 @@ export default function CreatorUploadPage() {
     const fd = new FormData();
     fd.append(formKey, file);
 
-    // Auto-determine uploaderType so backend routes to PUBLIC Supabase.
-    // Verified Creator: flag OR role === 'verified_creator'
-    // Creator:          flag OR role === 'creator' / 'verified_creator'
-    const isVerifiedCreator = !!u?.verifiedCreator || u?.role === "verified_creator";
-    const isCreator         = !!u?.creatorBadge    || u?.role === "creator" || u?.role === "verified_creator";
-    const uploaderType = isVerifiedCreator ? "Verified Creator" : isCreator ? "Creator" : null;
-    if (uploaderType) fd.append("uploaderType", uploaderType);
+    // The backend resolves uploaderType from the user's custom role permissions.
+    // We do not send uploaderType from the frontend — the server decides storage routing.
 
     try {
       const data = await new Promise<{
@@ -311,7 +317,7 @@ export default function CreatorUploadPage() {
   };
 
   // ── Auth guard ───────────────────────────────────────────────────────────────
-  if (authLoading) {
+  if (authLoading || rolesLoading) {
     return (
       <AppLayout>
         <div className="flex min-h-[60vh] items-center justify-center">
@@ -325,21 +331,19 @@ export default function CreatorUploadPage() {
     return null;
   }
 
-  // Creator access = creatorBadge flag OR role is 'creator' / 'verified_creator'
-  const hasCreatorAccess =
-    !!u?.creatorBadge ||
-    u?.role === "creator" ||
-    u?.role === "verified_creator";
+  // Permission check: read from active custom roles (never badge flags)
+  const isAdminOrOwner = user?.role === "admin" || user?.role === "owner";
+  const hasUploadPermission = isAdminOrOwner || (customRoles?.some((r: any) => r.permUploadVideo) ?? false);
 
-  // Admin/Owner without any creator access must use their admin upload page.
-  const isAdminOrOwner = u?.role === "admin" || u?.role === "owner";
-  if (isAdminOrOwner && !hasCreatorAccess) {
-    const adminPath = u?.role === "owner" ? "/owner" : "/admin";
+  // Admin/Owner always redirect to their dedicated upload pages
+  if (isAdminOrOwner) {
+    const adminPath = user?.role === "owner" ? "/owner" : "/admin";
     setLocation(adminPath);
     return null;
   }
-  if (!hasCreatorAccess) {
-    return <NotAuthorized />;
+  if (!hasUploadPermission) {
+    const topRole = customRoles?.[0] ?? null;
+    return <NotAuthorized currentRole={topRole} />;
   }
 
   return (

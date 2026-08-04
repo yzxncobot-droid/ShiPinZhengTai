@@ -1,14 +1,15 @@
 /**
- * Creator routes — accessible to users with creator_badge = true.
+ * Creator routes — accessible to users whose active custom role has the
+ * required permission (permUploadVideo / permMyVideo).
  *
- * creator_badge = true              → can upload videos
- * creator_badge = true + verified_creator = true → can also access My Video dashboard
+ * Permission source: custom_roles table (permUploadVideo, permMyVideo).
+ * Admin / Owner always bypass permission checks.
  */
 import { Router, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import {
   usersTable, videosTable, categoriesTable, likesTable,
-  commentsTable, viewsTable,
+  commentsTable, viewsTable, customRolesTable, userCustomRolesTable,
 } from "@workspace/db";
 import { eq, and, desc, count, sql, isNull } from "drizzle-orm";
 import { authenticate } from "../middlewares/auth";
@@ -17,67 +18,63 @@ import { resolveStorageType } from "../lib/storage";
 
 const router = Router();
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Permission middleware factory ─────────────────────────────────────────────
 
 /**
- * Fetch the effective creator flags for the authenticated user.
+ * Middleware factory: rejects request unless the authenticated user has the
+ * given permission in at least one of their active custom roles.
  *
- * Creator capabilities are granted by EITHER:
- *   a) The boolean flag columns (creatorBadge / verifiedCreator), OR
- *   b) The role column ("creator" → creatorBadge; "verified_creator" → both flags)
- *
- * Role takes effect even if the boolean flags are still false, so assigning
- * role = 'creator' or 'verified_creator' is sufficient without also flipping
- * the legacy boolean columns.
+ * Admin and owner roles bypass this check entirely.
  */
-async function getCreatorFlags(userId: string) {
-  const [row] = await db
-    .select({
-      creatorBadge:    usersTable.creatorBadge,
-      verifiedCreator: usersTable.verifiedCreator,
-      role:            usersTable.role,
-    })
-    .from(usersTable)
-    .where(eq(usersTable.id, userId))
-    .limit(1);
+function requirePermission(perm: "permUploadVideo" | "permMyVideo") {
+  return async (req: Request, res: Response, next: Function) => {
+    if (!req.user) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
 
-  if (!row) return { creatorBadge: false, verifiedCreator: false };
+    const { role, userId } = req.user;
 
-  // Derive capabilities from role (role is authoritative over boolean flags)
-  const roleIsCreator         = row.role === "creator" || row.role === "verified_creator";
-  const roleIsVerifiedCreator = row.role === "verified_creator";
+    // Admin / Owner always have access
+    if (role === "admin" || role === "owner") {
+      next();
+      return;
+    }
 
-  return {
-    creatorBadge:    row.creatorBadge    || roleIsCreator,
-    verifiedCreator: row.verifiedCreator || roleIsVerifiedCreator,
+    // Check if ANY active custom role assigned to this user has the permission
+    try {
+      const rows = await db
+        .select({ perm: customRolesTable[perm] })
+        .from(userCustomRolesTable)
+        .innerJoin(customRolesTable, eq(userCustomRolesTable.roleId, customRolesTable.id))
+        .where(and(
+          eq(userCustomRolesTable.userId, userId),
+          eq(customRolesTable.isActive, true),
+        ));
+
+      const hasPerm = rows.some((r) => r.perm === true);
+      if (!hasPerm) {
+        const label = perm === "permUploadVideo" ? "Upload" : "My Video";
+        res.status(403).json({
+          error: `Role kamu belum memiliki permission ${label}.`,
+          code: "NO_PERMISSION",
+          permission: perm,
+        });
+        return;
+      }
+    } catch (err) {
+      logger.error({ err, perm }, "requirePermission: DB check failed");
+      res.status(500).json({ error: "Gagal memeriksa izin akses." });
+      return;
+    }
+
+    next();
   };
 }
 
-/** Middleware: reject requests if user doesn't have creator access (badge or role). */
-async function requireCreatorBadge(req: Request, res: Response, next: Function) {
-  if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const flags = await getCreatorFlags(req.user.userId);
-  if (!flags.creatorBadge) {
-    res.status(403).json({ error: "Creator badge required", code: "NOT_CREATOR" });
-    return;
-  }
-  next();
-}
-
-/** Middleware: reject requests if user doesn't have verified creator access. */
-async function requireVerifiedCreator(req: Request, res: Response, next: Function) {
-  if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const flags = await getCreatorFlags(req.user.userId);
-  if (!flags.verifiedCreator) {
-    res.status(403).json({ error: "Verified creator badge required", code: "NOT_VERIFIED_CREATOR" });
-    return;
-  }
-  next();
-}
-
 // ── POST /creator/videos ──────────────────────────────────────────────────────
-// Create a new video (creator_badge required)
-router.post("/creator/videos", authenticate, requireCreatorBadge, async (req: Request, res: Response) => {
+// Create a new video (upload permission required)
+router.post("/creator/videos", authenticate, requirePermission("permUploadVideo"), async (req: Request, res: Response) => {
   try {
     const userId = req.user!.userId;
     const {
@@ -97,10 +94,12 @@ router.post("/creator/videos", authenticate, requireCreatorBadge, async (req: Re
       return;
     }
 
-    // Derive storage_type server-side from DB creator flags — never trust client value.
-    // Profile-dropdown uploads for Creator / Verified Creator always go to PUBLIC Supabase.
-    const flags = await getCreatorFlags(userId);
-    const dbUploaderType = flags.verifiedCreator ? "verified_creator" : "creator";
+    // Derive storage_type server-side — never trust client value.
+    // Admin/owner use their dedicated upload flow (explicit uploaderType via admin page).
+    // All other users (custom-role creators) → PUBLIC Supabase.
+    const userRole = req.user!.role;
+    const isAdminOrOwner = userRole === "admin" || userRole === "owner";
+    const dbUploaderType = isAdminOrOwner ? (uploaderType ?? "owner") : "creator";
     const derivedStorageType: "PUBLIC" | "OWNER" = resolveStorageType(dbUploaderType);
 
     const [video] = await db.insert(videosTable).values({
@@ -120,11 +119,11 @@ router.post("/creator/videos", authenticate, requireCreatorBadge, async (req: Re
       status: "published",  // always publish immediately; never trust client-supplied status
       creatorId: userId,
       // Multi-storage metadata
-      uploaderType:  dbUploaderType,          // authoritative server-side value
+      uploaderType:  dbUploaderType,
       thumbnailPath: thumbnailPath || null,
       storageFolder: storageFolder || null,
       bucketName:    bucketName   || null,
-      storageType:   derivedStorageType,      // always PUBLIC for creator/verified_creator
+      storageType:   derivedStorageType,
     }).returning();
 
     logger.info({ videoId: video.id, creatorId: userId }, "Creator uploaded video");
@@ -136,8 +135,8 @@ router.post("/creator/videos", authenticate, requireCreatorBadge, async (req: Re
 });
 
 // ── GET /creator/my-videos ────────────────────────────────────────────────────
-// List own videos (creator_badge required)
-router.get("/creator/my-videos", authenticate, requireCreatorBadge, async (req: Request, res: Response) => {
+// List own videos (my_video permission required)
+router.get("/creator/my-videos", authenticate, requirePermission("permMyVideo"), async (req: Request, res: Response) => {
   try {
     const userId = req.user!.userId;
     const page  = Math.max(1, Number(req.query.page)  || 1);
@@ -200,8 +199,8 @@ router.get("/creator/my-videos", authenticate, requireCreatorBadge, async (req: 
 });
 
 // ── GET /creator/stats ────────────────────────────────────────────────────────
-// Aggregate stats for creator's videos (verified_creator required)
-router.get("/creator/stats", authenticate, requireVerifiedCreator, async (req: Request, res: Response) => {
+// Aggregate stats for creator's videos (my_video permission required)
+router.get("/creator/stats", authenticate, requirePermission("permMyVideo"), async (req: Request, res: Response) => {
   try {
     const userId = req.user!.userId;
     const [row] = await db
@@ -225,8 +224,8 @@ router.get("/creator/stats", authenticate, requireVerifiedCreator, async (req: R
 });
 
 // ── PATCH /creator/videos/:id ─────────────────────────────────────────────────
-// Edit own video (creator_badge required)
-router.patch("/creator/videos/:id", authenticate, requireCreatorBadge, async (req: Request, res: Response) => {
+// Edit own video (upload permission required)
+router.patch("/creator/videos/:id", authenticate, requirePermission("permUploadVideo"), async (req: Request, res: Response) => {
   try {
     const userId  = req.user!.userId;
     const videoId = req.params.id;
@@ -268,8 +267,8 @@ router.patch("/creator/videos/:id", authenticate, requireCreatorBadge, async (re
 });
 
 // ── DELETE /creator/videos/:id ────────────────────────────────────────────────
-// Soft-delete own video (creator_badge required)
-router.delete("/creator/videos/:id", authenticate, requireCreatorBadge, async (req: Request, res: Response) => {
+// Soft-delete own video (upload permission required)
+router.delete("/creator/videos/:id", authenticate, requirePermission("permUploadVideo"), async (req: Request, res: Response) => {
   try {
     const userId  = req.user!.userId;
     const videoId = req.params.id;
@@ -291,43 +290,6 @@ router.delete("/creator/videos/:id", authenticate, requireCreatorBadge, async (r
   } catch (err) {
     logger.error({ err }, "DELETE /creator/videos/:id failed");
     res.status(500).json({ error: "Failed to delete video" });
-  }
-});
-
-// ── PATCH /admin/users/:id/creator-badge ──────────────────────────────────────
-// Grant/revoke creator badges (admin/owner only)
-router.patch("/admin/users/:id/creator-badge", authenticate, async (req: Request, res: Response) => {
-  try {
-    if (!req.user || !["admin", "owner"].includes(req.user.role)) {
-      res.status(403).json({ error: "Admin access required" });
-      return;
-    }
-    const { creatorBadge, verifiedCreator } = req.body;
-    const updates: Record<string, any> = { updatedAt: new Date() };
-    if (typeof creatorBadge === "boolean")    updates.creatorBadge    = creatorBadge;
-    if (typeof verifiedCreator === "boolean") updates.verifiedCreator = verifiedCreator;
-
-    if (Object.keys(updates).length <= 1) {
-      res.status(400).json({ error: "Provide creatorBadge or verifiedCreator" });
-      return;
-    }
-
-    const [updated] = await db
-      .update(usersTable)
-      .set(updates)
-      .where(eq(usersTable.id, req.params.id))
-      .returning({
-        id: usersTable.id,
-        username: usersTable.username,
-        creatorBadge: usersTable.creatorBadge,
-        verifiedCreator: usersTable.verifiedCreator,
-      });
-
-    if (!updated) { res.status(404).json({ error: "User not found" }); return; }
-    res.json(updated);
-  } catch (err) {
-    logger.error({ err }, "PATCH /admin/users/:id/creator-badge failed");
-    res.status(500).json({ error: "Failed to update creator badge" });
   }
 });
 

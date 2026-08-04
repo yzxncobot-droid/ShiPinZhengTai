@@ -1,9 +1,9 @@
 import { Router, Request, Response, NextFunction } from "express";
 import multer from "multer";
 import path from "path";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { usersTable } from "@workspace/db";
+import { usersTable, customRolesTable, userCustomRolesTable } from "@workspace/db";
 import { authenticate } from "../middlewares/auth";
 import {
   // Legacy Supabase (for backward-compat uploads without uploader type,
@@ -159,15 +159,12 @@ async function uploadToLegacyBucket(folder: string, file: Express.Multer.File) {
  * Security contract:
  *   - Admin / Owner with explicit uploaderType: trusted (they select storage on
  *     the admin upload page). Explicit type is passed through as-is.
- *   - Admin / Owner WITHOUT explicit uploaderType: they are accessing the profile
- *     dropdown upload page. Resolve from their DB creator flags exactly like
- *     regular users. If they have no creator badge either, return 403.
- *   - All other users: storage tier is determined ENTIRELY from DB-stored creator
- *     flags. The client-supplied value is unconditionally ignored to prevent
- *     privilege escalation (e.g. Creator claiming Verified Creator tier).
+ *   - Admin / Owner WITHOUT explicit uploaderType: they reach this via profile
+ *     dropdown — check their custom roles for permUploadVideo.
+ *   - All other users: permission is determined from active custom roles.
+ *     Client-supplied uploaderType is ignored (always "creator" for PUBLIC storage).
  *
- * Profile-dropdown uploads (Creator / Verified Creator) ALWAYS route to
- * PUBLIC Supabase — never Owner or Media.
+ * Permission source: custom_roles.perm_upload_video (never badge flags).
  *
  * Returns:
  *   { type: NormalizedUploaderType | null }  — null means "use legacy route"
@@ -187,54 +184,39 @@ async function resolveUploaderType(
     return { type: normalized }; // may be null (legacy) or a specific type
   }
 
-  // For ALL other cases — including admin/owner reaching the profile dropdown
-  // upload page without an explicit uploaderType — resolve from DB creator flags/role.
-  // This guarantees Creator / Verified Creator always land on PUBLIC Supabase.
-  const [userFlags] = await db
-    .select({
-      creatorBadge:    usersTable.creatorBadge,
-      verifiedCreator: usersTable.verifiedCreator,
-      role:            usersTable.role,
-    })
-    .from(usersTable)
-    .where(eq(usersTable.id, userId))
-    .limit(1);
+  // Check custom role permissions — this is now the sole source of upload access.
+  // Client-supplied uploaderType is ignored for all non-admin/owner users.
+  try {
+    const rows = await db
+      .select({ permUploadVideo: customRolesTable.permUploadVideo })
+      .from(userCustomRolesTable)
+      .innerJoin(customRolesTable, eq(userCustomRolesTable.roleId, customRolesTable.id))
+      .where(and(
+        eq(userCustomRolesTable.userId, userId),
+        eq(customRolesTable.isActive, true),
+      ));
 
-  if (!userFlags) {
-    return { error: "Pengguna tidak ditemukan.", status: 404 };
-  }
+    const hasUploadPermission = rows.some((r) => r.permUploadVideo === true);
 
-  // Derive capabilities from role (role = 'creator'/'verified_creator' grants
-  // access even if the legacy boolean flags are still false)
-  const effectiveVerified = userFlags.verifiedCreator || userFlags.role === "verified_creator";
-  const effectiveCreator  = userFlags.creatorBadge    || userFlags.role === "creator" || userFlags.role === "verified_creator";
-
-  if (effectiveVerified) {
-    const clientNormalized = normalizeUploaderType(clientUploaderType);
-    if (clientNormalized && clientNormalized !== "verified_creator") {
-      logger.warn({ userId, clientType: clientNormalized }, "Upload: client uploaderType overridden → verified_creator");
+    if (hasUploadPermission) {
+      // All custom-role creators always route to PUBLIC Supabase as "creator"
+      return { type: "creator" };
     }
-    return { type: "verified_creator" };
+  } catch (err) {
+    logger.error({ userId, err }, "resolveUploaderType: DB custom-role lookup failed");
+    return { error: "Gagal memeriksa izin upload.", status: 500 };
   }
 
-  if (effectiveCreator) {
-    const clientNormalized = normalizeUploaderType(clientUploaderType);
-    if (clientNormalized && clientNormalized !== "creator") {
-      logger.warn({ userId, clientType: clientNormalized }, "Upload: client uploaderType overridden → creator");
-    }
-    return { type: "creator" };
-  }
-
-  // No creator access — admin/owner must use the admin upload page.
+  // No upload permission found
   if (isAdminOrOwner) {
     return {
-      error: "Admin/Owner tanpa creator badge harus menggunakan halaman Upload Admin, bukan profile dropdown.",
+      error: "Admin/Owner harus menggunakan halaman Upload Admin.",
       status: 403,
     };
   }
 
   return {
-    error: "Anda tidak memiliki izin untuk mengupload. Creator badge diperlukan.",
+    error: "Kamu tidak memiliki Role yang memiliki izin untuk mengupload. Hubungi admin untuk mendapatkan akses.",
     status: 403,
   };
 }
