@@ -115,7 +115,7 @@ function withMulterErrorHandling(
 function friendlyUploadError(err: any, context: string): string {
   const msg = (err?.message ?? "").toLowerCase();
   if (msg.includes("bucket") && msg.includes("not found")) {
-    return `Bucket tidak ditemukan (${context}). Pastikan bucket sudah dibuat di Supabase Storage.`;
+    return `Bucket 'yzx' tidak ditemukan. Silakan buat bucket yzx di Supabase Storage.`;
   }
   if (msg.includes("permission") || msg.includes("policy") || msg.includes("violates") || msg.includes("denied")) {
     return `Akses ditolak oleh storage (${context}). Periksa RLS policy atau API key.`;

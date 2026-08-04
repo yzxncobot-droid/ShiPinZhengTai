@@ -7,11 +7,11 @@
  *   PUBLIC_SUPABASE_URL          (required)
  *   PUBLIC_SUPABASE_SERVICE_KEY  (required)
  *
- * Bucket: public
+ * Bucket: yzx
  * Folders:
- *   Creator videos:    public/videos/{userId}/
- *   Creator thumbs:    public/thumbnails/{userId}/
- *   VC payments:       public/verified-creator/payments/{userId}/
+ *   Creator videos:    yzx/videos/{userId}/
+ *   Creator thumbs:    yzx/thumbnails/{userId}/
+ *   VC payments:       yzx/verified-creator/payments/{userId}/
  */
 
 import { logger } from "../logger";
@@ -33,7 +33,7 @@ import {
 
 const PUBLIC_SUPABASE_URL = process.env.PUBLIC_SUPABASE_URL ?? "";
 const PUBLIC_SUPABASE_KEY = process.env.PUBLIC_SUPABASE_SERVICE_KEY ?? "";
-const BUCKET = "public";
+const BUCKET = "yzx";
 
 export const isPublicStorageAvailable =
   !!PUBLIC_SUPABASE_URL && !!PUBLIC_SUPABASE_KEY;
