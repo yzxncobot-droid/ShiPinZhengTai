@@ -5,7 +5,7 @@
  *  - Create / edit / delete custom roles (badge, color, emoji, permissions, revenue split)
  *  - Assign / revoke roles to/from users
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -370,13 +370,31 @@ function AssignUserDialog({
   const { toast } = useToast();
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
-  const { data: users, isLoading } = useQuery<any[]>({
-    queryKey: ["badge-roles-users-search", search],
+  // Debounce: update debouncedSearch 400ms after the user stops typing
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Reset search when dialog closes
+  useEffect(() => {
+    if (!open) {
+      setSearch("");
+      setDebouncedSearch("");
+    }
+  }, [open]);
+
+  const searchEnabled = open && debouncedSearch.length >= 2;
+
+  const { data: users, isLoading, isFetching, isError } = useQuery<any[]>({
+    queryKey: ["badge-roles-users-search", debouncedSearch],
     queryFn: () =>
-      adminFetch(`/admin/users?search=${encodeURIComponent(search)}&limit=20`)
+      adminFetch(`/users?search=${encodeURIComponent(debouncedSearch)}&limit=20`)
         .then((res: any) => (Array.isArray(res) ? res : (res?.data ?? []))),
-    enabled: open,
+    enabled: searchEnabled,
+    staleTime: 30_000,
   });
 
   const { data: assigned } = useQuery<AssignedUser[]>({
@@ -395,6 +413,7 @@ function AssignUserDialog({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["badge-roles-assigned", role.id] });
       toast({ title: "Role diberikan" });
+      onClose();
     },
     onError: (err: any) => toast({ title: "Gagal", description: err.message, variant: "destructive" }),
   });
@@ -409,6 +428,10 @@ function AssignUserDialog({
     onError: (err: any) => toast({ title: "Gagal", description: err.message, variant: "destructive" }),
   });
 
+  const isSearching = (isLoading || isFetching) && searchEnabled;
+  const showResults = searchEnabled && !isSearching && !isError;
+  const noResults = showResults && (users ?? []).length === 0;
+
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-lg max-h-[80vh] flex flex-col">
@@ -422,53 +445,89 @@ function AssignUserDialog({
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            className="pl-9"
-            placeholder="Cari username…"
+            className="pl-9 pr-9"
+            placeholder="Cari username, nama, atau email…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            autoComplete="off"
           />
+          {isSearching && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <div className="h-4 w-4 rounded-full border-2 border-muted-foreground border-t-transparent animate-spin" />
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-1 min-h-0 max-h-80">
-          {isLoading ? (
-            Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)
-          ) : (
-            (users as any[] | undefined ?? []).map((u: any) => {
-              const isAssigned = assignedIds.has(u.id);
-              return (
-                <div
-                  key={u.id}
-                  className="flex items-center gap-3 rounded-lg p-2.5 border hover:bg-muted/30 transition-colors"
-                >
-                  <Avatar className="h-8 w-8 shrink-0">
-                    <AvatarImage src={u.avatar} />
-                    <AvatarFallback className="text-xs">{u.username?.slice(0, 2).toUpperCase()}</AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{u.username}</p>
-                    <p className="text-xs text-muted-foreground">{u.role}</p>
-                  </div>
-                  {isAssigned ? (
-                    <Button
-                      size="sm" variant="destructive"
-                      onClick={() => revokeMutation.mutate(u.id)}
-                      disabled={revokeMutation.isPending}
-                    >
-                      <UserMinus className="h-3.5 w-3.5 mr-1" /> Cabut
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm" variant="outline"
-                      onClick={() => assignMutation.mutate(u.id)}
-                      disabled={assignMutation.isPending}
-                    >
-                      <UserPlus className="h-3.5 w-3.5 mr-1" /> Assign
-                    </Button>
-                  )}
-                </div>
-              );
-            })
+          {/* Prompt to type */}
+          {!searchEnabled && !isSearching && (
+            <p className="text-center text-sm text-muted-foreground py-8">
+              Ketik minimal 2 karakter untuk mencari user
+            </p>
           )}
+
+          {/* Loading spinner */}
+          {isSearching && (
+            <div className="flex items-center justify-center py-8">
+              <div className="h-6 w-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            </div>
+          )}
+
+          {/* Search error */}
+          {isError && searchEnabled && !isSearching && (
+            <p className="text-center text-sm text-destructive py-8">
+              Gagal memuat hasil. Coba lagi.
+            </p>
+          )}
+
+          {/* No results */}
+          {noResults && (
+            <p className="text-center text-sm text-muted-foreground py-8">
+              No users found
+            </p>
+          )}
+
+          {/* Results */}
+          {showResults && (users ?? []).map((u: any) => {
+            const isAssigned = assignedIds.has(u.id);
+            return (
+              <div
+                key={u.id}
+                className="flex items-center gap-3 rounded-lg p-2.5 border hover:bg-muted/30 transition-colors"
+              >
+                <Avatar className="h-8 w-8 shrink-0">
+                  <AvatarImage src={u.avatar} />
+                  <AvatarFallback className="text-xs">{u.username?.slice(0, 2).toUpperCase()}</AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">
+                    {u.displayName ? u.displayName : u.username}
+                    {u.displayName && (
+                      <span className="text-muted-foreground font-normal"> @{u.username}</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{u.role}</p>
+                </div>
+                {isAssigned ? (
+                  <Button
+                    size="sm" variant="destructive"
+                    onClick={() => revokeMutation.mutate(u.id)}
+                    disabled={revokeMutation.isPending}
+                  >
+                    <UserMinus className="h-3.5 w-3.5 mr-1" /> Cabut
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm" variant="outline"
+                    onClick={() => assignMutation.mutate(u.id)}
+                    disabled={assignMutation.isPending}
+                  >
+                    <UserPlus className="h-3.5 w-3.5 mr-1" /> Assign
+                  </Button>
+                )}
+              </div>
+            );
+          })}
         </div>
       </DialogContent>
     </Dialog>

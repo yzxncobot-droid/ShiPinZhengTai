@@ -28,6 +28,7 @@ router.get("/users", authenticate, requireRole("admin", "owner"), async (req, re
     conditions.push(
       or(
         ilike(usersTable.username, `%${search}%`),
+        ilike(usersTable.displayName, `%${search}%`),
         ilike(usersTable.email, `%${search}%`),
       ),
     );
