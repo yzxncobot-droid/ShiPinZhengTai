@@ -65,10 +65,13 @@ export interface UploadProofResult {
 export interface StorageService {
   uploadVideo(
     file: Express.Multer.File,
-    opts?: { title?: string },
+    opts?: { title?: string; userId?: string },
   ): Promise<UploadVideoResult>;
 
-  uploadThumbnail(file: Express.Multer.File): Promise<UploadThumbnailResult>;
+  uploadThumbnail(
+    file: Express.Multer.File,
+    opts?: { userId?: string },
+  ): Promise<UploadThumbnailResult>;
 
   deleteVideo(pathOrId: string): Promise<void>;
   deleteThumbnail(path: string): Promise<void>;

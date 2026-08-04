@@ -7,13 +7,11 @@
  *   PUBLIC_SUPABASE_URL          (required)
  *   PUBLIC_SUPABASE_SERVICE_KEY  (required)
  *
- * Bucket: yzx
+ * Bucket: public
  * Folders:
- *   Creator videos:               yzx/public/creator/videos/
- *   Creator thumbnails:           yzx/public/creator/thumbnails/
- *   Verified Creator videos:      yzx/public/verified-creator/videos/
- *   Verified Creator thumbnails:  yzx/public/verified-creator/thumbnails/
- *   Verified Creator payments:    yzx/public/verified-creator/payments/
+ *   Creator videos:    public/videos/{userId}/
+ *   Creator thumbs:    public/thumbnails/{userId}/
+ *   VC payments:       public/verified-creator/payments/{userId}/
  */
 
 import { logger } from "../logger";
@@ -26,6 +24,7 @@ import type {
 import {
   buildSupabaseClient,
   generateStoragePath,
+  generateStoragePathForUser,
   makeSupabaseThumbnailResult,
   makeSupabaseVideoResult,
   supabaseDeleteFile,
@@ -34,7 +33,7 @@ import {
 
 const PUBLIC_SUPABASE_URL = process.env.PUBLIC_SUPABASE_URL ?? "";
 const PUBLIC_SUPABASE_KEY = process.env.PUBLIC_SUPABASE_SERVICE_KEY ?? "";
-const BUCKET = "yzx";
+const BUCKET = "public";
 
 export const isPublicStorageAvailable =
   !!PUBLIC_SUPABASE_URL && !!PUBLIC_SUPABASE_KEY;
@@ -59,15 +58,21 @@ function checkAvailable() {
 }
 
 // ── Creator ───────────────────────────────────────────────────────────────────
+// All custom-role creators share the same top-level folders, organised by
+// their user ID so files never collide across accounts.
+//
+//   videos/{userId}/{timestamp}-{random}.ext
+//   thumbnails/{userId}/{timestamp}-{random}.ext
 
-const CREATOR_VIDEO_FOLDER = "public/creator/videos";
-const CREATOR_THUMB_FOLDER = "public/creator/thumbnails";
+const VIDEO_FOLDER = "videos";
+const THUMB_FOLDER = "thumbnails";
 
 export const creatorPublicStorage: StorageService = {
-  async uploadVideo(file, _opts): Promise<UploadVideoResult> {
+  async uploadVideo(file, opts): Promise<UploadVideoResult> {
     checkAvailable();
-    const storagePath = generateStoragePath(CREATOR_VIDEO_FOLDER, file.originalname);
-    logger.info({ bucket: BUCKET, path: storagePath, size: file.size }, "PublicStorage[Creator]: upload video START");
+    const userId = opts?.userId ?? "unknown";
+    const storagePath = generateStoragePathForUser(VIDEO_FOLDER, userId, file.originalname);
+    logger.info({ bucket: BUCKET, path: storagePath, size: file.size, userId }, "PublicStorage[Creator]: upload video START");
     const { path: savedPath, url } = await supabaseUploadWithRetry(
       client, PUBLIC_SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
     );
@@ -77,14 +82,15 @@ export const creatorPublicStorage: StorageService = {
       storageProvider: "supabase_public",
       storageType: "PUBLIC",
       bucketName: BUCKET,
-      storageFolder: CREATOR_VIDEO_FOLDER,
+      storageFolder: `${VIDEO_FOLDER}/${userId}`,
     });
   },
 
-  async uploadThumbnail(file): Promise<UploadThumbnailResult> {
+  async uploadThumbnail(file, opts): Promise<UploadThumbnailResult> {
     checkAvailable();
-    const storagePath = generateStoragePath(CREATOR_THUMB_FOLDER, file.originalname);
-    logger.info({ bucket: BUCKET, path: storagePath, size: file.size }, "PublicStorage[Creator]: upload thumbnail START");
+    const userId = opts?.userId ?? "unknown";
+    const storagePath = generateStoragePathForUser(THUMB_FOLDER, userId, file.originalname);
+    logger.info({ bucket: BUCKET, path: storagePath, size: file.size, userId }, "PublicStorage[Creator]: upload thumbnail START");
     const { path: savedPath, url } = await supabaseUploadWithRetry(
       client, PUBLIC_SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
     );
@@ -94,7 +100,7 @@ export const creatorPublicStorage: StorageService = {
       storageProvider: "supabase_public",
       storageType: "PUBLIC",
       bucketName: BUCKET,
-      storageFolder: CREATOR_THUMB_FOLDER,
+      storageFolder: `${THUMB_FOLDER}/${userId}`,
     });
   },
 
@@ -102,17 +108,16 @@ export const creatorPublicStorage: StorageService = {
   async deleteThumbnail(storagePath) { await supabaseDeleteFile(client, BUCKET, storagePath); },
 };
 
-// ── Verified Creator ──────────────────────────────────────────────────────────
+// ── Verified Creator — same bucket/folder layout as Creator ──────────────────
 
-const VC_VIDEO_FOLDER    = "public/verified-creator/videos";
-const VC_THUMB_FOLDER    = "public/verified-creator/thumbnails";
-const VC_PAYMENTS_FOLDER = "public/verified-creator/payments";
+const VC_PAYMENTS_FOLDER = "verified-creator/payments";
 
 export const verifiedCreatorPublicStorage: StorageService = {
-  async uploadVideo(file, _opts): Promise<UploadVideoResult> {
+  async uploadVideo(file, opts): Promise<UploadVideoResult> {
     checkAvailable();
-    const storagePath = generateStoragePath(VC_VIDEO_FOLDER, file.originalname);
-    logger.info({ bucket: BUCKET, path: storagePath, size: file.size }, "PublicStorage[VerifiedCreator]: upload video START");
+    const userId = opts?.userId ?? "unknown";
+    const storagePath = generateStoragePathForUser(VIDEO_FOLDER, userId, file.originalname);
+    logger.info({ bucket: BUCKET, path: storagePath, size: file.size, userId }, "PublicStorage[VerifiedCreator]: upload video START");
     const { path: savedPath, url } = await supabaseUploadWithRetry(
       client, PUBLIC_SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
     );
@@ -122,14 +127,15 @@ export const verifiedCreatorPublicStorage: StorageService = {
       storageProvider: "supabase_public",
       storageType: "PUBLIC",
       bucketName: BUCKET,
-      storageFolder: VC_VIDEO_FOLDER,
+      storageFolder: `${VIDEO_FOLDER}/${userId}`,
     });
   },
 
-  async uploadThumbnail(file): Promise<UploadThumbnailResult> {
+  async uploadThumbnail(file, opts): Promise<UploadThumbnailResult> {
     checkAvailable();
-    const storagePath = generateStoragePath(VC_THUMB_FOLDER, file.originalname);
-    logger.info({ bucket: BUCKET, path: storagePath, size: file.size }, "PublicStorage[VerifiedCreator]: upload thumbnail START");
+    const userId = opts?.userId ?? "unknown";
+    const storagePath = generateStoragePathForUser(THUMB_FOLDER, userId, file.originalname);
+    logger.info({ bucket: BUCKET, path: storagePath, size: file.size, userId }, "PublicStorage[VerifiedCreator]: upload thumbnail START");
     const { path: savedPath, url } = await supabaseUploadWithRetry(
       client, PUBLIC_SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
     );
@@ -139,7 +145,7 @@ export const verifiedCreatorPublicStorage: StorageService = {
       storageProvider: "supabase_public",
       storageType: "PUBLIC",
       bucketName: BUCKET,
-      storageFolder: VC_THUMB_FOLDER,
+      storageFolder: `${THUMB_FOLDER}/${userId}`,
     });
   },
 

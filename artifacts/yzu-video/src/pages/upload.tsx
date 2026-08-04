@@ -346,6 +346,29 @@ export default function CreatorUploadPage() {
     return <NotAuthorized currentRole={topRole} />;
   }
 
+  // Collect all allowed upload types from every active custom role.
+  // uploadTypes is already a parsed string[] from the backend endpoint.
+  const allowedUploadTypes: Set<string> = new Set(
+    (customRoles ?? []).flatMap((r: any) =>
+      Array.isArray(r.uploadTypes) ? r.uploadTypes : [],
+    ),
+  );
+  // Default to "free" if no upload types are configured on any role
+  if (allowedUploadTypes.size === 0) allowedUploadTypes.add("free");
+
+  // Map upload type names → visibility values used in the form
+  const uploadTypeToVisibility: Record<string, string> = {
+    free:    "public",
+    premium: "premium",
+    bundle:  "hidden_bundle",
+  };
+
+  // Only show content type cards the role allows
+  const visibleContentTypes = CONTENT_TYPE_OPTIONS.filter((opt) => {
+    const typeKey = Object.entries(uploadTypeToVisibility).find(([, v]) => v === opt.value)?.[0];
+    return typeKey ? allowedUploadTypes.has(typeKey) : false;
+  });
+
   return (
     <AppLayout>
       <div className="px-4 py-6 max-w-2xl mx-auto">
@@ -372,8 +395,8 @@ export default function CreatorUploadPage() {
               <FormField control={form.control} name="visibility" render={({ field }) => (
                 <FormItem>
                   <FormControl>
-                    <div className="grid grid-cols-3 gap-3">
-                      {CONTENT_TYPE_OPTIONS.map((opt) => {
+                    <div className={`grid gap-3 ${visibleContentTypes.length === 1 ? "grid-cols-1" : visibleContentTypes.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+                      {visibleContentTypes.map((opt) => {
                         const isSelected = field.value === opt.value;
                         return (
                           <button

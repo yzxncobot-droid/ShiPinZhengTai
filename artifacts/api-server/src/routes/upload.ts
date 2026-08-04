@@ -259,7 +259,7 @@ router.post(
       const storage = getStorageService(normalized);
       const title   = req.body?.title ?? req.file.originalname ?? "Upload";
       try {
-        const result: UploadVideoResult = await storage.uploadVideo(req.file, { title });
+        const result: UploadVideoResult = await storage.uploadVideo(req.file, { title, userId: req.user!.userId });
         return res.json({
           success: true,
           url:               result.url,
@@ -358,7 +358,7 @@ router.post(
     if (normalized) {
       const storage = getStorageService(normalized);
       try {
-        const result: UploadThumbnailResult = await storage.uploadThumbnail(req.file);
+        const result: UploadThumbnailResult = await storage.uploadThumbnail(req.file, { userId: req.user!.userId });
         return res.json({
           success: true,
           url:             result.url,

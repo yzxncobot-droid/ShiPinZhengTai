@@ -34,6 +34,20 @@ export function generateStoragePath(folder: string, originalName: string): strin
   return `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
 }
 
+/**
+ * Generate a storage path scoped to a specific user ID.
+ * e.g. generateStoragePathForUser("videos", "user-123", "clip.mp4")
+ *   → "videos/user-123/1720000000000-abc123.mp4"
+ */
+export function generateStoragePathForUser(
+  folder: string,
+  userId: string,
+  originalName: string,
+): string {
+  const ext = extOf(originalName);
+  return `${folder}/${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+}
+
 export async function supabaseUploadWithRetry(
   client: SupabaseClient,
   supabaseUrl: string,
