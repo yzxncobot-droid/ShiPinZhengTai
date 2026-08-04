@@ -373,7 +373,9 @@ function AssignUserDialog({
 
   const { data: users, isLoading } = useQuery<any[]>({
     queryKey: ["badge-roles-users-search", search],
-    queryFn: () => adminFetch(`/admin/users?search=${encodeURIComponent(search)}&limit=20`),
+    queryFn: () =>
+      adminFetch(`/admin/users?search=${encodeURIComponent(search)}&limit=20`)
+        .then((res: any) => (Array.isArray(res) ? res : (res?.data ?? []))),
     enabled: open,
   });
 
