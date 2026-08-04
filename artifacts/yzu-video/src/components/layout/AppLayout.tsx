@@ -139,16 +139,11 @@ export function Navbar() {
                     <span>Profile</span>
                   </DropdownMenuItem>
 
-                  {/* Creator menu items.
-                      Upload Video: creatorBadge flag OR role 'creator'/'verified_creator'.
-                      My Video:     verifiedCreator flag OR role 'verified_creator' (admin/owner also allowed).
-                      Admin/Owner without creator access use the admin panel upload, not this menu. */}
-                  {((user as any).creatorBadge || user.role === 'creator' || user.role === 'verified_creator') && (
-                    <DropdownMenuItem onClick={() => setLocation('/upload')} className="cursor-pointer rounded-xl font-medium">
-                      <UploadCloud className="mr-2 h-4 w-4 text-pink-500" />
-                      <span>Upload Video</span>
-                    </DropdownMenuItem>
-                  )}
+                  {/* Upload Video — visible for all logged-in users */}
+                  <DropdownMenuItem onClick={() => setLocation('/upload')} className="cursor-pointer rounded-xl font-medium">
+                    <UploadCloud className="mr-2 h-4 w-4 text-pink-500" />
+                    <span>Upload Video</span>
+                  </DropdownMenuItem>
                   {((user as any).verifiedCreator || user.role === 'verified_creator' || user.role === 'admin' || user.role === 'owner') && (
                     <DropdownMenuItem onClick={() => setLocation('/my-video')} className="cursor-pointer rounded-xl font-medium">
                       <Film className="mr-2 h-4 w-4 text-violet-500" />
