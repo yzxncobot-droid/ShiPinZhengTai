@@ -9,6 +9,7 @@ import { MaintenanceGuard } from "@/components/MaintenanceGuard";
 import NotFound from "@/pages/not-found";
 import MaintenancePage from "@/pages/maintenance";
 import AdminMaintenancePage from "@/pages/admin/maintenance";
+import AdminBadgeRolesPage from "@/pages/admin/badge-roles";
 
 // Public pages
 import Home from "@/pages/home";
@@ -136,6 +137,7 @@ function AppRouter() {
       <Route path="/admin/drops" component={AdminDropsPage} />
       <Route path="/admin/redeem" component={AdminRedeemPage} />
       <Route path="/redeem" component={RedeemPage} />
+      <Route path="/admin/badge-roles" component={AdminBadgeRolesPage} />
       <Route path="/admin/maintenance" component={AdminMaintenancePage} />
 
       {/* Maintenance page — always accessible */}

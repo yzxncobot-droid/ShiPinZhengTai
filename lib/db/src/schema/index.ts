@@ -28,3 +28,4 @@ export * from "./direct-messages";
 export * from "./redeem";
 export * from "./leaderboard";
 export * from "./revenue-shares";
+export * from "./custom-roles";

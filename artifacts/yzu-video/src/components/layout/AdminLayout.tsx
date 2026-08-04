@@ -18,7 +18,7 @@ import {
   ArrowUpFromLine, TrendingUp, Star, BarChart3, FileBarChart, Bell,
   Settings, ShieldCheck, Server, Upload, LogOut, Home, ChevronLeft,
   ChevronRight, Menu, PlaySquare, Search, User as UserIcon, X, Gift,
-  CheckCircle2, Wrench,
+  CheckCircle2, Wrench, Award,
 } from "lucide-react";
 
 // ── Navigation Config ──────────────────────────────────────────────────────────
@@ -52,7 +52,10 @@ const useNavGroups = (pendingPayments: number = 0, unreadNotifs: number = 0): Na
   },
   {
     section: "Pengguna",
-    items: [{ label: "Users", href: "/admin/users", icon: Users }],
+    items: [
+      { label: "Users", href: "/admin/users", icon: Users },
+      { label: "Badge & Role", href: "/admin/badge-roles", icon: Award },
+    ],
   },
   {
     section: "Keuangan",
@@ -107,6 +110,7 @@ const PATH_LABELS: Record<string, string> = {
   "/admin/upload": "Upload Video",
   "/admin/bundles": "Bundles",
   "/admin/users": "Users",
+  "/admin/badge-roles": "Badge & Role Management",
   "/admin/payments": "Pembayaran",
   "/admin/wallet": "Wallet",
   "/admin/withdrawals": "Penarikan",

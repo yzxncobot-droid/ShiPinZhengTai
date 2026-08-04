@@ -175,6 +175,47 @@ export async function runBestEffortStartupMigration(): Promise<void> {
       ALTER TABLE notifications ADD COLUMN IF NOT EXISTS reference_id   text;
       ALTER TABLE notifications ADD COLUMN IF NOT EXISTS action_url     text;
     `);
+
+    // ── 4. custom_roles & user_custom_roles tables ───────────────────────────
+    await runStep(client, "custom_roles table", `
+      CREATE TABLE IF NOT EXISTS custom_roles (
+        id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        name                  text NOT NULL UNIQUE,
+        emoji                 text,
+        color                 text NOT NULL DEFAULT '#6366f1',
+        description           text,
+        is_active             boolean NOT NULL DEFAULT true,
+        priority              integer NOT NULL DEFAULT 0,
+        perm_dashboard        boolean NOT NULL DEFAULT false,
+        perm_upload_video     boolean NOT NULL DEFAULT false,
+        perm_my_video         boolean NOT NULL DEFAULT false,
+        perm_leaderboard      boolean NOT NULL DEFAULT true,
+        perm_creator_dashboard boolean NOT NULL DEFAULT false,
+        upload_types          text NOT NULL DEFAULT 'free',
+        creator_share_percent double precision NOT NULL DEFAULT 50,
+        platform_share_percent double precision NOT NULL DEFAULT 50,
+        created_by            uuid REFERENCES users(id) ON DELETE SET NULL,
+        created_at            timestamptz NOT NULL DEFAULT now(),
+        updated_at            timestamptz NOT NULL DEFAULT now()
+      );
+    `);
+    await runStep(client, "custom_roles indexes", `
+      CREATE INDEX IF NOT EXISTS custom_roles_priority_idx  ON custom_roles(priority);
+      CREATE INDEX IF NOT EXISTS custom_roles_is_active_idx ON custom_roles(is_active);
+    `);
+    await runStep(client, "user_custom_roles table", `
+      CREATE TABLE IF NOT EXISTS user_custom_roles (
+        id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role_id     uuid NOT NULL REFERENCES custom_roles(id) ON DELETE CASCADE,
+        assigned_by uuid REFERENCES users(id) ON DELETE SET NULL,
+        assigned_at timestamptz NOT NULL DEFAULT now()
+      );
+    `);
+    await runStep(client, "user_custom_roles indexes", `
+      CREATE INDEX IF NOT EXISTS user_custom_roles_user_idx ON user_custom_roles(user_id);
+      CREATE INDEX IF NOT EXISTS user_custom_roles_role_idx ON user_custom_roles(role_id);
+    `);
   } finally {
     client.release();
   }

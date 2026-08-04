@@ -29,6 +29,7 @@ import creatorRouter from "./creator";
 import socialRouter from "./social";
 import redeemRouter from "./redeem";
 import revenueRouter from "./revenue";
+import badgeRolesRouter from "./badge-roles";
 
 const router: IRouter = Router();
 
@@ -62,5 +63,6 @@ router.use(creatorRouter);
 router.use(socialRouter);
 router.use(redeemRouter);
 router.use(revenueRouter);
+router.use(badgeRolesRouter);
 
 export default router;

@@ -6,6 +6,7 @@ import {
   videoPurchasesTable, transactionsTable, notificationsTable,
   bundlesTable, bundleVideosTable, bundlePurchasesTable,
   walletTransactionsTable, walletsTable, revenueSharesTable,
+  customRolesTable, userCustomRolesTable,
 } from "@workspace/db";
 import { legacyToVisibility, visibilityToLegacy } from "@workspace/db";
 import { eq, and, desc, asc, ilike, gte, ne, or, sql, count, isNull } from "drizzle-orm";
@@ -534,12 +535,37 @@ router.post("/videos/:id/purchase", authenticate, async (req, res) => {
       }).from(usersTable).where(eq(usersTable.id, video.creatorId!)).limit(1)
     : [null];
 
+  // Check if creator has an active custom role with a configured revenue share.
+  // The highest-priority custom role wins; falls back to hardcoded tier rates.
+  let customShareRate: number | null = null;
+  let customRoleLabel: string | null = null;
+  if (creator) {
+    const [topCustomRole] = await db
+      .select({ creatorSharePercent: customRolesTable.creatorSharePercent, name: customRolesTable.name })
+      .from(userCustomRolesTable)
+      .innerJoin(customRolesTable, eq(userCustomRolesTable.roleId, customRolesTable.id))
+      .where(
+        and(
+          eq(userCustomRolesTable.userId, creator.id),
+          eq(customRolesTable.isActive, true),
+        ),
+      )
+      .orderBy(desc(customRolesTable.priority))
+      .limit(1);
+    if (topCustomRole) {
+      customShareRate = topCustomRole.creatorSharePercent / 100;
+      customRoleLabel = topCustomRole.name;
+    }
+  }
+
   // Determine creator earnings after platform tax
   const isCreatorUpload = creator && video.creatorId !== userId &&
     (creator.creatorBadge || creator.verifiedCreator);
   const TAX_VERIFIED_CREATOR = 0.25; // 25% platform tax for Verified Creator
   const TAX_CREATOR          = 0.50; // 50% platform tax for Creator
-  const taxRate = creator?.verifiedCreator ? TAX_VERIFIED_CREATOR : TAX_CREATOR;
+  const defaultTaxRate = creator?.verifiedCreator ? TAX_VERIFIED_CREATOR : TAX_CREATOR;
+  // Custom role rate overrides the default tier rate when set
+  const taxRate = customShareRate !== null ? (1 - customShareRate) : defaultTaxRate;
   const creatorEarnings = isCreatorUpload
     ? Math.floor(video.price! * (1 - taxRate))
     : 0;
@@ -592,7 +618,7 @@ router.post("/videos/:id/purchase", authenticate, async (req, res) => {
       const platformEarnings = video.price! - creatorEarnings;
       const shareRate = isCreatorUpload ? (1 - taxRate) : 0;
       const uploaderRoleLabel = isCreatorUpload
-        ? (creator!.verifiedCreator ? "verified_creator" : "creator")
+        ? (customRoleLabel ?? (creator!.verifiedCreator ? "verified_creator" : "creator"))
         : "platform";
 
       // Creator wallet is credited atomically inside this same transaction,
