@@ -1,5 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { useQuery } from "@tanstack/react-query";
+import { adminFetch } from "@/lib/admin-api";
 import { useGetSettings } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { 
@@ -34,6 +36,26 @@ export function FunLogo({ className = "" }: { className?: string }) {
 export function Navbar() {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
+
+  // Fetch user's active custom roles to check permissions
+  const { data: customRoles } = useQuery<any[]>({
+    queryKey: ["my-custom-roles"],
+    queryFn: () => adminFetch("/users/me/custom-roles"),
+    enabled: Boolean(user),
+    staleTime: 60_000,
+  });
+
+  const isOwner = user?.role === "owner";
+  const isAdmin = user?.role === "admin";
+  const isCreator = user?.role === "creator" || user?.role === "verified_creator"
+    || (user as any)?.creatorBadge || (user as any)?.verifiedCreator;
+
+  // Permission from any active custom role
+  const hasCustomUpload = customRoles?.some((r: any) => r.permUploadVideo) ?? false;
+  const hasCustomMyVideo = customRoles?.some((r: any) => r.permMyVideo) ?? false;
+
+  const canUpload  = isOwner || isAdmin || isCreator || hasCustomUpload;
+  const canMyVideo = isOwner || isAdmin || isCreator || hasCustomMyVideo;
 
   const handleLogout = () => {
     logout();
@@ -139,12 +161,13 @@ export function Navbar() {
                     <span>Profile</span>
                   </DropdownMenuItem>
 
-                  {/* Upload Video — visible for all logged-in users */}
-                  <DropdownMenuItem onClick={() => setLocation('/upload')} className="cursor-pointer rounded-xl font-medium">
-                    <UploadCloud className="mr-2 h-4 w-4 text-pink-500" />
-                    <span>Upload Video</span>
-                  </DropdownMenuItem>
-                  {((user as any).verifiedCreator || user.role === 'verified_creator' || user.role === 'admin' || user.role === 'owner') && (
+                  {canUpload && (
+                    <DropdownMenuItem onClick={() => setLocation('/upload')} className="cursor-pointer rounded-xl font-medium">
+                      <UploadCloud className="mr-2 h-4 w-4 text-pink-500" />
+                      <span>Upload Video</span>
+                    </DropdownMenuItem>
+                  )}
+                  {canMyVideo && (
                     <DropdownMenuItem onClick={() => setLocation('/my-video')} className="cursor-pointer rounded-xl font-medium">
                       <Film className="mr-2 h-4 w-4 text-violet-500" />
                       <span>My Video</span>
