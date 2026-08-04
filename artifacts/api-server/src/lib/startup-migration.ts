@@ -216,6 +216,20 @@ export async function runBestEffortStartupMigration(): Promise<void> {
       CREATE INDEX IF NOT EXISTS user_custom_roles_user_idx ON user_custom_roles(user_id);
       CREATE INDEX IF NOT EXISTS user_custom_roles_role_idx ON user_custom_roles(role_id);
     `);
+
+    // ── 5. custom_role_id column on users ───────────────────────────────────
+    // Adds the FK column that lets the Users admin page assign a primary custom
+    // role to each user. ON DELETE SET NULL ensures no orphan pointers when a
+    // custom role is deleted. Idempotent — ADD COLUMN IF NOT EXISTS is a no-op
+    // if the column already exists.
+    await runStep(client, "users.custom_role_id column", `
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS custom_role_id uuid
+          REFERENCES custom_roles(id) ON DELETE SET NULL;
+    `);
+    await runStep(client, "users.custom_role_id index", `
+      CREATE INDEX IF NOT EXISTS users_custom_role_id_idx ON users(custom_role_id);
+    `);
   } finally {
     client.release();
   }

@@ -16,3 +16,4 @@
 - [Chat groups architecture](chat-groups-architecture.md) — DM feature removed; public chat replaced with multi-group system; /chat/groups is the enhanced rooms endpoint with latestMessage+unreadCount; chatRoomsTable has category/isPinnedGroup/isPublic/sortOrder/memberLimit columns.
 - [Missing tables pattern](missing-tables-pattern.md) — drops/drop_claims/drop_logs tables were absent from the live DB; same root cause as chat_rooms columns; always run `information_schema.columns` check when a Drizzle "Failed query" exposes an UPDATE/INSERT before trying code fixes.
 - [Social system architecture](social-system.md) — follow/DM/notifications schema + routes added; profile follower stats still hardcoded 0; notifications not auto-fired from purchase/payment flows yet.
+- [Dynamic role system (custom_role_id on users)](dynamic-role-system.md) — users.custom_role_id FK → custom_roles; display-only; system role (users.role) still drives auth middleware.

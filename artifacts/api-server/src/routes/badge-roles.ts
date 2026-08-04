@@ -18,7 +18,8 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { customRolesTable, userCustomRolesTable, usersTable } from "@workspace/db";
-import { eq, and, desc, asc } from "drizzle-orm";
+// Note: usersTable.customRoleId references custom_roles.id via DB FK (startup migration).
+import { eq, and, desc, asc, count } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 
@@ -200,8 +201,28 @@ router.delete(
   requireRole("owner"),
   async (req, res) => {
     try {
-      await db.delete(customRolesTable).where(eq(customRolesTable.id, req.params.id));
-      res.json({ ok: true });
+      const roleId = req.params.id;
+
+      // Count users whose primary custom role is this role.
+      const [countRow] = await db
+        .select({ total: count() })
+        .from(usersTable)
+        .where(eq(usersTable.customRoleId, roleId));
+      const affectedUsers = Number(countRow?.total ?? 0);
+
+      // Null out custom_role_id for all affected users before deletion.
+      // This is defensive — the DB FK (ON DELETE SET NULL) handles it
+      // automatically once the startup migration has run, but doing it
+      // explicitly here guarantees correctness regardless of migration state.
+      if (affectedUsers > 0) {
+        await db
+          .update(usersTable)
+          .set({ customRoleId: null, updatedAt: new Date() })
+          .where(eq(usersTable.customRoleId, roleId));
+      }
+
+      await db.delete(customRolesTable).where(eq(customRolesTable.id, roleId));
+      res.json({ ok: true, affectedUsers });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

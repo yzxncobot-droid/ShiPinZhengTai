@@ -20,18 +20,33 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import {
   Search, ChevronLeft, ChevronRight, Users, RefreshCw,
-  Wallet, Crown, Ban, CheckCircle2, Gift,
+  Wallet, Crown, Ban, CheckCircle2,
 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 
-type UserRole = "user" | "meril" | "admin" | "owner";
-
-const ROLE_COLORS: Record<UserRole | string, string> = {
-  owner: "bg-yellow-500/10 text-yellow-600 border-yellow-200",
-  admin: "bg-blue-500/10 text-blue-600 border-blue-200",
-  meril: "bg-purple-500/10 text-purple-600 border-purple-200",
-  user:  "bg-gray-500/10 text-gray-600 border-gray-200",
-};
+// ── Custom Role Badge ──────────────────────────────────────────────────────────
+function CustomRoleBadge({ customRole, systemRole }: { customRole?: { id: string; name: string; emoji?: string | null; color: string } | null; systemRole?: string }) {
+  if (customRole) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border whitespace-nowrap"
+        style={{
+          backgroundColor: `${customRole.color}20`,
+          color: customRole.color,
+          borderColor: `${customRole.color}50`,
+        }}
+      >
+        {customRole.emoji && <span>{customRole.emoji}</span>}
+        {customRole.name}
+      </span>
+    );
+  }
+  return (
+    <Badge variant="outline" className="text-xs text-muted-foreground">
+      {systemRole ?? "—"}
+    </Badge>
+  );
+}
 
 const SUB_STATUS_COLORS: Record<string, string> = {
   active:  "bg-green-500/10 text-green-600 border-green-200",
@@ -46,26 +61,35 @@ export default function AdminUsers() {
   const isOwner = currentUser?.role === "owner";
 
   const [search, setSearch] = useState("");
-  const [roleFilter, setRoleFilter] = useState("all");
+  const [customRoleFilter, setCustomRoleFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [walletUser, setWalletUser] = useState<any>(null);
   const [walletAmount, setWalletAmount] = useState("");
   const [walletReason, setWalletReason] = useState("");
   const [confirmBan, setConfirmBan] = useState<{ user: any; ban: boolean } | null>(null);
   const [roleUser, setRoleUser] = useState<any>(null);
-  const [newRole, setNewRole] = useState<UserRole>("meril");
+  const [newCustomRoleId, setNewCustomRoleId] = useState<string | null>(null);
 
+  // ── Fetch dynamic custom roles ─────────────────────────────────────────────
+  const { data: allCustomRoles = [] } = useQuery<any[]>({
+    queryKey: ["admin-custom-roles"],
+    queryFn: () => adminFetch("/admin/badge-roles"),
+    staleTime: 60_000,
+  });
+  const activeCustomRoles = (allCustomRoles as any[]).filter((r) => r.isActive);
+
+  // ── Users list ─────────────────────────────────────────────────────────────
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["admin-users", search, roleFilter, page],
+    queryKey: ["admin-users", search, customRoleFilter, page],
     queryFn: () =>
       adminFetch(
-        `/users?search=${encodeURIComponent(search)}&role=${roleFilter !== "all" ? roleFilter : ""}&page=${page}&limit=15`,
+        `/users?search=${encodeURIComponent(search)}&customRoleId=${customRoleFilter !== "all" ? customRoleFilter : ""}&page=${page}&limit=15`,
       ),
     placeholderData: (prev) => prev,
   });
 
   const banMut = useMutation({
-    mutationFn: ({ id, banned }: { id: number; banned: boolean }) =>
+    mutationFn: ({ id, banned }: { id: string; banned: boolean }) =>
       adminFetch(`/users/${id}/ban`, { method: "POST", body: JSON.stringify({ banned }) }),
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["admin-users"] });
@@ -75,20 +99,23 @@ export default function AdminUsers() {
     onError: (e: any) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
   });
 
-  const roleMut = useMutation({
-    mutationFn: ({ id, role }: { id: number; role: string }) =>
-      adminFetch(`/users/${id}/role`, { method: "PATCH", body: JSON.stringify({ role }) }),
+  const customRoleMut = useMutation({
+    mutationFn: ({ id, customRoleId }: { id: string; customRoleId: string | null }) =>
+      adminFetch(`/users/${id}/custom-role`, {
+        method: "PATCH",
+        body: JSON.stringify({ customRoleId }),
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-users"] });
-      toast({ title: "Role diperbarui" });
+      toast({ title: "Role berhasil diperbarui." });
       setRoleUser(null);
     },
     onError: (e: any) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
   });
 
   const walletMut = useMutation({
-    mutationFn: ({ id, amount, reason }: { id: number; amount: number; reason: string }) =>
-      adminFetch(`/users/${id}/wallet`, { method: "PATCH", body: JSON.stringify({ amount, reason }) }),
+    mutationFn: ({ id, delta, reason }: { id: string; delta: number; reason: string }) =>
+      adminFetch(`/users/${id}/wallet`, { method: "PATCH", body: JSON.stringify({ delta, reason }) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-users"] });
       toast({ title: "Wallet diperbarui" });
@@ -102,6 +129,12 @@ export default function AdminUsers() {
   const users: any[] = (data as any)?.data ?? [];
   const total: number = (data as any)?.total ?? 0;
   const totalPages = Math.ceil(total / 15);
+
+  // Helper: open role dialog and set current role as pre-selected
+  function openRoleDialog(u: any) {
+    setRoleUser(u);
+    setNewCustomRoleId(u.customRole?.id ?? null);
+  }
 
   return (
     <ProtectedRoute allowedRoles={["admin", "owner"]}>
@@ -126,16 +159,28 @@ export default function AdminUsers() {
                 className="pl-9"
               />
             </div>
-            <Select value={roleFilter} onValueChange={(v) => { setRoleFilter(v); setPage(1); }}>
-              <SelectTrigger className="w-36"><SelectValue placeholder="Role" /></SelectTrigger>
+
+            {/* Dynamic role filter */}
+            <Select
+              value={customRoleFilter}
+              onValueChange={(v) => { setCustomRoleFilter(v); setPage(1); }}
+            >
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="Semua Role" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Semua Role</SelectItem>
-                <SelectItem value="meril">Meril</SelectItem>
-                <SelectItem value="admin">Admin</SelectItem>
-                <SelectItem value="owner">Owner</SelectItem>
+                {activeCustomRoles.map((r: any) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.emoji ? `${r.emoji} ` : ""}{r.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            <Button variant="ghost" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
+
+            <Button variant="ghost" size="icon" onClick={() => refetch()}>
+              <RefreshCw className="h-4 w-4" />
+            </Button>
           </div>
 
           {/* Table */}
@@ -177,7 +222,7 @@ export default function AdminUsers() {
                             </Avatar>
                             <div>
                               <p className="font-medium">{u.username}</p>
-                              <p className="text-xs text-muted-foreground">ID: {u.id}</p>
+                              <p className="text-xs text-muted-foreground">ID: {u.id?.slice(0, 8)}…</p>
                             </div>
                           </div>
                         </td>
@@ -185,9 +230,7 @@ export default function AdminUsers() {
                           {u.email ?? <span className="italic opacity-40">—</span>}
                         </td>
                         <td className="p-3">
-                          <Badge className={`border text-xs ${ROLE_COLORS[u.role] ?? ROLE_COLORS.meril}`}>
-                            {u.role}
-                          </Badge>
+                          <CustomRoleBadge customRole={u.customRole} systemRole={u.role} />
                         </td>
                         <td className="p-3 hidden lg:table-cell text-sm font-medium">{fmtRp(u.walletBalance)}</td>
                         <td className="p-3 hidden xl:table-cell">
@@ -224,7 +267,7 @@ export default function AdminUsers() {
                             {isOwner && (
                               <>
                                 <Button variant="ghost" size="icon" className="h-7 w-7" title="Ubah Role"
-                                  onClick={() => { setRoleUser(u); setNewRole(u.role); }}>
+                                  onClick={() => openRoleDialog(u)}>
                                   <Crown className="h-3.5 w-3.5" />
                                 </Button>
                                 <Button variant="ghost" size="icon" className="h-7 w-7" title="Atur Wallet"
@@ -267,54 +310,71 @@ export default function AdminUsers() {
           )}
         </div>
 
-        {/* Role Dialog */}
-        <Dialog open={!!roleUser} onOpenChange={() => setRoleUser(null)}>
+        {/* ── Role Dialog ───────────────────────────────────────────────────── */}
+        <Dialog open={!!roleUser} onOpenChange={(v) => !v && setRoleUser(null)}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Ubah Role: {roleUser?.username}</DialogTitle>
               <DialogDescription>
-                Role saat ini: <strong>{roleUser?.role}</strong>
+                Role saat ini:{" "}
+                <strong>
+                  {roleUser?.customRole
+                    ? `${roleUser.customRole.emoji ?? ""} ${roleUser.customRole.name}`.trim()
+                    : (roleUser?.role ?? "—")}
+                </strong>
               </DialogDescription>
             </DialogHeader>
-            <div className="py-2">
-              <Label className="mb-2 block">Role Baru</Label>
-              <Select value={newRole} onValueChange={(v) => setNewRole(v as UserRole)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+
+            <div className="py-2 space-y-3">
+              <Label className="block">Role Baru</Label>
+              <Select
+                value={newCustomRoleId ?? "__none__"}
+                onValueChange={(v) => setNewCustomRoleId(v === "__none__" ? null : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih custom role..." />
+                </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="meril">
-                    <div>
-                      <p className="font-medium">Meril</p>
-                      <p className="text-xs text-muted-foreground">Pengguna standar / penonton</p>
-                    </div>
+                  <SelectItem value="__none__">
+                    <span className="text-muted-foreground">Tanpa custom role</span>
                   </SelectItem>
-                  <SelectItem value="admin">
-                    <div>
-                      <p className="font-medium">Admin</p>
-                      <p className="text-xs text-muted-foreground">Kelola konten & pengguna</p>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="owner">
-                    <div>
-                      <p className="font-medium">Owner</p>
-                      <p className="text-xs text-muted-foreground">Akses penuh termasuk keuangan</p>
-                    </div>
-                  </SelectItem>
+                  {activeCustomRoles.map((r: any) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      <span className="flex items-center gap-1.5">
+                        {r.emoji && <span>{r.emoji}</span>}
+                        <span>{r.name}</span>
+                        {r.description && (
+                          <span className="text-xs text-muted-foreground hidden sm:inline">— {r.description}</span>
+                        )}
+                      </span>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+
+              {activeCustomRoles.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Belum ada custom role aktif. Buat di halaman Badge & Role Management.
+                </p>
+              )}
             </div>
+
             <DialogFooter>
               <Button variant="outline" onClick={() => setRoleUser(null)}>Batal</Button>
               <Button
-                onClick={() => roleMut.mutate({ id: roleUser.id, role: newRole })}
-                disabled={roleMut.isPending || newRole === roleUser?.role}
+                onClick={() => customRoleMut.mutate({ id: roleUser.id, customRoleId: newCustomRoleId })}
+                disabled={
+                  customRoleMut.isPending ||
+                  newCustomRoleId === (roleUser?.customRole?.id ?? null)
+                }
               >
-                {roleMut.isPending ? "Mengubah..." : "Ubah Role"}
+                {customRoleMut.isPending ? "Mengubah..." : "Ubah Role"}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* Wallet Dialog */}
+        {/* ── Wallet Dialog ──────────────────────────────────────────────────── */}
         <Dialog open={!!walletUser} onOpenChange={() => setWalletUser(null)}>
           <DialogContent>
             <DialogHeader>
@@ -345,7 +405,7 @@ export default function AdminUsers() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setWalletUser(null)}>Batal</Button>
               <Button
-                onClick={() => walletMut.mutate({ id: walletUser.id, amount: parseFloat(walletAmount), reason: walletReason })}
+                onClick={() => walletMut.mutate({ id: walletUser.id, delta: parseFloat(walletAmount), reason: walletReason })}
                 disabled={walletMut.isPending || !walletAmount || isNaN(parseFloat(walletAmount))}
               >
                 {walletMut.isPending ? "Memperbarui..." : "Terapkan"}
@@ -354,7 +414,7 @@ export default function AdminUsers() {
           </DialogContent>
         </Dialog>
 
-        {/* Ban Confirm */}
+        {/* ── Ban Confirm ────────────────────────────────────────────────────── */}
         <AlertDialog open={!!confirmBan} onOpenChange={() => setConfirmBan(null)}>
           <AlertDialogContent>
             <AlertDialogHeader>

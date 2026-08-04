@@ -4,7 +4,7 @@ import { db } from "@workspace/db";
 import {
   usersTable, userSubscriptionsTable, subscriptionsTable,
   notificationsTable, walletsTable, walletTransactionsTable,
-  transactionsTable, referralsTable,
+  transactionsTable, referralsTable, customRolesTable,
 } from "@workspace/db";
 import { eq, and, gte, desc, ilike, or, sql, count } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
@@ -18,7 +18,7 @@ const VALID_ROLES = ["user", "meril", "admin", "owner"] as const;
 
 // ── GET /users — list all users (admin/owner) ─────────────────────────────────
 router.get("/users", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const { search, role, page = "1", limit = "20" } = req.query as Record<string, string>;
+  const { search, role, customRoleId, page = "1", limit = "20" } = req.query as Record<string, string>;
   const pageNum = parseInt(page) || 1;
   const limitNum = Math.min(parseInt(limit) || 20, 100);
   const offset = (pageNum - 1) * limitNum;
@@ -34,6 +34,7 @@ router.get("/users", authenticate, requireRole("admin", "owner"), async (req, re
     );
   }
   if (role) conditions.push(eq(usersTable.role, role as any));
+  if (customRoleId) conditions.push(eq(usersTable.customRoleId, customRoleId));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -42,18 +43,55 @@ router.get("/users", authenticate, requireRole("admin", "owner"), async (req, re
     .from(usersTable)
     .where(where);
 
-  const data = await db
-    .select()
+  // Left-join custom_roles so each user row includes their current custom role.
+  const rawData = await db
+    .select({
+      id:                 usersTable.id,
+      username:           usersTable.username,
+      email:              usersTable.email,
+      role:               usersTable.role,
+      avatar:             usersTable.avatar,
+      isBanned:           usersTable.isBanned,
+      walletBalance:      usersTable.walletBalance,
+      totalTopup:         usersTable.totalTopup,
+      totalSpent:         usersTable.totalSpent,
+      subscriptionStatus: usersTable.subscriptionStatus,
+      subscriptionExpiry: usersTable.subscriptionExpiry,
+      referralCode:       usersTable.referralCode,
+      createdAt:          usersTable.createdAt,
+      creatorBadge:       usersTable.creatorBadge,
+      verifiedCreator:    usersTable.verifiedCreator,
+      displayName:        usersTable.displayName,
+      customRoleId:       usersTable.customRoleId,
+      // custom role fields (null when no custom role assigned)
+      crId:       customRolesTable.id,
+      crName:     customRolesTable.name,
+      crEmoji:    customRolesTable.emoji,
+      crColor:    customRolesTable.color,
+      crIsActive: customRolesTable.isActive,
+    })
     .from(usersTable)
+    .leftJoin(customRolesTable, eq(usersTable.customRoleId, customRolesTable.id))
     .where(where)
     .orderBy(desc(usersTable.createdAt))
     .limit(limitNum)
     .offset(offset);
 
   const usersWithSubs = await Promise.all(
-    data.map(async (u: any) => {
-      const sub = await getActiveSubscription(u.id);
-      return formatUser(u, sub);
+    rawData.map(async (row: any) => {
+      const sub = await getActiveSubscription(row.id);
+      const base = formatUser(row as any, sub);
+      return {
+        ...base,
+        displayName: row.displayName ?? null,
+        customRoleId: row.customRoleId ?? null,
+        customRole: row.crId ? {
+          id:     row.crId,
+          name:   row.crName,
+          emoji:  row.crEmoji,
+          color:  row.crColor,
+        } : null,
+      };
     }),
   );
 
@@ -152,6 +190,36 @@ router.patch("/users/:id/role", authenticate, requireRole("owner"), async (req, 
   await invalidateUserCache(id);
   logger.info({ targetUserId: id, newRole: role, byUserId: req.user!.userId }, "User role changed");
   res.json(formatUser(updated));
+});
+
+// ── PATCH /users/:id/custom-role (owner only) ────────────────────────────────
+// Sets (or clears) the user's primary custom role (custom_roles FK).
+// Pass { customRoleId: "<uuid>" } to assign, or { customRoleId: null } to clear.
+router.patch("/users/:id/custom-role", authenticate, requireRole("owner"), async (req, res) => {
+  const id = req.params.id as string;
+  const { customRoleId } = req.body as { customRoleId: string | null };
+
+  if (customRoleId !== null && customRoleId !== undefined) {
+    // Verify the target custom role exists and is active.
+    const [cr] = await db
+      .select({ id: customRolesTable.id, isActive: customRolesTable.isActive })
+      .from(customRolesTable)
+      .where(eq(customRolesTable.id, customRoleId))
+      .limit(1);
+    if (!cr) { res.status(404).json({ error: "Custom role not found" }); return; }
+    if (!cr.isActive) { res.status(400).json({ error: "Custom role is not active" }); return; }
+  }
+
+  const [updated] = await db
+    .update(usersTable)
+    .set({ customRoleId: customRoleId ?? null, updatedAt: new Date() })
+    .where(eq(usersTable.id, id))
+    .returning({ id: usersTable.id });
+
+  if (!updated) { res.status(404).json({ error: "User not found" }); return; }
+  await invalidateUserCache(id);
+  logger.info({ targetUserId: id, customRoleId, byUserId: req.user!.userId }, "User custom role changed");
+  res.json({ ok: true });
 });
 
 // ── PATCH /users/:id/wallet — manual balance adjustment (admin/owner) ─────────

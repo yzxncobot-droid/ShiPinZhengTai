@@ -72,6 +72,10 @@ export const usersTable = pgTable(
     bio:         text("bio"),
     banner:      text("banner"),
 
+    // ── Custom Role (from custom_roles table) ─────────────────────────
+    /** FK to custom_roles.id — set by owner via Users admin page. Nullable. */
+    customRoleId: uuid("custom_role_id"),
+
     // ── Soft delete ───────────────────────────────────────────────────
     deletedAt: timestamp("deleted_at"),
 
