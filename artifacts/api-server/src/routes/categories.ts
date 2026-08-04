@@ -11,7 +11,7 @@ router.get("/categories", async (_req, res) => {
     const cats = await db.select().from(categoriesTable)
       .where(isNull(categoriesTable.deletedAt))
       .orderBy(categoriesTable.name);
-    const withCount = await Promise.all(cats.map(async (c) => {
+    const withCount = await Promise.all(cats.map(async (c: any) => {
       const [{ value }] = await db.select({ value: count() }).from(videosTable)
         .where(eq(videosTable.categoryId, c.id));
       return { ...c, videoCount: Number(value) };

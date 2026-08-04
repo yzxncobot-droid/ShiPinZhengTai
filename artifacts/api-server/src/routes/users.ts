@@ -50,7 +50,7 @@ router.get("/users", authenticate, requireRole("admin", "owner"), async (req, re
     .offset(offset);
 
   const usersWithSubs = await Promise.all(
-    data.map(async (u) => {
+    data.map(async (u: any) => {
       const sub = await getActiveSubscription(u.id);
       return formatUser(u, sub);
     }),

@@ -39,7 +39,7 @@ router.delete("/social/presence", authenticate, async (req, res) => {
 
 router.post("/social/follow/:userId", authenticate, async (req, res) => {
   const followerId  = req.user!.userId;
-  const followingId = req.params.userId;
+  const followingId = req.params.userId as string;
 
   if (!UUID_RE.test(followingId)) { res.status(400).json({ error: "Invalid userId" }); return; }
   if (followerId === followingId) { res.status(400).json({ error: "Cannot follow yourself" }); return; }
@@ -91,7 +91,7 @@ router.post("/social/follow/:userId", authenticate, async (req, res) => {
 
 router.delete("/social/follow/:userId", authenticate, async (req, res) => {
   const followerId  = req.user!.userId;
-  const followingId = req.params.userId;
+  const followingId = req.params.userId as string;
 
   if (!UUID_RE.test(followingId)) { res.status(400).json({ error: "Invalid userId" }); return; }
 
@@ -217,7 +217,7 @@ router.get("/users/profile/:username", authenticate, async (req, res) => {
 
 router.post("/social/block/:userId", authenticate, async (req, res) => {
   const blockerId = req.user!.userId;
-  const blockedId = req.params.userId;
+  const blockedId = req.params.userId as string;
 
   if (!UUID_RE.test(blockedId)) { res.status(400).json({ error: "Invalid userId" }); return; }
   if (blockerId === blockedId)  { res.status(400).json({ error: "Cannot block yourself" }); return; }
@@ -235,7 +235,7 @@ router.post("/social/block/:userId", authenticate, async (req, res) => {
 
 router.delete("/social/block/:userId", authenticate, async (req, res) => {
   const blockerId = req.user!.userId;
-  const blockedId = req.params.userId;
+  const blockedId = req.params.userId as string;
 
   await db.delete(blockedUsersTable)
     .where(and(eq(blockedUsersTable.blockerId, blockerId), eq(blockedUsersTable.blockedId, blockedId)));
@@ -273,7 +273,7 @@ router.get("/social/search-users", authenticate, async (req, res) => {
     ))
     .limit(20);
 
-  res.json(users.filter((u) => u.id !== me));
+  res.json(users.filter((u: any) => u.id !== me));
 });
 
 export default router;

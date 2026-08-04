@@ -4,6 +4,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { maintenanceGuard } from "./middlewares/maintenance";
+import { optionalAuth } from "./middlewares/auth";
 
 const app: Express = express();
 
@@ -46,10 +47,10 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// Maintenance guard runs AFTER auth middleware so req.user is available on
-// routes that call authenticate() before this fires.  We inject it at the
-// router level so every /api/* request passes through it.
-app.use("/api", maintenanceGuard(), router);
+// optionalAuth runs first so req.user is populated for requests that carry a
+// valid JWT.  maintenanceGuard then uses req.user?.role to let owners through
+// even when maintenance mode is active.
+app.use("/api", optionalAuth, maintenanceGuard(), router);
 
 // ── Global JSON error handler ─────────────────────────────────────────────────
 // Catches any error thrown (or passed via next(err)) inside a route handler and

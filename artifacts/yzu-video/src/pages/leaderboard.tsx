@@ -246,13 +246,14 @@ export default function LeaderboardPage() {
 
   // Show confetti if current user is in top 3
   useEffect(() => {
-    if (!user || entries.length === 0) return;
+    if (!user || entries.length === 0) return undefined;
     const userEntry = entries.find(e => e.userId === user.id);
     if (userEntry && userEntry.rank <= 3) {
       setShowConfetti(true);
       const t = setTimeout(() => setShowConfetti(false), 5000);
       return () => clearTimeout(t);
     }
+    return undefined;
   }, [entries, user]);
 
   const top3 = entries.slice(0, 3);

@@ -11,7 +11,7 @@ import {
 import { legacyToVisibility, visibilityToLegacy } from "@workspace/db";
 import { eq, and, desc, asc, ilike, gte, ne, or, sql, count, isNull } from "drizzle-orm";
 import { authenticate, optionalAuth, requireRole } from "../middlewares/auth";
-import { incrementVideoViews, invalidateCache, keys, TTL } from "../lib/redis";
+import { incrementVideoViews, resetVideoViewBuffer, invalidateCache, keys, TTL } from "../lib/redis";
 import { logger } from "../lib/logger";
 import { normalizeUploaderType, resolveStorageType } from "../lib/storage";
 
@@ -163,7 +163,7 @@ router.get("/videos", optionalAuth, async (req, res) => {
       .limit(limitNum)
       .offset(offset);
 
-    const data = await Promise.all(rows.map((v) => formatVideo(v, userId)));
+    const data = await Promise.all(rows.map((v: any) => formatVideo(v, userId)));
     res.json({ data, total: Number(total), page: pageNum, limit: limitNum });
   } catch (err) {
     logger.error({ err }, "GET /videos failed");
@@ -184,7 +184,7 @@ router.get("/videos/featured", optionalAuth, async (req, res) => {
       ))
       .orderBy(desc(videosTable.createdAt))
       .limit(10);
-    const data = await Promise.all(rows.map((v) => formatVideo(v, userId)));
+    const data = await Promise.all(rows.map((v: any) => formatVideo(v, userId)));
     res.json(data);
   } catch (err) {
     logger.error({ err }, "GET /videos/featured failed");
@@ -226,12 +226,13 @@ router.post("/videos/:id/view", optionalAuth, async (req, res) => {
   // Increment Redis counter for real-time view tracking
   const bufferedCount = await incrementVideoViews(id);
 
-  // Flush to DB every 10 views (or on first view)
+  // Flush to DB every 10 views (or on first view), then reset the counter so
+  // the next flush only adds the delta instead of double-counting.
   if (bufferedCount === 1 || bufferedCount % 10 === 0) {
     await db.update(videosTable)
       .set({ views: sql`${videosTable.views} + ${bufferedCount}` })
       .where(eq(videosTable.id, id));
-    // Note: we keep the Redis counter running — it resets only if we explicitly reset it
+    await resetVideoViewBuffer(id);
   }
 
   // Record individual view in DB
@@ -573,7 +574,7 @@ router.post("/videos/:id/purchase", authenticate, async (req, res) => {
   const newBalance = user.walletBalance - video.price;
 
   try {
-    const result = await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx: any) => {
       // Deduct from buyer
       await tx.update(usersTable).set({
         walletBalance: newBalance,
@@ -700,7 +701,7 @@ router.get("/videos/:id/comments", async (req, res) => {
     .orderBy(desc(commentsTable.createdAt))
     .limit(50);
 
-  const data = await Promise.all(rows.map(async (c) => {
+  const data = await Promise.all(rows.map(async (c: any) => {
     const [user] = await db.select({
       id: usersTable.id, username: usersTable.username, avatar: usersTable.avatar,
     }).from(usersTable).where(eq(usersTable.id, c.userId)).limit(1);

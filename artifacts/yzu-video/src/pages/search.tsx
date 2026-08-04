@@ -79,7 +79,7 @@ export default function SearchPage() {
                   <p>Try different keywords or remove filters.</p>
                 </div>
               ) : (
-                videos?.data.map((video) => (
+                videos?.data.map((video: any) => (
                   <VideoCard key={video.id} video={video} />
                 ))
               )}

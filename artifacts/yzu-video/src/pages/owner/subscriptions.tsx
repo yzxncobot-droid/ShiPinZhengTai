@@ -133,7 +133,7 @@ export default function OwnerSubscriptions() {
                       <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No subscription plans found. Create one!</TableCell>
                     </TableRow>
                   ) : (
-                    plans?.map((plan) => (
+                    plans?.map((plan: any) => (
                       <TableRow key={plan.id} className={!plan.isActive ? "opacity-60" : ""}>
                         <TableCell>
                           <div className="flex items-center gap-3">

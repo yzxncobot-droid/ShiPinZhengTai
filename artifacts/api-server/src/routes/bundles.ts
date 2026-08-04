@@ -59,7 +59,7 @@ async function formatBundle(
   };
 
   return opts.includeVideos
-    ? { ...base, videos: rows.map((r) => ({ id: r.id, title: r.title, thumbnail: r.thumbnail })) }
+    ? { ...base, videos: rows.map((r: any) => ({ id: r.id, title: r.title, thumbnail: r.thumbnail })) }
     : base;
 }
 
@@ -68,7 +68,7 @@ async function validateVideoIds(videoIds: unknown): Promise<{ ids: string[] } | 
   if (!Array.isArray(videoIds) || videoIds.length < 1 || videoIds.length > 10) {
     return { error: "A bundle must contain between 1 and 10 videos" };
   }
-  const ids = [...new Set(videoIds.map((v) => String(v)))];
+  const ids = [...new Set(videoIds.map((v: any) => String(v)))];
   // Basic UUID format validation
   const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (ids.some((id) => !uuidRe.test(id))) {
@@ -96,8 +96,8 @@ async function clearStaleBundleExclusive(videoIds: string[]) {
     .select({ videoId: bundleVideosTable.videoId })
     .from(bundleVideosTable)
     .where(inArray(bundleVideosTable.videoId, videoIds));
-  const stillLinkedSet = new Set(stillLinked.map((r) => r.videoId));
-  const toClear = videoIds.filter((id) => !stillLinkedSet.has(id));
+  const stillLinkedSet = new Set(stillLinked.map((r: any) => r.videoId));
+  const toClear = videoIds.filter((id: any) => !stillLinkedSet.has(id));
   if (toClear.length > 0) {
     await db.update(videosTable)
       .set({ visibility: "premium", bundleExclusive: false, updatedAt: new Date() })
@@ -112,7 +112,7 @@ router.get("/bundles", optionalAuth, async (req, res) => {
     const bundles = await db.select().from(bundlesTable)
       .where(and(eq(bundlesTable.isActive, true), isNull(bundlesTable.deletedAt)))
       .orderBy(asc(bundlesTable.sortOrder));
-    const formatted = await Promise.all(bundles.map((b) => formatBundle(b, { userId })));
+    const formatted = await Promise.all(bundles.map((b: any) => formatBundle(b, { userId })));
     res.json(formatted);
   } catch (err) {
     logger.error({ err }, "GET /bundles failed");
@@ -126,7 +126,7 @@ router.get("/bundles/all", authenticate, requireRole("admin", "owner"), async (_
     const bundles = await db.select().from(bundlesTable)
       .where(isNull(bundlesTable.deletedAt))
       .orderBy(asc(bundlesTable.sortOrder));
-    const formatted = await Promise.all(bundles.map((b) => formatBundle(b, { includeVideos: true })));
+    const formatted = await Promise.all(bundles.map((b: any) => formatBundle(b, { includeVideos: true })));
     res.json(formatted);
   } catch (err) {
     logger.error({ err }, "GET /bundles/all failed");
@@ -146,7 +146,7 @@ router.get("/bundles/my", authenticate, async (req, res) => {
     }).from(bundlePurchasesTable)
       .where(eq(bundlePurchasesTable.userId, userId));
 
-    const data = await Promise.all(purchases.map(async (p) => {
+    const data = await Promise.all(purchases.map(async (p: any) => {
       const [bundle] = await db.select().from(bundlesTable).where(eq(bundlesTable.id, p.bundleId)).limit(1);
       return bundle ? { ...p, bundle: await formatBundle(bundle, { includeVideos: true, userId }) } : null;
     }));
@@ -194,7 +194,7 @@ router.post("/bundles", authenticate, requireRole("admin", "owner"), async (req,
 
   if (validatedIds.length > 0) {
     await db.insert(bundleVideosTable).values(
-      validatedIds.map((videoId, i) => ({ bundleId: bundle.id, videoId, sortOrder: i })),
+      validatedIds.map((videoId: any, i: any) => ({ bundleId: bundle.id, videoId, sortOrder: i })),
     );
     await syncBundleVideoVisibility(validatedIds);
   }
@@ -230,17 +230,17 @@ router.patch("/bundles/:id", authenticate, requireRole("admin", "owner"), async 
 
     const oldLinks = await db.select({ videoId: bundleVideosTable.videoId })
       .from(bundleVideosTable).where(eq(bundleVideosTable.bundleId, id));
-    const oldIds = oldLinks.map((r) => r.videoId);
+    const oldIds = oldLinks.map((r: any) => r.videoId);
 
     await db.delete(bundleVideosTable).where(eq(bundleVideosTable.bundleId, id));
     if (result.ids.length > 0) {
       await db.insert(bundleVideosTable).values(
-        result.ids.map((videoId, i) => ({ bundleId: id, videoId, sortOrder: i })),
+        result.ids.map((videoId: any, i: any) => ({ bundleId: id, videoId, sortOrder: i })),
       );
       await syncBundleVideoVisibility(result.ids);
     }
     // Clear visibility for removed videos
-    const removed = oldIds.filter((old) => !result.ids.includes(old));
+    const removed = oldIds.filter((old: any) => !result.ids.includes(old));
     await clearStaleBundleExclusive(removed);
   }
 
@@ -252,7 +252,7 @@ router.delete("/bundles/:id", authenticate, requireRole("admin", "owner"), async
   const id = req.params.id as string;
   const oldLinks = await db.select({ videoId: bundleVideosTable.videoId })
     .from(bundleVideosTable).where(eq(bundleVideosTable.bundleId, id));
-  const oldIds = oldLinks.map((r) => r.videoId);
+  const oldIds = oldLinks.map((r: any) => r.videoId);
 
   await db.update(bundlesTable).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(bundlesTable.id, id));
   await clearStaleBundleExclusive(oldIds);
@@ -327,7 +327,7 @@ router.post("/bundles/:id/purchase", authenticate, async (req, res) => {
   const price = bundle.price;
 
   try {
-    const result = await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx: any) => {
       const [debited] = await tx
         .update(usersTable)
         .set({

@@ -23,7 +23,7 @@ const router = Router();
 
 // ── GET /users/:id/public — public profile (any authenticated user) ────────────
 router.get("/users/:id/public", authenticate, async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   try {
     const [user] = await db.select({
       id: usersTable.id,
@@ -93,7 +93,7 @@ router.get("/users/:id/badges", authenticate, async (req, res) => {
 
 // ── POST /users/:id/badges — assign badge (owner only) ────────────────────────
 router.post("/users/:id/badges", authenticate, requireRole("owner"), async (req, res) => {
-  const targetId = req.params.id;
+  const targetId = req.params.id as string;
   const { badge, label, color, icon } = req.body;
   const VALID_BADGES = [
     "verified", "developer", "staff", "owner", "admin", "moderator",
@@ -136,7 +136,7 @@ router.delete("/users/:id/badges/:badgeId", authenticate, requireRole("owner"), 
 
 // ── POST /users/:id/ban-detail — ban with reason/type/expiry (owner only) ─────
 router.post("/users/:id/ban-detail", authenticate, requireRole("owner"), async (req, res) => {
-  const targetId = req.params.id;
+  const targetId = req.params.id as string;
   if (targetId === req.user!.userId) {
     res.status(400).json({ error: "Cannot ban own account" }); return;
   }
@@ -179,7 +179,7 @@ router.post("/users/:id/ban-detail", authenticate, requireRole("owner"), async (
 
 // ── POST /users/:id/unban (owner only) ────────────────────────────────────────
 router.post("/users/:id/unban", authenticate, requireRole("owner"), async (req, res) => {
-  const targetId = req.params.id;
+  const targetId = req.params.id as string;
   const { note } = req.body;
   try {
     await db.update(userBansTable).set({
@@ -200,7 +200,7 @@ router.post("/users/:id/unban", authenticate, requireRole("owner"), async (req, 
 
 // ── POST /users/:id/mute (owner only) ─────────────────────────────────────────
 router.post("/users/:id/mute", authenticate, requireRole("owner"), async (req, res) => {
-  const targetId = req.params.id;
+  const targetId = req.params.id as string;
   if (targetId === req.user!.userId) {
     res.status(400).json({ error: "Cannot mute own account" }); return;
   }
@@ -233,7 +233,7 @@ router.post("/users/:id/mute", authenticate, requireRole("owner"), async (req, r
 
 // ── POST /users/:id/unmute (owner only) ───────────────────────────────────────
 router.post("/users/:id/unmute", authenticate, requireRole("owner"), async (req, res) => {
-  const targetId = req.params.id;
+  const targetId = req.params.id as string;
   try {
     await db.update(userMutesTable).set({ isActive: false, revokedAt: new Date(), revokedBy: req.user!.userId })
       .where(and(eq(userMutesTable.userId, targetId), eq(userMutesTable.isActive, true)));
@@ -245,7 +245,7 @@ router.post("/users/:id/unmute", authenticate, requireRole("owner"), async (req,
 
 // ── POST /users/:id/force-logout (owner only) ──────────────────────────────────
 router.post("/users/:id/force-logout", authenticate, requireRole("owner"), async (req, res) => {
-  const targetId = req.params.id;
+  const targetId = req.params.id as string;
   try {
     await deleteAllUserSessions(targetId);
     await invalidateUserCache(targetId);
@@ -258,7 +258,7 @@ router.post("/users/:id/force-logout", authenticate, requireRole("owner"), async
 
 // ── GET /users/:id/wallet-history ─────────────────────────────────────────────
 router.get("/users/:id/wallet-history", authenticate, async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   // Only owner can see others' wallet history
   if (req.user!.userId !== id && req.user!.role !== "owner") {
     res.status(403).json({ error: "Forbidden" }); return;
@@ -279,7 +279,7 @@ router.get("/users/:id/wallet-history", authenticate, async (req, res) => {
 
 // ── PATCH /users/:id/wallet-set — set absolute balance (owner only) ───────────
 router.patch("/users/:id/wallet-set", authenticate, requireRole("owner"), async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   const { amount, reason } = req.body;
   if (typeof amount !== "number" || amount < 0) {
     res.status(400).json({ error: "amount must be a non-negative number" }); return;
@@ -306,7 +306,7 @@ router.patch("/users/:id/wallet-set", authenticate, requireRole("owner"), async 
 
 // ── PATCH /users/:id/reset-password — owner resets another user's password ────
 router.patch("/users/:id/reset-password", authenticate, requireRole("owner"), async (req, res) => {
-  const targetId = req.params.id;
+  const targetId = req.params.id as string;
   const { newPassword } = req.body;
   if (!newPassword || newPassword.length < 6) {
     res.status(400).json({ error: "newPassword must be at least 6 characters" }); return;
@@ -326,7 +326,7 @@ router.patch("/users/:id/reset-password", authenticate, requireRole("owner"), as
 
 // ── PATCH /users/:id/profile — update displayName/bio/banner (self or owner) ──
 router.patch("/users/:id/profile", authenticate, async (req, res) => {
-  const id = req.params.id;
+  const id = req.params.id as string;
   if (req.user!.userId !== id && req.user!.role !== "owner") {
     res.status(403).json({ error: "Forbidden" }); return;
   }

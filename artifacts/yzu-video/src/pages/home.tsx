@@ -168,9 +168,10 @@ function HeroCarousel({ videos }: { videos: Video[] }) {
     return (
       <div className="mx-4 mt-3 rounded-[28px] overflow-hidden shadow-md">
         <div className="relative h-[220px] sm:h-[250px] bg-gradient-to-br from-purple-600 via-blue-500 to-indigo-400 flex items-center justify-center">
-          <div className="text-center text-white">
-            <div className="w-10 h-10 border-3 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-2" />
-            <p className="text-sm font-bold text-white/80">Memuat konten...</p>
+          <div className="text-center text-white px-6">
+            <span className="text-4xl block mb-2">🎬</span>
+            <p className="text-base font-extrabold text-white">Selamat Datang!</p>
+            <p className="text-xs text-white/70 mt-1 font-medium">Konten video akan segera hadir.</p>
           </div>
         </div>
       </div>
@@ -310,7 +311,7 @@ export default function Home() {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
               {isLoadingVideos
                 ? Array(INITIAL_LIMIT).fill(0).map((_, i) => <VideoCardSkeleton key={i} />)
-                : visibleVideos.map((video) => (
+                : visibleVideos.map((video: any) => (
                     <motion.div
                       key={video.id}
                       initial={{ opacity: 0, y: 12 }}

@@ -124,7 +124,7 @@ export function Navbar() {
                       <div className="flex items-center gap-1.5">
                         <p className="text-sm font-extrabold leading-none text-slate-800">{user.username}</p>
                         {(user as any).verifiedCreator && (
-                          <BadgeCheck className="h-4 w-4 text-blue-500 shrink-0" title="Verified Creator" />
+                          <BadgeCheck className="h-4 w-4 text-blue-500 shrink-0" aria-label="Verified Creator" />
                         )}
                       </div>
                       <p className="text-xs leading-none text-slate-500 mt-1">

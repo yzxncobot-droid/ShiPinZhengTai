@@ -15,7 +15,7 @@ const router = Router();
 async function enrichAnnouncements(rows: any[], userId?: string) {
   if (!rows.length) return [];
 
-  const ids = rows.map((r) => r.id);
+  const ids = rows.map((r: any) => r.id);
 
   // Reactions grouped
   const reactions = await db
@@ -49,10 +49,10 @@ async function enrichAnnouncements(rows: any[], userId?: string) {
         ))
     : [];
 
-  return rows.map((ann) => {
-    const annReactions = reactions.filter((r) => r.announcementId === ann.id);
-    const commentCount = commentCounts.find((c) => c.announcementId === ann.id)?.count ?? 0;
-    const myEmojis = myReactions.filter((r) => r.announcementId === ann.id).map((r) => r.emoji);
+  return rows.map((ann: any) => {
+    const annReactions = reactions.filter((r: any) => r.announcementId === ann.id);
+    const commentCount = commentCounts.find((c: any) => c.announcementId === ann.id)?.count ?? 0;
+    const myEmojis = myReactions.filter((r: any) => r.announcementId === ann.id).map((r: any) => r.emoji);
 
     return {
       ...ann,

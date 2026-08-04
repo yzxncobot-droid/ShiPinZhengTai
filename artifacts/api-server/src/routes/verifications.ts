@@ -25,7 +25,7 @@ async function syncUserBadge(userId: string) {
     ));
   // Priority: sulthan > gold > blue
   const priority: Record<string, number> = { sulthan: 3, gold: 2, blue: 1 };
-  const best = active.sort((a, b) => (priority[b.badgeType] ?? 0) - (priority[a.badgeType] ?? 0))[0];
+  const best = active.sort((a: any, b: any) => (priority[b.badgeType] ?? 0) - (priority[a.badgeType] ?? 0))[0];
   await db.update(usersTable)
     .set({ verificationBadge: best?.badgeType ?? null, updatedAt: new Date() })
     .where(eq(usersTable.id, userId));

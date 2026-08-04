@@ -88,9 +88,9 @@ function AppRouter() {
       {/* Chat */}
       <Route path="/chat" component={ChatHomePage} />
       <Route path="/chat/room/:id">
-        {(params) => (
+        {() => (
           <ErrorBoundary fallbackLabel="Chat Room">
-            <ChatRoomPage {...params} />
+            <ChatRoomPage />
           </ErrorBoundary>
         )}
       </Route>

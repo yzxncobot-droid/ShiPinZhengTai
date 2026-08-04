@@ -140,7 +140,7 @@ export default function AdminMaintenancePage() {
 
   if (user?.role !== "owner") {
     return (
-      <ProtectedRoute role="owner">
+      <ProtectedRoute allowedRoles={["owner"]}>
         <AdminLayout>
           <div className="flex items-center justify-center h-40">
             <p className="text-slate-400">Hanya Owner yang dapat mengakses halaman ini.</p>
@@ -151,7 +151,7 @@ export default function AdminMaintenancePage() {
   }
 
   return (
-    <ProtectedRoute role="owner">
+    <ProtectedRoute allowedRoles={["owner"]}>
       <AdminLayout>
         <div className="max-w-2xl mx-auto space-y-6 pb-10">
 

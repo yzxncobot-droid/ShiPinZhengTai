@@ -231,7 +231,7 @@ export default function DmRoomPage() {
   const [showMenu, setShowMenu] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const typingRef = useRef<ReturnType<typeof setTimeout>>();
+  const typingRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Fetch conversation info
   const { data: convList = [] } = useQuery<Conversation[]>({

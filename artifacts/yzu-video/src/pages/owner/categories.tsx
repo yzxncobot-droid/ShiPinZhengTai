@@ -128,7 +128,7 @@ export default function OwnerCategories() {
                     <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No categories defined.</TableCell>
                   </TableRow>
                 ) : (
-                  categories?.map((cat) => (
+                  categories?.map((cat: any) => (
                     <TableRow key={cat.id}>
                       {editingId === cat.id ? (
                         <>

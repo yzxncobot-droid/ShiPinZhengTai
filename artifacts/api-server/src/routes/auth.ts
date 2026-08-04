@@ -179,7 +179,7 @@ router.post("/auth/register", authRateLimit, async (req, res, next) => {
     }
 
     // ── Post-registration side-effects (non-fatal) ───────────────────────────
-    await ensureWallet(user.id).catch((err) => logger.error({ err }, "ensureWallet failed"));
+    await ensureWallet(user.id).catch((err: any) => logger.error({ err }, "ensureWallet failed"));
 
     if (referrerId) {
       await db.insert(referralsTable).values({
@@ -187,7 +187,7 @@ router.post("/auth/register", authRateLimit, async (req, res, next) => {
         referredId: user.id,
         codeUsed: referralCode.toUpperCase(),
         status: "pending",
-      }).onConflictDoNothing().catch((err) => logger.error({ err }, "referral insert failed"));
+      }).onConflictDoNothing().catch((err: any) => logger.error({ err }, "referral insert failed"));
     }
 
     await db.insert(notificationsTable).values({
@@ -195,12 +195,12 @@ router.post("/auth/register", authRateLimit, async (req, res, next) => {
       title: "Selamat Datang! 🎉",
       message: `Halo ${user.username}! Akun kamu berhasil dibuat. Selamat menikmati konten kami!`,
       type: "system",
-    }).catch((err) => logger.error({ err }, "welcome notification failed"));
+    }).catch((err: any) => logger.error({ err }, "welcome notification failed"));
 
     // ── Issue token & session ─────────────────────────────────────────────────
     const { token, jti } = signToken(user.id, user.role);
     await createSession(jti, { userId: user.id, role: user.role, username: user.username, createdAt: Date.now() })
-      .catch((err) => logger.warn({ err }, "createSession failed — JWT-only auth active"));
+      .catch((err: any) => logger.warn({ err }, "createSession failed — JWT-only auth active"));
 
     await db.insert(loginHistoryTable).values({
       userId: user.id,
@@ -282,7 +282,7 @@ router.post("/auth/login", authRateLimit, async (req, res, next) => {
       return;
     }
 
-    await ensureWallet(user.id).catch((err) => logger.error({ err }, "ensureWallet failed"));
+    await ensureWallet(user.id).catch((err: any) => logger.error({ err }, "ensureWallet failed"));
 
     // ── Sync subscription cache ───────────────────────────────────────────────
     const activeSub = await getActiveSubscription(user.id).catch(() => null);
@@ -295,13 +295,13 @@ router.post("/auth/login", authRateLimit, async (req, res, next) => {
       await db.update(usersTable)
         .set({ subscriptionStatus: subStatus as any, updatedAt: new Date() })
         .where(eq(usersTable.id, user.id))
-        .catch((err) => logger.error({ err }, "subscription sync failed"));
+        .catch((err: any) => logger.error({ err }, "subscription sync failed"));
     }
 
     // ── Issue token & session ─────────────────────────────────────────────────
     const { token, jti } = signToken(user.id, user.role);
     await createSession(jti, { userId: user.id, role: user.role, username: user.username, createdAt: Date.now() })
-      .catch((err) => logger.warn({ err }, "createSession failed — JWT-only auth active"));
+      .catch((err: any) => logger.warn({ err }, "createSession failed — JWT-only auth active"));
 
     await db.insert(loginHistoryTable).values({
       userId: user.id, identifier, ipAddress: req.ip ?? null,

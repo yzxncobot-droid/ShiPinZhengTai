@@ -124,7 +124,7 @@ export default function OwnerUsers() {
                       <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">No users found.</TableCell>
                     </TableRow>
                   ) : (
-                    users?.data.map((u) => (
+                    users?.data.map((u: any) => (
                       <TableRow key={u.id} className={u.isBanned ? "opacity-60 bg-destructive/5" : ""}>
                         <TableCell>
                           <div className="flex flex-col">

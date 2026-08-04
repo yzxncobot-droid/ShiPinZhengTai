@@ -165,7 +165,7 @@ router.get("/drops/active", optionalAuth, async (req, res) => {
 
     const userId = req.user?.userId;
     if (!userId) {
-      res.json(drops.map((d) => ({ ...d, claimed: false })));
+      res.json(drops.map((d: any) => ({ ...d, claimed: false })));
       return;
     }
 
@@ -175,11 +175,11 @@ router.get("/drops/active", optionalAuth, async (req, res) => {
         .from(dropClaimsTable)
         .where(and(
           eq(dropClaimsTable.userId, userId),
-          inArray(dropClaimsTable.dropId, drops.map((d) => d.id)),
-        ))).map((c) => c.dropId),
+          inArray(dropClaimsTable.dropId, drops.map((d: any) => d.id)),
+        ))).map((c: any) => c.dropId),
     );
 
-    res.json(drops.map((d) => ({ ...d, claimed: claimedSet.has(d.id) })));
+    res.json(drops.map((d: any) => ({ ...d, claimed: claimedSet.has(d.id) })));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -198,7 +198,7 @@ router.get("/drops", authenticate, requireRole("admin", "owner"), async (req, re
       .orderBy(desc(dropsTable.createdAt));
 
     // Attach claim counts
-    const ids = drops.map((d) => d.id);
+    const ids = drops.map((d: any) => d.id);
     const claimCounts = ids.length > 0
       ? await db.select({
           dropId: dropClaimsTable.dropId,
@@ -208,9 +208,9 @@ router.get("/drops", authenticate, requireRole("admin", "owner"), async (req, re
         .where(inArray(dropClaimsTable.dropId, ids))
         .groupBy(dropClaimsTable.dropId)
       : [];
-    const countMap = Object.fromEntries(claimCounts.map((c) => [c.dropId, c.cnt]));
+    const countMap = Object.fromEntries(claimCounts.map((c: any) => [c.dropId, c.cnt]));
 
-    res.json(drops.map((d) => ({ ...d, claimCount: countMap[d.id] ?? 0 })));
+    res.json(drops.map((d: any) => ({ ...d, claimCount: countMap[d.id] ?? 0 })));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -249,7 +249,7 @@ router.get("/drops/:id", optionalAuth, async (req, res) => {
 
 router.post("/drops/:id/claim", authenticate, async (req, res) => {
   const userId  = req.user!.userId;
-  const dropId  = req.params.id;
+  const dropId  = req.params.id as string;
 
   try {
     // --- Atomic slot reservation ---

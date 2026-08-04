@@ -21,7 +21,7 @@ async function getOrCreateConversation(userA: string, userB: string) {
     .from(conversationMembersTable)
     .where(eq(conversationMembersTable.userId, userA));
 
-  const userAConvIds = existing.map((e) => e.conversationId);
+  const userAConvIds = existing.map((e: any) => e.conversationId);
 
   if (userAConvIds.length > 0) {
     const shared = await db
@@ -63,11 +63,11 @@ router.get("/dm/conversations", authenticate, async (req, res) => {
 
     if (!memberships.length) { res.json([]); return; }
 
-    const convIds = memberships.map((m) => m.conversationId);
+    const convIds = memberships.map((m: any) => m.conversationId);
 
     // Get last message per conversation
-    const convs = await Promise.all(convIds.map(async (convId) => {
-      const membership = memberships.find((m) => m.conversationId === convId)!;
+    const convs = await Promise.all(convIds.map(async (convId: any) => {
+      const membership = memberships.find((m: any) => m.conversationId === convId)!;
 
       // Other member
       const [other] = await db
@@ -139,8 +139,8 @@ router.get("/dm/conversations", authenticate, async (req, res) => {
 
     // Sort: pinned first, then by last message time
     const sorted = convs
-      .filter((c) => !c.isArchived)
-      .sort((a, b) => {
+      .filter((c: any) => !c.isArchived)
+      .sort((a: any, b: any) => {
         if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
         const ta = a.lastMessage?.createdAt?.getTime() ?? 0;
         const tb = b.lastMessage?.createdAt?.getTime() ?? 0;
@@ -223,7 +223,7 @@ router.get("/dm/conversations/:id/messages", authenticate, async (req, res) => {
       .limit(limit);
 
     // Reactions
-    const msgIds = messages.map((m) => m.id);
+    const msgIds = messages.map((m: any) => m.id);
     let reactions: any[] = [];
     if (msgIds.length > 0) {
       reactions = await db
@@ -233,11 +233,11 @@ router.get("/dm/conversations/:id/messages", authenticate, async (req, res) => {
         .groupBy(dmReactionsTable.messageId, dmReactionsTable.emoji);
     }
 
-    const enriched = messages.map((m) => ({
+    const enriched = messages.map((m: any) => ({
       ...m,
       // Hide content for sender-deleted messages
       content: m.isDeletedSender && m.senderId === userId ? "[Pesan dihapus]" : m.content,
-      reactions: reactions.filter((r) => r.messageId === m.id),
+      reactions: reactions.filter((r: any) => r.messageId === m.id),
       isMine: m.senderId === userId,
     }));
 
@@ -421,7 +421,7 @@ router.get("/dm/unread", authenticate, async (req, res) => {
 
     const reads = await db.select().from(dmReadsTable)
       .where(eq(dmReadsTable.userId, userId));
-    const readMap = Object.fromEntries(reads.map((r) => [r.conversationId, r.lastReadAt]));
+    const readMap = Object.fromEntries(reads.map((r: any) => [r.conversationId, r.lastReadAt]));
 
     let total = 0;
     for (const m of memberships) {
@@ -459,7 +459,7 @@ router.get("/dm/search-users", authenticate, async (req, res) => {
       .where(sql`lower(${usersTable.username}) like ${"%" + q.toLowerCase() + "%"}`)
       .limit(20);
 
-    res.json(users.filter((u) => u.id !== req.user!.userId));
+    res.json(users.filter((u: any) => u.id !== req.user!.userId));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

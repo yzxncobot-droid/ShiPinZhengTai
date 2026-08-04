@@ -28,7 +28,7 @@ router.get("/audit-logs", authenticate, requireRole("owner"), async (req, res) =
     .limit(limitNum)
     .offset(offset);
 
-  const data = await Promise.all(raw.map(async (log) => {
+  const data = await Promise.all(raw.map(async (log: any) => {
     let user = null;
     if (log.userId) {
       const [u] = await db.select({

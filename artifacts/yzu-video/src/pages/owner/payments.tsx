@@ -86,7 +86,7 @@ export default function OwnerPayments() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    topups?.data.map((topup) => (
+                    topups?.data.map((topup: any) => (
                       <TableRow key={topup.id}>
                         <TableCell className="whitespace-nowrap">
                           {format(new Date(topup.createdAt), 'MMM dd, yyyy HH:mm')}

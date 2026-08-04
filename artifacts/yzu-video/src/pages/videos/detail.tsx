@@ -48,6 +48,7 @@ export default function VideoDetailPage() {
       }, 5000);
       return () => clearTimeout(timer);
     }
+    return undefined;
   }, [id, video, recordView]);
 
   const handleLike = () => {
@@ -58,7 +59,7 @@ export default function VideoDetailPage() {
     }
     
     likeVideo.mutate({ id }, {
-      onSuccess: (res) => {
+      onSuccess: (res: any) => {
         queryClient.setQueryData(getGetVideoQueryKey(id), (old: any) => {
           if (!old) return old;
           return { ...old, isLiked: res.liked, likes: res.totalLikes };
@@ -234,7 +235,7 @@ export default function VideoDetailPage() {
                 <p className="text-xs font-medium text-slate-400 mt-1">Jadilah yang pertama untuk mulai ngobrol!</p>
               </div>
             ) : (
-              comments.data.map(comment => (
+              comments.data.map((comment: any) => (
                 <div key={comment.id} className="flex gap-3">
                   <Avatar className="h-9 w-9 shrink-0 border border-slate-100">
                     <AvatarImage src={comment.user?.avatar || ''} />
@@ -283,7 +284,7 @@ export default function VideoDetailPage() {
           <div className="mx-4 mt-6">
             <h3 className="text-lg font-heading font-extrabold text-slate-800 mb-3 px-1">Selanjutnya</h3>
             <div className="flex flex-col gap-3">
-              {relatedVideos.map((rv) => (
+              {relatedVideos.map((rv: any) => (
                 <VideoCard key={rv.id} video={rv} layout="list" />
               ))}
             </div>

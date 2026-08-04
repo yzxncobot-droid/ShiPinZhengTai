@@ -27,7 +27,7 @@ const router = Router();
 // ── Helper: parse upload_types string to array ───────────────────────────────
 function parseUploadTypes(s: string | null | undefined): string[] {
   if (!s) return ["free"];
-  return s.split(",").map((x) => x.trim()).filter(Boolean);
+  return s.split(",").map((x: any) => x.trim()).filter(Boolean);
 }
 
 function serializeUploadTypes(arr: string[]): string {
@@ -46,7 +46,7 @@ router.get(
         .from(customRolesTable)
         .orderBy(desc(customRolesTable.priority), asc(customRolesTable.name));
 
-      const result = roles.map((r) => ({
+      const result = roles.map((r: any) => ({
         ...r,
         uploadTypes: parseUploadTypes(r.uploadTypes),
       }));
@@ -314,7 +314,7 @@ router.get(
         )
         .orderBy(desc(customRolesTable.priority));
 
-      const result = rows.map((r) => ({
+      const result = rows.map((r: any) => ({
         ...r.role,
         uploadTypes: parseUploadTypes(r.role.uploadTypes),
       }));

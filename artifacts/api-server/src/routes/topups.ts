@@ -68,7 +68,7 @@ router.get("/topups/all", authenticate, requireRole("admin", "owner"), async (re
     .limit(limitNum)
     .offset(offset);
 
-  const data = await Promise.all(raw.map(async (t) => {
+  const data = await Promise.all(raw.map(async (t: any) => {
     const [user] = await db.select({
       id: usersTable.id, username: usersTable.username, avatar: usersTable.avatar,
     }).from(usersTable).where(eq(usersTable.id, t.userId)).limit(1);
@@ -102,7 +102,7 @@ router.patch("/topups/:id/confirm", authenticate, requireRole("admin", "owner"),
 
     logger.info({ topupId: id, userId: topup.userId, amount: topup.amount, by: reviewerId }, "Topup confirm: starting transaction");
 
-    await db.transaction(async (tx) => {
+    await db.transaction(async (tx: any) => {
       // Step 1: update user balance cache
       await tx.update(usersTable).set({
         walletBalance: newBalance,
@@ -203,7 +203,7 @@ router.patch("/topups/:id/deny", authenticate, requireRole("admin", "owner"), as
     logger.info({ topupId: id, userId: topup.userId, amount: topup.amount, by: reviewerId }, "Topup deny: starting transaction");
 
     let updated: typeof topup;
-    await db.transaction(async (tx) => {
+    await db.transaction(async (tx: any) => {
       // Step 1: mark topup denied
       const [result] = await tx.update(topupsTable)
         .set({

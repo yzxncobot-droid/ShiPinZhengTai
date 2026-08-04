@@ -458,7 +458,7 @@ router.get("/leaderboard/topup", async (req, res) => {
       .orderBy(desc(sum(topupsTable.amount)))
       .limit(50);
 
-    const mapped = rows.map((r, i) => ({
+    const mapped = rows.map((r: any, i: any) => ({
       rank: i + 1,
       userId: r.userId,
       username: r.username,
@@ -581,7 +581,7 @@ async function updateSulthanBadge(newTopUserId: string, newTopUsername: string) 
         eq(creatorVerificationsTable.status, "active"),
       ));
     const priority: Record<string, number> = { sulthan: 3, gold: 2, blue: 1 };
-    const best = remaining.sort((a, b) => (priority[b.badgeType] ?? 0) - (priority[a.badgeType] ?? 0))[0];
+    const best = remaining.sort((a: any, b: any) => (priority[b.badgeType] ?? 0) - (priority[a.badgeType] ?? 0))[0];
     await db.update(usersTable)
       .set({ verificationBadge: best?.badgeType ?? null, updatedAt: new Date() })
       .where(eq(usersTable.id, current.userId));

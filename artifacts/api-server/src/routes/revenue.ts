@@ -113,7 +113,7 @@ router.get(
         platformKept: Number(totals?.platformKept) || 0,
         totalTransactions: Number(totals?.totalTransactions) || 0,
         paidOut: Number(paid?.paidOut) || 0,
-        byVideo: byVideo.map((v) => ({
+        byVideo: byVideo.map((v: any) => ({
           videoId: v.videoId,
           videoTitle: v.videoTitle,
           videoPrice: Number(v.videoPrice) || 0,
@@ -183,7 +183,7 @@ router.get(
         .offset(offset);
 
       res.json({
-        data: rows.map((r) => ({
+        data: rows.map((r: any) => ({
           ...r,
           sharePercent: Math.round((Number(r.shareRate) || 0) * 100),
         })),
@@ -364,7 +364,7 @@ router.get(
         .offset(offset);
 
       res.json({
-        data: rows.map((r) => ({
+        data: rows.map((r: any) => ({
           creatorId: r.creatorId,
           username: r.username,
           avatar: r.avatar,
@@ -449,7 +449,7 @@ router.get(
         .offset(offset);
 
       res.json({
-        data: rows.map((r) => ({
+        data: rows.map((r: any) => ({
           ...r,
           sharePercent: Math.round((Number(r.shareRate) || 0) * 100),
         })),
@@ -518,7 +518,7 @@ router.patch(
       }
 
       // Atomically reverse the creator wallet credit and mark the row cancelled.
-      const updated = await db.transaction(async (tx) => {
+      const updated = await db.transaction(async (tx: any) => {
         const [row] = await tx
           .update(revenueSharesTable)
           .set({ payoutStatus: "cancelled", payoutDate: null })

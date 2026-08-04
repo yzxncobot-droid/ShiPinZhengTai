@@ -55,7 +55,7 @@ export default function HistoryPage() {
                     <p>Your watch history is empty.</p>
                   </div>
                 ) : (
-                  watchHistory?.data.map((video) => (
+                  watchHistory?.data.map((video: any) => (
                     <VideoCard key={video.id} video={video} />
                   ))
                 )}
@@ -80,7 +80,7 @@ export default function HistoryPage() {
                       ) : transactions?.data.length === 0 ? (
                         <tr><td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">No transactions found.</td></tr>
                       ) : (
-                        transactions?.data.map((tx) => (
+                        transactions?.data.map((tx: any) => (
                           <tr key={tx.id} className="hover:bg-muted/30 transition-colors">
                             <td className="px-6 py-4 whitespace-nowrap">{format(new Date(tx.createdAt), 'MMM dd, yyyy HH:mm')}</td>
                             <td className="px-6 py-4">{tx.description}</td>
@@ -123,7 +123,7 @@ export default function HistoryPage() {
                       ) : topups?.data.length === 0 ? (
                         <tr><td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">No top-ups found.</td></tr>
                       ) : (
-                        topups?.data.map((topup) => (
+                        topups?.data.map((topup: any) => (
                           <tr key={topup.id} className="hover:bg-muted/30 transition-colors">
                             <td className="px-6 py-4 whitespace-nowrap">{format(new Date(topup.createdAt), 'MMM dd, yyyy')}</td>
                             <td className="px-6 py-4 font-medium">Rp {topup.amount.toLocaleString()}</td>

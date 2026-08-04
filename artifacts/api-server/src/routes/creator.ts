@@ -177,17 +177,17 @@ router.get("/creator/my-videos", authenticate, requireCreatorBadge, async (req: 
     ]);
 
     // Attach category names
-    const categoryIds = [...new Set(videos.map((v) => v.categoryId).filter(Boolean))];
+    const categoryIds = [...new Set(videos.map((v: any) => v.categoryId).filter(Boolean))];
     let categoryMap: Record<string, string> = {};
     if (categoryIds.length > 0) {
       const cats = await db
         .select({ id: categoriesTable.id, name: categoriesTable.name })
         .from(categoriesTable)
         .where(sql`${categoriesTable.id} = ANY(${categoryIds})`);
-      categoryMap = Object.fromEntries(cats.map((c) => [c.id, c.name]));
+      categoryMap = Object.fromEntries(cats.map((c: any) => [c.id, c.name]));
     }
 
-    const data = videos.map((v) => ({
+    const data = videos.map((v: any) => ({
       ...v,
       categoryName: v.categoryId ? (categoryMap[v.categoryId] ?? null) : null,
     }));

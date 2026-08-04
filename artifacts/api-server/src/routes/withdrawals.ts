@@ -74,7 +74,7 @@ router.get("/withdrawals/all", authenticate, requireRole("admin", "owner"), asyn
     .limit(limitNum)
     .offset(offset);
 
-  const data = await Promise.all(raw.map(async (w) => {
+  const data = await Promise.all(raw.map(async (w: any) => {
     const [user] = await db.select({
       id: usersTable.id, username: usersTable.username, avatar: usersTable.avatar,
     }).from(usersTable).where(eq(usersTable.id, w.userId)).limit(1);
@@ -107,7 +107,7 @@ router.patch("/withdrawals/:id/approve", authenticate, requireRole("admin", "own
 
     logger.info({ withdrawalId: id, userId: withdrawal.userId, amount: withdrawal.amount, by: adminId }, "Withdrawal approve: starting transaction");
 
-    await db.transaction(async (tx) => {
+    await db.transaction(async (tx: any) => {
       // Step 1: deduct from user balance cache
       await tx.update(usersTable).set({
         walletBalance: newBalance,
@@ -196,7 +196,7 @@ router.patch("/withdrawals/:id/reject", authenticate, requireRole("admin", "owne
     logger.info({ withdrawalId: id, userId: withdrawal.userId, amount: withdrawal.amount, by: adminId }, "Withdrawal reject: starting transaction");
 
     let updated: typeof withdrawal;
-    await db.transaction(async (tx) => {
+    await db.transaction(async (tx: any) => {
       // Step 1: mark withdrawal rejected with reason
       const [result] = await tx.update(withdrawalsTable).set({
         status: "rejected",

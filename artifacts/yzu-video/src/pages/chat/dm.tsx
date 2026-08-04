@@ -308,6 +308,7 @@ export default function DMPage() {
             messageType={msg.messageType}
             fileUrl={msg.fileUrl}
             fileName={msg.fileName}
+            authorId={msg.senderId}
             authorUsername={msg.senderUsername}
             authorAvatar={msg.senderAvatar}
             createdAt={msg.createdAt}

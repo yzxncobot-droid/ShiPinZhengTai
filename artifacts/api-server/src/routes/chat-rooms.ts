@@ -41,7 +41,7 @@ router.get("/chat/rooms", optionalAuth, async (req, res) => {
       .orderBy(chatRoomsTable.createdAt);
 
     const rooms = slugFilter
-      ? (await query).filter((r) => r.slug === slugFilter)
+      ? (await query).filter((r: any) => r.slug === slugFilter)
       : await query;
 
     // Unread counts per room for the user
@@ -49,9 +49,9 @@ router.get("/chat/rooms", optionalAuth, async (req, res) => {
     if (userId) {
       const reads = await db.select().from(chatReadsTable)
         .where(eq(chatReadsTable.userId, userId));
-      const readMap = Object.fromEntries(reads.map((r) => [r.roomId, r.lastReadAt]));
+      const readMap = Object.fromEntries(reads.map((r: any) => [r.roomId, r.lastReadAt]));
 
-      const roomIds = rooms.map((r) => r.id);
+      const roomIds = rooms.map((r: any) => r.id);
       for (const roomId of roomIds) {
         const lastRead = readMap[roomId];
         if (lastRead) {
@@ -74,7 +74,7 @@ router.get("/chat/rooms", optionalAuth, async (req, res) => {
       }
     }
 
-    res.json(rooms.map((r) => ({ ...r, unread: unreadMap[r.id] ?? 0 })));
+    res.json(rooms.map((r: any) => ({ ...r, unread: unreadMap[r.id] ?? 0 })));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -83,7 +83,7 @@ router.get("/chat/rooms", optionalAuth, async (req, res) => {
 // ── Get single room ───────────────────────────────────────────────────────────
 
 router.get("/chat/rooms/:id", optionalAuth, async (req, res) => {
-  const roomId = req.params.id;
+  const roomId = req.params.id as string;
   const userId = req.user?.userId ?? null;
 
   logger.info({ roomId, userId }, "[get-room] request");
@@ -366,7 +366,7 @@ router.delete("/chat/rooms/:id", authenticate, requireRole("owner"), async (req,
 
 router.post("/chat/rooms/:id/join", authenticate, async (req, res) => {
   try {
-    const roomId = req.params.id;
+    const roomId = req.params.id as string;
     const userId = req.user!.userId;
 
     const [room] = await db.select().from(chatRoomsTable).where(eq(chatRoomsTable.id, roomId));
@@ -399,7 +399,7 @@ router.post("/chat/rooms/:id/leave", authenticate, async (req, res) => {
 // ── Messages — list (paginated, cursor-based) ─────────────────────────────────
 
 router.get("/chat/rooms/:id/messages", optionalAuth, async (req, res) => {
-  const roomId = req.params.id;
+  const roomId = req.params.id as string;
   const userId = req.user?.userId ?? null;
   try {
     const limit = Math.min(50, parseInt(String(req.query.limit ?? "30")));
@@ -446,7 +446,7 @@ router.get("/chat/rooms/:id/messages", optionalAuth, async (req, res) => {
       .limit(limit);
 
     // Reactions
-    const msgIds = messages.map((m) => m.id);
+    const msgIds = messages.map((m: any) => m.id);
     let reactions: any[] = [];
     if (msgIds.length > 0) {
       reactions = await db
@@ -472,10 +472,10 @@ router.get("/chat/rooms/:id/messages", optionalAuth, async (req, res) => {
         ));
     }
 
-    const enriched = messages.map((m) => ({
+    const enriched = messages.map((m: any) => ({
       ...m,
-      reactions: reactions.filter((r) => r.messageId === m.id),
-      myReactions: myReactions.filter((r) => r.messageId === m.id).map((r) => r.emoji),
+      reactions: reactions.filter((r: any) => r.messageId === m.id),
+      myReactions: myReactions.filter((r: any) => r.messageId === m.id).map((r: any) => r.emoji),
     }));
 
     // Return oldest-first
@@ -492,7 +492,7 @@ router.get("/chat/rooms/:id/messages", optionalAuth, async (req, res) => {
 
 router.post("/chat/rooms/:id/messages", authenticate, async (req, res) => {
   try {
-    const roomId = req.params.id;
+    const roomId = req.params.id as string;
     const userId = req.user!.userId;
 
     const [room] = await db.select().from(chatRoomsTable).where(eq(chatRoomsTable.id, roomId));
@@ -596,7 +596,7 @@ router.delete("/chat/rooms/:roomId/messages/:msgId", authenticate, async (req, r
 // ── Pin message (admin/owner) — one pin per room ──────────────────────────────
 
 router.patch("/chat/rooms/:roomId/messages/:msgId/pin", authenticate, requireRole("admin"), async (req, res) => {
-  const roomId = req.params.roomId;
+  const roomId = req.params.roomId as string;
   const msgId  = req.params.msgId;
   const pinnerId = req.user!.userId;
 
@@ -666,7 +666,7 @@ router.post("/chat/rooms/:roomId/messages/:msgId/react", authenticate, async (re
 
 router.post("/chat/rooms/:id/read", authenticate, async (req, res) => {
   try {
-    const roomId = req.params.id;
+    const roomId = req.params.id as string;
     const userId = req.user!.userId;
 
     await db.insert(chatReadsTable).values({ roomId, userId, lastReadAt: new Date() })
@@ -711,7 +711,7 @@ router.get("/chat/rooms/:id/pinned", optionalAuth, async (req, res) => {
 // ── Members ───────────────────────────────────────────────────────────────────
 
 router.get("/chat/rooms/:id/members", optionalAuth, async (req, res) => {
-  const roomId = req.params.id;
+  const roomId = req.params.id as string;
   const userId = req.user?.userId ?? null;
   logger.info({ roomId, userId }, "[get-members] request");
   try {
@@ -804,7 +804,7 @@ router.get("/chat/unread", authenticate, async (req, res) => {
       .where(eq(chatReadsTable.userId, userId));
 
     const rooms = await db.select({ id: chatRoomsTable.id }).from(chatRoomsTable);
-    const readMap = Object.fromEntries(reads.map((r) => [r.roomId, r.lastReadAt]));
+    const readMap = Object.fromEntries(reads.map((r: any) => [r.roomId, r.lastReadAt]));
 
     let total = 0;
     for (const room of rooms) {
@@ -830,8 +830,8 @@ router.get("/chat/unread", authenticate, async (req, res) => {
 
 router.post("/chat/rooms/:id/typing", authenticate, async (req, res) => {
   try {
-    const roomId = req.params.id;
-    const username = req.user!.username;
+    const roomId = req.params.id as string;
+    const username = (req.user as any)!.username as string;
     const { redis } = await import("../lib/redis");
     if (redis) {
       await (redis as any).set(`typing:${roomId}:${username}`, "1", { ex: 5 });
@@ -844,15 +844,15 @@ router.post("/chat/rooms/:id/typing", authenticate, async (req, res) => {
 
 router.get("/chat/rooms/:id/typing", optionalAuth, async (req, res) => {
   try {
-    const roomId = req.params.id;
-    const myUsername = req.user?.username;
+    const roomId = req.params.id as string;
+    const myUsername = (req.user as any)?.username as string | undefined;
     const { redis } = await import("../lib/redis");
     if (!redis) { res.json({ users: [] }); return; }
     // Scan for keys matching typing:<roomId>:*
     const keys: string[] = await (redis as any).keys(`typing:${roomId}:*`);
     const users = keys
-      .map((k) => k.split(":").slice(2).join(":"))
-      .filter((u) => u !== myUsername);
+      .map((k: any) => k.split(":").slice(2).join(":"))
+      .filter((u: any) => u !== myUsername);
     res.json({ users });
   } catch {
     res.json({ users: [] });
@@ -900,7 +900,7 @@ router.get("/chat/groups", optionalAuth, async (req, res) => {
 
     if (rooms.length === 0) { res.json([]); return; }
 
-    const roomIds = rooms.map((r) => r.id);
+    const roomIds = rooms.map((r: any) => r.id);
 
     // Latest message per room (one batch query, then pick latest per roomId)
     const recentMsgs = await db
@@ -932,10 +932,10 @@ router.get("/chat/groups", optionalAuth, async (req, res) => {
         .select({ roomId: chatReadsTable.roomId, lastReadAt: chatReadsTable.lastReadAt })
         .from(chatReadsTable)
         .where(and(eq(chatReadsTable.userId, userId), inArray(chatReadsTable.roomId, roomIds)));
-      const readMap = new Map<string, Date>(reads.map((r) => [r.roomId, new Date(r.lastReadAt)]));
+      const readMap = new Map<string, Date>(reads.map((r: any) => [r.roomId, new Date(r.lastReadAt)]));
 
       await Promise.all(
-        roomIds.map(async (roomId) => {
+        roomIds.map(async (roomId: any) => {
           const lastRead = readMap.get(roomId) ?? new Date(0);
           const [row] = await db
             .select({ cnt: sql<number>`cast(count(*) as int)` })
@@ -950,7 +950,7 @@ router.get("/chat/groups", optionalAuth, async (req, res) => {
       );
     }
 
-    res.json(rooms.map((r) => ({
+    res.json(rooms.map((r: any) => ({
       ...r,
       latestMessage: latestByRoom.get(r.id) ?? null,
       unreadCount:   unreadMap.get(r.id) ?? 0,

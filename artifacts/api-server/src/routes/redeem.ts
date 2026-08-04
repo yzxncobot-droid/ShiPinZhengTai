@@ -159,7 +159,7 @@ router.post("/redeem", authenticate, REDEEM_RATE_LIMIT, async (req, res) => {
     //    c) grantReward via `tx` — any DB error rolls back both (a) and (b),
     //       leaving the code fully unclaimed and the user's balance untouched.
     //
-    const details = await db.transaction(async (tx) => {
+    const details = await db.transaction(async (tx: any) => {
       const now = new Date();
 
       // (a) Atomic conditional increment ──────────────────────────────────────

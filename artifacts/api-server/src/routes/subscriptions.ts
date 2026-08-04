@@ -83,7 +83,7 @@ router.post("/subscriptions/:id/purchase", authenticate, async (req, res) => {
   const newBalance = user.walletBalance - plan.price;
 
   try {
-    const result = await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx: any) => {
       // Debit wallet
       await tx.update(usersTable).set({
         walletBalance: newBalance,
