@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { useGetMe } from '@workspace/api-client-react';
+import { getGetMeQueryKey, useGetMe } from '@workspace/api-client-react';
 import type { User } from '@workspace/api-client-react';
 
 interface AuthContextType {
@@ -19,10 +19,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
 
   // When token exists, fetch the user profile
-  const { data: me, isLoading: isMeLoading, isError: isMeError } = useGetMe({
+  const {
+    data: me,
+    error: meError,
+    isLoading: isMeLoading,
+    isError: isMeError,
+  } = useGetMe({
     query: {
+      queryKey: getGetMeQueryKey(),
       enabled: !!token,
-      retry: false,
+      // Authentication failures are terminal, but temporary API/database
+      // failures should not log a user out immediately after signing in.
+      retry: (failureCount: number, error: unknown) => {
+        const status = (error as { status?: number } | undefined)?.status;
+        return status !== 401 && status !== 403 && failureCount < 2;
+      },
     }
   });
 
@@ -32,16 +43,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [me]);
 
-  // If the token is invalid/expired, `/api/auth/me` fails: clear the stale
-  // token so we don't get stuck in a "token present, user null" limbo that
-  // ProtectedRoute would otherwise have to treat as unauthorized forever.
+  // Only clear the token when the API explicitly rejects authentication.
+  // Network errors, API restarts, and temporary database failures must not
+  // turn into an unexpected logout immediately after signing in.
   useEffect(() => {
-    if (isMeError && token) {
+    const status = (meError as { status?: number } | undefined)?.status;
+    const isAuthenticationFailure = status === 401 || status === 403;
+
+    if (isMeError && token && isAuthenticationFailure) {
       localStorage.removeItem(TOKEN_KEY);
       setToken(null);
       setUser(null);
     }
-  }, [isMeError, token]);
+  }, [isMeError, meError, token]);
 
   const login = (newToken: string, newUser: User) => {
     localStorage.setItem(TOKEN_KEY, newToken);
