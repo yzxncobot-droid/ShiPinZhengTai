@@ -8,8 +8,234 @@ import { eq, and, desc, sql, count } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
 import { invalidateUserCache, invalidateCache, keys } from "../lib/redis";
 import { logger } from "../lib/logger";
+import {
+  createDynamicQris, fetchQrisMutations, gatewayErrorCode, getGatewayState,
+} from "../lib/jagopay";
 
 const router = Router();
+
+const MIN_TOPUP = 100;
+const MAX_TOPUP = 1_000_000;
+const PRESET_TOPUPS = new Set([1_000, 5_000, 10_000, 15_000, 25_000, 50_000]);
+
+function parseTopupAmount(value: unknown): number | null {
+  const amount = Number(value);
+  if (!Number.isInteger(amount) || amount < MIN_TOPUP || amount > MAX_TOPUP) return null;
+  return amount;
+}
+
+function isPaidStatus(status: string): boolean {
+  return status === "paid" || status === "confirmed";
+}
+
+/**
+ * Credit a verified gateway mutation exactly once. The topup row and user row
+ * are locked inside one DB transaction so repeated polling cannot double-credit.
+ */
+async function creditVerifiedTopup(
+  topupId: string,
+  gatewayReference: string,
+): Promise<{ status: string; newBalance?: number }> {
+  return db.transaction(async (tx: any) => {
+    const lockedResult = await tx.execute(sql`
+      SELECT id, user_id, amount, status
+      FROM topups
+      WHERE id = ${topupId}::uuid
+      FOR UPDATE
+    `);
+    const topup = lockedResult.rows[0] as any;
+    if (!topup) return { status: "not_found" };
+    if (isPaidStatus(String(topup.status))) return { status: "paid" };
+    if (String(topup.status) !== "pending") return { status: String(topup.status) };
+
+    const duplicate = await tx.select({ id: walletTransactionsTable.id })
+      .from(walletTransactionsTable)
+      .where(and(
+        eq(walletTransactionsTable.referenceType, "topup"),
+        eq(walletTransactionsTable.referenceId, gatewayReference),
+      ))
+      .limit(1);
+    if (duplicate.length > 0) {
+      await tx.update(topupsTable).set({
+        status: "paid",
+        gatewayReference,
+        paidAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(topupsTable.id, topupId));
+      return { status: "paid" };
+    }
+
+    const userResult = await tx.execute(sql`
+      SELECT id, wallet_balance, total_topup
+      FROM users
+      WHERE id = ${topup.user_id}::uuid
+      FOR UPDATE
+    `);
+    const user = userResult.rows[0] as any;
+    if (!user) return { status: "user_not_found" };
+
+    const before = Number(user.wallet_balance ?? 0);
+    const amount = Number(topup.amount);
+    const after = before + amount;
+
+    await tx.update(usersTable).set({
+      walletBalance: after,
+      totalTopup: sql`${usersTable.totalTopup} + ${amount}`,
+      updatedAt: new Date(),
+    }).where(eq(usersTable.id, topup.user_id));
+
+    await tx.update(walletsTable).set({
+      balance: after,
+      totalEarned: sql`${walletsTable.totalEarned} + ${amount}`,
+      updatedAt: new Date(),
+      lastTransactionAt: new Date(),
+    }).where(eq(walletsTable.userId, topup.user_id));
+
+    await tx.update(topupsTable).set({
+      status: "paid",
+      gatewayReference,
+      paidAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(topupsTable.id, topupId));
+
+    await tx.insert(transactionsTable).values({
+      userId: topup.user_id,
+      type: "topup",
+      amount,
+      description: `QRIS top up paid: Rp ${amount.toLocaleString("id-ID")}`,
+      referenceId: topupId,
+    });
+    await tx.insert(walletTransactionsTable).values({
+      userId: topup.user_id,
+      type: "topup",
+      amount,
+      balanceAfter: after,
+      description: `QRIS top up paid: Rp ${amount.toLocaleString("id-ID")}`,
+      referenceType: "topup",
+      referenceId: gatewayReference,
+    });
+    await tx.insert(notificationsTable).values({
+      userId: topup.user_id,
+      title: "Top Up Berhasil",
+      message: `Top up QRIS sebesar Rp ${amount.toLocaleString("id-ID")} berhasil. Saldo kamu sekarang Rp ${after.toLocaleString("id-ID")}.`,
+      type: "success",
+      category: "payment",
+      referenceType: "topup",
+      referenceId: topupId,
+    });
+
+    return { status: "paid", newBalance: after };
+  });
+}
+
+// ── POST /topup/create — create an automatic QRIS transaction ────────────────
+router.post("/topup/create", authenticate, async (req, res) => {
+  const amount = parseTopupAmount(req.body?.amount);
+  if (amount == null) {
+    res.status(400).json({
+      error: `Amount must be an integer between Rp ${MIN_TOPUP.toLocaleString("id-ID")} and Rp ${MAX_TOPUP.toLocaleString("id-ID")}.`,
+      allowedPresets: [...PRESET_TOPUPS],
+    });
+    return;
+  }
+  if (getGatewayState() !== "CONNECTED") {
+    res.status(503).json({ error: "Payment gateway is not configured.", gatewayStatus: getGatewayState() });
+    return;
+  }
+
+  const orderId = `TOPUP-${crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`;
+  const [topup] = await db.insert(topupsTable).values({
+    userId: req.user!.userId,
+    amount,
+    orderId,
+    paymentMethod: "qris",
+    gateway: "jagopay",
+    status: "pending",
+    expiredAt: new Date(Date.now() + 15 * 60 * 1000),
+  }).returning();
+
+  try {
+    const qris = await createDynamicQris(amount);
+    const [updated] = await db.update(topupsTable).set({
+      qrCodeUrl: qris.qrisUrl,
+      qrisString: qris.qrisString,
+      gatewayReference: qris.gatewayReference,
+      expiredAt: qris.expiresAt,
+      updatedAt: new Date(),
+    }).where(eq(topupsTable.id, topup.id)).returning();
+    res.status(201).json({
+      success: true,
+      id: updated.id,
+      orderId,
+      amount,
+      status: "pending",
+      paymentMethod: "qris",
+      gateway: "jagopay",
+      qrCodeUrl: updated.qrCodeUrl,
+      qrisString: updated.qrisString,
+      expiredAt: updated.expiredAt,
+    });
+  } catch (err) {
+    const code = gatewayErrorCode(err);
+    await db.update(topupsTable).set({ status: "failed", updatedAt: new Date() })
+      .where(eq(topupsTable.id, topup.id));
+    const status = code === "NOT_CONFIGURED" ? 503 : code === "INVALID" || code === "AUTHENTICATION_REQUIRED" ? 502 : 502;
+    res.status(status).json({ error: "QRIS creation failed.", gatewayStatus: code });
+  }
+});
+
+// ── GET /topup/:id/status — safely check and settle one own transaction ─────
+router.get("/topup/:id/status", authenticate, async (req, res) => {
+  const id = String(req.params.id);
+  const [topup] = await db.select().from(topupsTable)
+    .where(and(eq(topupsTable.id, id), eq(topupsTable.userId, req.user!.userId))).limit(1);
+  if (!topup) { res.status(404).json({ error: "Top-up not found" }); return; }
+
+  if (isPaidStatus(topup.status)) {
+    res.json({ ...topup, status: "paid", paid: true });
+    return;
+  }
+  if (topup.status === "expired" || topup.status === "failed" || topup.status === "cancelled") {
+    res.json({ ...topup, paid: false });
+    return;
+  }
+  if (topup.expiredAt && new Date(topup.expiredAt).getTime() <= Date.now()) {
+    const [expired] = await db.update(topupsTable).set({ status: "expired", updatedAt: new Date() })
+      .where(and(eq(topupsTable.id, id), eq(topupsTable.status, "pending"))).returning();
+    res.json({ ...(expired ?? topup), paid: false });
+    return;
+  }
+
+  try {
+    const mutations = await fetchQrisMutations();
+    const createdAt = new Date(topup.createdAt).getTime();
+    const orderNeedle = String(topup.orderId ?? "").toLowerCase();
+    const gatewayNeedle = String(topup.gatewayReference ?? "").toLowerCase();
+    const match = mutations.find((mutation) => {
+      if (mutation.amount !== Number(topup.amount)) return false;
+      if (mutation.occurredAt && mutation.occurredAt.getTime() < createdAt) return false;
+      const haystack = `${mutation.reference ?? ""} ${mutation.description}`.toLowerCase();
+      // Do not credit by amount alone. A stable order/gateway reference must
+      // be present in the gateway mutation before the wallet is credited.
+      return Boolean(
+        (orderNeedle && haystack.includes(orderNeedle)) ||
+        (gatewayNeedle && haystack.includes(gatewayNeedle)) ||
+        mutation.reference === topup.gatewayReference,
+      );
+    });
+
+    if (match?.reference) {
+      await creditVerifiedTopup(id, match.reference);
+    }
+  } catch (err) {
+    const code = gatewayErrorCode(err);
+    res.json({ ...topup, paid: false, gatewayStatus: code });
+    return;
+  }
+
+  const [latest] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
+  res.json({ ...(latest ?? topup), status: isPaidStatus(latest?.status ?? "pending") ? "paid" : latest?.status ?? "pending", paid: isPaidStatus(latest?.status ?? "pending") });
+});
 
 // ── GET /topups — user's own top-up history ────────────────────────────────────
 router.get("/topups", authenticate, async (req, res) => {

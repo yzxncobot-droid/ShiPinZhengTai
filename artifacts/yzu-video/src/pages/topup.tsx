@@ -8,6 +8,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   QrCode, UploadCloud, Loader2, CheckCircle2, X, AlertCircle,
+  Download, RefreshCw,
   ShieldAlert, ChevronRight, Shield, Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,8 @@ import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
+import { useQueryClient } from "@tanstack/react-query";
+import { getGetMeQueryKey } from "@workspace/api-client-react";
 
 // ─── Constants ──────────────────────────────────────────────────────────────────
 const PRESETS = [
@@ -117,6 +120,17 @@ const topupSchema = z.object({
 });
 
 interface UploadErr { code: string; message: string }
+
+interface AutomaticTopup {
+  id: string;
+  orderId: string;
+  amount: number;
+  status: string;
+  qrCodeUrl?: string | null;
+  qrisString?: string | null;
+  expiredAt?: string | null;
+  gateway?: string | null;
+}
 
 // ─── History Card ──────────────────────────────────────────────────────────────
 function HistoryCard({ topup }: { topup: Topup }) {
@@ -403,6 +417,135 @@ function QRISModal({
                   </div>
 
                 </div>
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
+
+// ─── Automatic QRIS modal ─────────────────────────────────────────────────────
+function AutomaticQrisModal({
+  open, onClose, topup, isChecking, onCheck,
+}: {
+  open: boolean;
+  onClose: () => void;
+  topup: AutomaticTopup | null;
+  isChecking: boolean;
+  onCheck: () => void;
+}) {
+  const [secondsLeft, setSecondsLeft] = useState(0);
+
+  useEffect(() => {
+    if (!open || !topup?.expiredAt) {
+      setSecondsLeft(0);
+      return;
+    }
+    const update = () => setSecondsLeft(Math.max(0, Math.ceil((new Date(topup.expiredAt!).getTime() - Date.now()) / 1000)));
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [open, topup?.expiredAt]);
+
+  useEffect(() => {
+    if (topup?.status === "paid") onClose();
+  }, [topup?.status, onClose]);
+
+  const expired = secondsLeft === 0 || topup?.status === "expired";
+  const minutes = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
+  const seconds = String(secondsLeft % 60).padStart(2, "0");
+
+  return (
+    <AnimatePresence>
+      {open && topup && (
+        <>
+          <motion.div
+            key="auto-qris-backdrop"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+            onClick={onClose}
+          />
+          <motion.div
+            key="auto-qris-modal"
+            initial={{ opacity: 0, scale: 0.94, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 14 }}
+            className="fixed inset-0 z-50 flex items-center justify-center px-4 pointer-events-none"
+          >
+            <div className="w-full max-w-sm rounded-[26px] overflow-hidden bg-white shadow-2xl pointer-events-auto">
+              <div className="bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-500 px-5 py-5 text-white">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-11 w-11 rounded-2xl bg-white/20 flex items-center justify-center">
+                      <QrCode className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-xl">Bayar QRIS</h3>
+                      <p className="text-xs text-white/75">QRIS dinamis untuk transaksi ini</p>
+                    </div>
+                  </div>
+                  <button onClick={onClose} className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-5 space-y-4">
+                <div className="rounded-2xl bg-purple-50 border border-purple-100 px-4 py-3 text-center">
+                  <p className="text-[10px] font-extrabold text-purple-400 uppercase tracking-widest">Total Bayar</p>
+                  <p className="text-3xl font-extrabold text-purple-700">Rp {topup.amount.toLocaleString("id-ID")}</p>
+                  <p className="text-[10px] text-slate-400 mt-1">Order ID: {topup.orderId}</p>
+                </div>
+
+                <div className="flex justify-center">
+                  {topup.qrCodeUrl ? (
+                    <div className="bg-white rounded-3xl border border-slate-200 p-4 shadow-md">
+                      <img src={topup.qrCodeUrl} alt={`QRIS ${topup.orderId}`} className="w-52 h-52 object-contain" />
+                    </div>
+                  ) : (
+                    <div className="w-52 h-52 rounded-3xl bg-slate-50 border border-slate-200 flex flex-col gap-2 items-center justify-center text-center px-5">
+                      <AlertCircle className="h-8 w-8 text-amber-400" />
+                      <span className="text-xs font-bold text-slate-500">QRIS belum tersedia</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className={`flex items-center justify-center gap-2 text-sm font-extrabold ${expired ? "text-red-500" : "text-amber-600"}`}>
+                  <Clock className="h-4 w-4" />
+                  {expired ? "QRIS telah kedaluwarsa" : `Menunggu pembayaran · ${minutes}:${seconds}`}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {topup.qrCodeUrl && !expired ? (
+                    <a
+                      href={topup.qrCodeUrl}
+                      download={`QRIS-${topup.orderId}.png`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="h-11 rounded-xl border border-purple-200 text-purple-600 font-extrabold text-xs flex items-center justify-center gap-1.5 hover:bg-purple-50"
+                    >
+                      <Download className="h-4 w-4" /> Download QRIS
+                    </a>
+                  ) : (
+                    <button disabled className="h-11 rounded-xl border border-slate-200 text-slate-300 font-extrabold text-xs flex items-center justify-center gap-1.5">
+                      <Download className="h-4 w-4" /> Download QRIS
+                    </button>
+                  )}
+                  <button
+                    onClick={onCheck}
+                    disabled={isChecking || expired}
+                    className="h-11 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isChecking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                    Periksa Pembayaran
+                  </button>
+                </div>
+
+                <p className="text-[11px] text-center text-slate-400 font-medium">
+                  Setelah pembayaran terdeteksi, saldo akan bertambah otomatis. Jangan tutup halaman sebelum status berubah.
+                </p>
               </div>
             </div>
           </motion.div>

@@ -45,13 +45,29 @@ async function run() {
     ALTER TABLE videos ADD COLUMN IF NOT EXISTS video_file_path text;
     ALTER TABLE topups ADD COLUMN IF NOT EXISTS transfer_amount double precision;
     ALTER TABLE topups ADD COLUMN IF NOT EXISTS amount_match_status text DEFAULT 'match';
+    ALTER TABLE topups ADD COLUMN IF NOT EXISTS order_id text;
+    ALTER TABLE topups ADD COLUMN IF NOT EXISTS payment_method text DEFAULT 'qris';
+    ALTER TABLE topups ADD COLUMN IF NOT EXISTS gateway text;
+    ALTER TABLE topups ADD COLUMN IF NOT EXISTS gateway_reference text;
+    ALTER TABLE topups ADD COLUMN IF NOT EXISTS qr_code_url text;
+    ALTER TABLE topups ADD COLUMN IF NOT EXISTS qris_string text;
+    ALTER TABLE topups ADD COLUMN IF NOT EXISTS expired_at timestamptz;
+    ALTER TABLE topups ADD COLUMN IF NOT EXISTS paid_at timestamptz;
     ALTER TABLE videos ADD COLUMN IF NOT EXISTS uploader_type text;
     ALTER TABLE videos ADD COLUMN IF NOT EXISTS thumbnail_path text;
     ALTER TABLE videos ADD COLUMN IF NOT EXISTS storage_folder text;
     ALTER TABLE videos ADD COLUMN IF NOT EXISTS bucket_name text;
     ALTER TABLE videos ADD COLUMN IF NOT EXISTS storage_type text;
   `);
-  console.log("✅  video_source_type / video_file_path / transfer_amount / amount_match_status / uploader_type / thumbnail_path / storage_folder / bucket_name / storage_type columns ensured");
+  await pool.query(`
+    DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'paid'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'expired'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'failed'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'cancelled'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    CREATE UNIQUE INDEX IF NOT EXISTS topups_order_id_unique ON topups(order_id) WHERE order_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS topups_gateway_reference_unique ON topups(gateway_reference) WHERE gateway_reference IS NOT NULL;
+  `);
+  console.log("✅  topup automatic QRIS columns and status values ensured");
 
   // Back-fill storage_type from existing uploader_type data.
   // Bunny Stream rows are intentionally excluded: their video_url is a Bunny

@@ -6,7 +6,9 @@ import { z } from "zod/v4";
 import { usersTable } from "./users";
 import { paymentProofsTable } from "./payment-proofs";
 
-export const topupStatusEnum = pgEnum("topup_status", ["pending", "confirmed", "denied"]);
+export const topupStatusEnum = pgEnum("topup_status", [
+  "pending", "confirmed", "paid", "denied", "expired", "failed", "cancelled",
+]);
 
 /**
  * topups / payments — one row per top-up request.
@@ -19,6 +21,16 @@ export const topupsTable = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
     amount: doublePrecision("amount").notNull(),
+
+    /** Automatic QRIS payment identifiers. */
+    orderId: text("order_id").unique(),
+    paymentMethod: text("payment_method").default("qris"),
+    gateway: text("gateway"),
+    gatewayReference: text("gateway_reference").unique(),
+    qrCodeUrl: text("qr_code_url"),
+    qrisString: text("qris_string"),
+    expiredAt: timestamp("expired_at"),
+    paidAt: timestamp("paid_at"),
 
     /** Legacy inline proof URL — prefer paymentProofId for new records. */
     paymentProof: text("payment_proof"),

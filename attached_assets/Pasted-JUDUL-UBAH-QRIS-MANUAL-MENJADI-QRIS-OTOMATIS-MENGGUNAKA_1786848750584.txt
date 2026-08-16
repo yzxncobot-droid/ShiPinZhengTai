@@ -1,0 +1,764 @@
+JUDUL:
+UBAH QRIS MANUAL MENJADI QRIS OTOMATIS MENGGUNAKAN JAGOPAY API KEY + ORDERKUOTA + NEON
+
+Saya ingin mengubah sistem pembayaran/top up QRIS yang sekarang masih MANUAL
+menjadi QRIS OTOMATIS menggunakan JagoPay.
+
+STACK:
+- Frontend: website yang sudah ada
+- Backend: Replit
+- Database: Neon PostgreSQL
+- Payment API: JagoPay
+- QRIS: Orderkuota melalui JagoPay
+
+==================================================
+PENTING — AUTENTIKASI JAGOPAY
+==================================================
+
+AKUN ORDERKUOTA SUDAH SAYA LOGIN DAN SUDAH TERHUBUNG
+DENGAN JAGOPAY.
+
+JADI SISTEM INI HANYA BOLEH MENGGUNAKAN:
+
+JAGOPAY_API_KEY
+
+JANGAN meminta atau menggunakan:
+
+- ORDERKUOTA_USERNAME
+- ORDERKUOTA_PASSWORD
+- ORDERKUOTA_EMAIL
+- ORDERKUOTA_OTP
+- login Orderkuota
+- request OTP Orderkuota
+- verify OTP Orderkuota
+
+JANGAN membuat sistem login Orderkuota.
+
+JANGAN membuat halaman konfigurasi username/password Orderkuota.
+
+JANGAN meminta saya memasukkan credential Orderkuota.
+
+Gunakan session/account Orderkuota yang sudah terhubung
+di JagoPay berdasarkan API Key yang saya berikan.
+
+==================================================
+1. ENVIRONMENT VARIABLES
+==================================================
+
+Gunakan Replit Secrets.
+
+HANYA gunakan:
+
+JAGOPAY_API_KEY=...
+
+Jangan membuat:
+
+ORDERKUOTA_USERNAME
+ORDERKUOTA_PASSWORD
+ORDERKUOTA_EMAIL
+ORDERKUOTA_OTP
+
+JAGOPAY_API_KEY hanya boleh digunakan oleh backend.
+
+Jangan pernah mengirim API Key ke frontend/browser.
+
+Jangan menampilkan API Key di UI.
+
+Jangan menampilkan API Key di console/log.
+
+==================================================
+2. VALIDASI API KEY
+==================================================
+
+Saat server dijalankan:
+
+Backend membaca:
+
+process.env.JAGOPAY_API_KEY
+
+Kemudian gunakan API Key tersebut untuk melakukan request
+ke JagoPay sesuai dokumentasi API JagoPay TERBARU.
+
+Jika API Key valid dan akun/session Orderkuota sudah terhubung:
+
+status:
+
+CONNECTED
+
+Jika API Key tidak valid:
+
+NOT_CONFIGURED / INVALID
+
+Jika session JagoPay membutuhkan autentikasi ulang:
+
+AUTHENTICATION_REQUIRED
+
+Tetapi JANGAN meminta username/password Orderkuota.
+
+==================================================
+3. JANGAN MENGARANG API
+==================================================
+
+WAJIB menggunakan dokumentasi JagoPay aktual.
+
+Jangan mengarang endpoint.
+
+Jangan mengasumsikan parameter.
+
+Jangan mengasumsikan format response.
+
+Sebelum coding:
+
+1. Periksa dokumentasi JagoPay.
+2. Identifikasi endpoint QRIS dinamis.
+3. Identifikasi endpoint cek mutasi/status.
+4. Identifikasi cara autentikasi API Key.
+5. Gunakan endpoint dan parameter sesuai dokumentasi.
+
+Jika endpoint tidak tersedia:
+jangan membuat endpoint fiktif.
+
+==================================================
+4. SISTEM LAMA
+==================================================
+
+Cari seluruh sistem:
+
+- QRIS manual
+- upload bukti pembayaran
+- upload screenshot
+- tombol Confirm
+- admin approve
+- admin reject
+- verifikasi manual
+- status pembayaran manual
+
+Jangan langsung menghapus kode lama.
+
+Pahami terlebih dahulu alurnya.
+
+Kemudian ubah QRIS menjadi otomatis.
+
+==================================================
+5. ALUR BARU
+==================================================
+
+User
+↓
+Pilih Top Up
+↓
+Pilih nominal
+↓
+Backend membuat transaksi
+↓
+JagoPay API menggunakan JAGOPAY_API_KEY
+↓
+Generate QRIS DINAMIS
+↓
+QRIS ditampilkan
+↓
+User dapat Download QRIS
+↓
+User membayar
+↓
+Backend mengecek pembayaran melalui JagoPay
+↓
+Pembayaran ditemukan
+↓
+Backend memverifikasi transaksi
+↓
+Neon PostgreSQL
+↓
+Saldo otomatis bertambah
+↓
+Top Up menjadi PAID
+
+TIDAK ADA:
+
+Upload Bukti
+↓
+Confirm Manual
+↓
+Admin Approve
+
+==================================================
+6. NOMINAL TOP UP
+==================================================
+
+Pertahankan nominal yang sudah ada:
+
+- Rp1.000
+- Rp5.000
+- Rp10.000
+- Rp15.000
+- Rp25.000
+- Rp50.000
+
+Jika Custom Amount sudah ada:
+pertahankan.
+
+Semua nominal wajib divalidasi di backend.
+
+Jangan percaya amount dari frontend.
+
+==================================================
+7. UI TOP UP
+==================================================
+
+JANGAN mengubah desain utama website.
+
+Pertahankan:
+
+- Current Balance
+- Select Amount
+- semua nominal
+- Custom Amount
+- Payment Methods
+- QRIS
+- Top Up History
+- See All
+- navbar
+- bottom navigation
+- typography
+- gradient
+- card
+- responsive layout
+
+Hanya ubah logic QRIS.
+
+==================================================
+8. MODAL QRIS
+==================================================
+
+Hapus:
+
+- Upload Bukti Transfer
+- Upload screenshot
+- Upload button
+- Confirm manual
+
+Ganti menjadi:
+
+Bayar QRIS
+
+Rp {amount}
+
+[ QRIS DINAMIS ]
+
+Menunggu Pembayaran...
+
+Countdown:
+
+MM:SS
+
+[ Download QRIS ]
+
+[ Periksa Pembayaran ]
+
+==================================================
+9. DOWNLOAD QRIS
+==================================================
+
+Tambahkan tombol:
+
+Download QRIS
+
+QRIS yang didownload harus berasal dari transaksi aktif
+yang sama.
+
+Jangan generate QRIS baru saat download.
+
+Nama file:
+
+QRIS-{orderId}.png
+
+Contoh:
+
+QRIS-TOPUP-8F72A91C.png
+
+QRIS harus tetap dapat di-scan.
+
+Download QRIS tidak mengubah status transaksi.
+
+Download QRIS bukan bukti pembayaran.
+
+Jika transaksi expired:
+
+nonaktifkan Download QRIS.
+
+==================================================
+10. CREATE TOP UP
+==================================================
+
+Buat endpoint:
+
+POST /api/topup/create
+
+Backend:
+
+1. Authentication user.
+2. Validasi amount.
+3. Generate order_id unik.
+4. Create transaction di Neon.
+5. status = pending.
+6. Request QRIS dinamis ke JagoPay.
+7. Simpan gateway reference.
+8. Simpan QRIS URL/data.
+9. Simpan expired_at.
+10. Return QRIS ke frontend.
+
+Contoh response:
+
+{
+  success: true,
+  orderId: "...",
+  amount: 5000,
+  status: "pending",
+  qrCodeUrl: "...",
+  expiredAt: "..."
+}
+
+Gunakan format response sebenarnya dari JagoPay jika berbeda.
+
+==================================================
+11. DATABASE NEON
+==================================================
+
+Gunakan Neon PostgreSQL yang sudah terhubung.
+
+Jangan membuat database baru.
+
+Periksa tabel yang sudah ada.
+
+Jika wallet sudah ada:
+gunakan wallet tersebut.
+
+Jika belum ada:
+
+wallets
+
+- id
+- user_id
+- balance
+- created_at
+- updated_at
+
+topup_transactions
+
+- id
+- user_id
+- order_id
+- amount
+- payment_method
+- gateway
+- gateway_reference
+- qr_code_url
+- status
+- expired_at
+- paid_at
+- created_at
+- updated_at
+
+wallet_transactions
+
+- id
+- user_id
+- type
+- amount
+- reference_id
+- balance_before
+- balance_after
+- description
+- created_at
+
+Status:
+
+pending
+paid
+expired
+failed
+cancelled
+
+Type:
+
+credit
+debit
+
+Jangan membuat tabel duplikat.
+
+Gunakan migration aman.
+
+==================================================
+12. CHECK PAYMENT
+==================================================
+
+Buat:
+
+GET /api/topup/:id/status
+
+Frontend boleh melakukan polling setiap 3–5 detik.
+
+Backend:
+
+1. Pastikan user login.
+2. Pastikan transaksi milik user.
+3. Ambil transaksi Neon.
+4. Jika paid → return paid.
+5. Jika expired → return expired.
+6. Jika pending → cek JagoPay.
+7. Cocokkan pembayaran.
+8. Verifikasi pembayaran.
+9. Jika valid → credit wallet.
+10. Return status terbaru.
+
+Jangan percaya status yang dikirim frontend.
+
+==================================================
+13. VERIFIKASI PEMBAYARAN
+==================================================
+
+Jangan hanya mencocokkan nominal.
+
+Jika data tersedia dari JagoPay,
+gunakan kombinasi:
+
+- amount
+- transaction/reference
+- gateway reference
+- waktu pembayaran
+- status
+- keterangan
+
+Pastikan pembayaran memang untuk transaksi tersebut.
+
+Jika tidak dapat diverifikasi:
+
+JANGAN menambahkan saldo.
+
+==================================================
+14. AUTO CREDIT
+==================================================
+
+Ketika pembayaran valid:
+
+BEGIN DATABASE TRANSACTION
+
+1. Lock topup transaction.
+2. Pastikan status masih pending.
+3. Pastikan gateway_reference belum pernah diproses.
+4. Lock wallet.
+5. Ambil balance_before.
+6. Tambahkan amount.
+7. Buat wallet transaction.
+8. Update topup menjadi paid.
+9. Simpan paid_at.
+10. COMMIT.
+
+Jika terjadi error:
+
+ROLLBACK.
+
+==================================================
+15. ANTI DOUBLE CREDIT
+==================================================
+
+WAJIB idempotent.
+
+Jika user menekan:
+
+Periksa Pembayaran
+
+berkali-kali:
+
+Saldo hanya bertambah satu kali.
+
+Gunakan:
+
+- unique order_id
+- unique gateway_reference jika tersedia
+- database transaction
+- row locking
+- status checking
+- idempotency
+
+Jika:
+
+status = paid
+
+JANGAN credit ulang.
+
+==================================================
+16. WEBHOOK
+==================================================
+
+Periksa dokumentasi JagoPay.
+
+Jika JagoPay menyediakan webhook:
+gunakan webhook.
+
+Jika tidak:
+gunakan polling/cek mutasi dari backend.
+
+Jangan membuat webhook fiktif.
+
+Semua webhook tetap harus diverifikasi.
+
+==================================================
+17. EXPIRATION
+==================================================
+
+Gunakan expired_at dari JagoPay jika tersedia.
+
+Jika expired:
+
+status = expired
+
+Tampilkan:
+
+"QRIS telah kedaluwarsa."
+
+Nonaktifkan:
+
+Download QRIS
+Periksa Pembayaran
+
+User harus membuat transaksi baru.
+
+==================================================
+18. TOP UP HISTORY
+==================================================
+
+Pertahankan Top Up History.
+
+Tampilkan:
+
+- amount
+- date
+- order ID
+- payment method
+- gateway
+- status
+- paid_at
+
+User hanya boleh melihat transaksi miliknya sendiri.
+
+==================================================
+19. ADMIN
+==================================================
+
+Admin tidak perlu approve QRIS otomatis.
+
+Admin hanya dapat melihat:
+
+- user
+- order ID
+- amount
+- gateway
+- gateway reference
+- status
+- created_at
+- paid_at
+
+Jangan mengizinkan perubahan paid tanpa audit.
+
+==================================================
+20. SECURITY
+==================================================
+
+WAJIB:
+
+- API Key hanya backend.
+- Neon DATABASE_URL hanya backend.
+- Authentication endpoint.
+- Authorization berdasarkan user_id.
+- Backend validasi amount.
+- Backend menentukan status.
+- Frontend tidak boleh menentukan paid.
+- Frontend tidak boleh mengubah balance.
+- Parameterized query/ORM.
+- Rate limiting.
+- Error handling.
+- Jangan expose secret.
+- Jangan log API Key.
+
+==================================================
+21. JANGAN UBAH FITUR LAIN
+==================================================
+
+Jangan mengubah:
+
+- desain website
+- authentication
+- profile
+- Creator
+- Verified Creator
+- Upload Video
+- My Video
+- Dashboard
+- Premium Video
+- Free Video
+- Supabase
+- role system
+- admin features lainnya
+
+Fokus hanya pada sistem Top Up QRIS.
+
+==================================================
+22. SEBELUM CODING
+==================================================
+
+Sebelum coding:
+
+1. Scan project.
+2. Cari sistem QRIS manual.
+3. Cari upload bukti.
+4. Cari endpoint topup.
+5. Cari wallet.
+6. Cari transaksi.
+7. Cari authentication.
+8. Periksa Neon.
+9. Periksa Replit Secrets.
+10. Identifikasi file yang perlu diubah.
+
+Jangan langsung menghapus kode lama.
+
+==================================================
+23. JAGOPAY CONFIGURATION
+==================================================
+
+Hanya ada satu secret:
+
+JAGOPAY_API_KEY
+
+Jangan meminta:
+
+ORDERKUOTA_USERNAME
+ORDERKUOTA_PASSWORD
+ORDERKUOTA_EMAIL
+ORDERKUOTA_OTP
+
+Jangan membuat login Orderkuota.
+
+Akun Orderkuota sudah terhubung ke JagoPay.
+
+Jika API Key valid dan session/account sudah aktif:
+
+Payment Gateway:
+CONNECTED ✓
+
+Jika tidak:
+
+Payment Gateway:
+NOT CONNECTED
+
+Tetapi jangan meminta username/password Orderkuota.
+
+==================================================
+24. TESTING
+==================================================
+
+Test:
+
+1. Rp1.000.
+2. Rp5.000.
+3. Rp50.000.
+4. Custom amount.
+5. QRIS berhasil dibuat.
+6. QRIS dapat didownload.
+7. QRIS dapat di-scan.
+8. Download tidak membuat transaksi baru.
+9. Pending.
+10. Payment detected.
+11. Paid.
+12. Saldo bertambah.
+13. Refresh tidak menambah saldo dua kali.
+14. Klik check berkali-kali tidak double credit.
+15. Expired.
+16. User tidak dapat mengakses transaksi user lain.
+17. Manipulasi amount ditolak.
+18. Gateway error tidak menambah saldo.
+19. Duplicate gateway reference tidak credit dua kali.
+20. Database error melakukan rollback.
+
+==================================================
+25. HASIL AKHIR
+==================================================
+
+Hasil akhir:
+
+Website
+↓
+Top Up
+↓
+Pilih nominal
+↓
+Create Transaction
+↓
+JagoPay API
+↓
+JAGOPAY_API_KEY
+↓
+QRIS Dinamis
+↓
+Tampilkan QRIS
+↓
+Download QRIS
+↓
+User bayar
+↓
+JagoPay / Orderkuota
+↓
+Payment detected
+↓
+Backend verification
+↓
+Neon
+↓
+Wallet + amount
+↓
+Topup = PAID
+
+Tidak ada:
+
+Orderkuota username
+Orderkuota password
+Orderkuota OTP
+Login Orderkuota dari website
+Upload bukti
+Confirm manual
+Admin approve manual
+
+==================================================
+26. DOKUMENTASI SETELAH IMPLEMENTASI
+==================================================
+
+Setelah selesai berikan:
+
+1. File yang diubah.
+2. File yang dibuat.
+3. Database migration.
+4. Endpoint baru.
+5. Environment variable.
+6. Endpoint JagoPay yang digunakan.
+7. Metode payment detection:
+   webhook atau polling.
+8. Cara kerja Download QRIS.
+9. Cara testing.
+10. Error yang ditemukan.
+11. Konfigurasi yang masih diperlukan.
+
+PENTING:
+
+Jangan mengarang endpoint JagoPay.
+
+Gunakan dokumentasi JagoPay aktual.
+
+Jangan menganggap HTTP 200 sebagai pembayaran berhasil.
+
+Jangan menambah saldo sebelum pembayaran diverifikasi.
+
+Jangan meminta credential Orderkuota.
+
+Gunakan hanya JAGOPAY_API_KEY.
+
+Pertahankan desain website yang sudah ada.

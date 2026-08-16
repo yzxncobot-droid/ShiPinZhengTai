@@ -236,7 +236,14 @@ export default function Home() {
     { query: { queryKey: getListVideosQueryKey({ categoryId: activeCategoryId ?? undefined, sort: "newest", limit: 100 }) } },
   );
 
-  const featuredList = featuredVideos ?? [];
+  // Keep the page resilient to both the documented array response and the
+  // paginated envelope returned by older API deployments. A malformed or
+  // partially cached response must not take down the whole home route.
+  const featuredList: Video[] = Array.isArray(featuredVideos)
+    ? featuredVideos
+    : Array.isArray((featuredVideos as any)?.data)
+      ? (featuredVideos as any).data
+      : [];
   const allVideos = Array.isArray(videosData?.data) ? videosData.data : [];
   const visibleVideos = allVideos.slice(0, visibleCount);
   const hasMore = visibleCount < allVideos.length;
