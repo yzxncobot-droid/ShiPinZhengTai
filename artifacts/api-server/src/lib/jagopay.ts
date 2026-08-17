@@ -12,6 +12,12 @@ export interface QrisCreation {
   raw: unknown;
 }
 
+function gatewayError(message: string, code = "GATEWAY_ERROR"): Error {
+  const error = new Error(message);
+  (error as any).code = code;
+  return error;
+}
+
 export interface MutationRecord {
   amount: number | null;
   reference: string | null;
@@ -104,6 +110,15 @@ export async function createDynamicQris(amount: number): Promise<QrisCreation> {
   const reference = String(firstValue(data, ["reference", "ref", "trx_id", "transaction_id", "id"]) ?? "") || null;
   const expiresRaw = firstValue(data, ["expired_at", "expires_at", "expiredAt"]);
 
+  // The documented JagoPay response includes a ready-to-display QR image URL.
+  // Never create a usable top-up row when the gateway returned an incomplete
+  // payload: a QR string without a displayable image would leave the user
+  // with a payment they cannot start, and silently accepting an unknown shape
+  // makes gateway changes dangerous.
+  if (!qrisUrl || !qrisString) {
+    throw gatewayError("JagoPay returned an incomplete QRIS response", "INVALID_RESPONSE");
+  }
+
   return {
     qrisUrl,
     qrisString,
@@ -151,7 +166,7 @@ export async function fetchQrisMutations(): Promise<MutationRecord[]> {
 
 export function gatewayErrorCode(error: unknown): string {
   const code = (error as any)?.code;
-  if (code === "NOT_CONFIGURED" || code === "INVALID" || code === "AUTHENTICATION_REQUIRED") {
+  if (code === "NOT_CONFIGURED" || code === "INVALID" || code === "AUTHENTICATION_REQUIRED" || code === "INVALID_RESPONSE") {
     return code;
   }
   logger.warn({ error: (error as any)?.message ?? String(error) }, "JagoPay request failed");

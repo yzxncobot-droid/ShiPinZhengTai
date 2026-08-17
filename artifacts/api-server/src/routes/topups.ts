@@ -6,6 +6,7 @@ import {
 } from "@workspace/db";
 import { eq, and, desc, sql, count } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
+import { qrisRateLimit } from "../middlewares/rate-limit";
 import { invalidateUserCache, invalidateCache, keys } from "../lib/redis";
 import { logger } from "../lib/logger";
 import {
@@ -125,7 +126,7 @@ async function creditVerifiedTopup(
 }
 
 // ── POST /topup/create — create an automatic QRIS transaction ────────────────
-router.post("/topup/create", authenticate, async (req, res) => {
+router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
   const amount = parseTopupAmount(req.body?.amount);
   if (amount == null) {
     res.status(400).json({
@@ -137,6 +138,27 @@ router.post("/topup/create", authenticate, async (req, res) => {
   if (getGatewayState() !== "CONNECTED") {
     res.status(503).json({ error: "Payment gateway is not configured.", gatewayStatus: getGatewayState() });
     return;
+  }
+
+  // Keep one active QRIS transaction per user. This also protects callers
+  // that bypass the web UI and call the API directly.
+  const [existingPending] = await db.select().from(topupsTable)
+    .where(and(eq(topupsTable.userId, req.user!.userId), eq(topupsTable.status, "pending")))
+    .orderBy(desc(topupsTable.createdAt))
+    .limit(1);
+  if (existingPending) {
+    if (existingPending.expiredAt && new Date(existingPending.expiredAt).getTime() <= Date.now()) {
+      await db.update(topupsTable).set({ status: "expired", updatedAt: new Date() })
+        .where(and(eq(topupsTable.id, existingPending.id), eq(topupsTable.status, "pending")));
+    } else {
+      res.status(409).json({
+        error: "You already have an active QRIS top-up.",
+        topupId: existingPending.id,
+        orderId: existingPending.orderId,
+        expiredAt: existingPending.expiredAt,
+      });
+      return;
+    }
   }
 
   const orderId = `TOPUP-${crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`;
@@ -181,7 +203,7 @@ router.post("/topup/create", authenticate, async (req, res) => {
 });
 
 // ── GET /topup/:id/status — safely check and settle one own transaction ─────
-router.get("/topup/:id/status", authenticate, async (req, res) => {
+router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) => {
   const id = String(req.params.id);
   const [topup] = await db.select().from(topupsTable)
     .where(and(eq(topupsTable.id, id), eq(topupsTable.userId, req.user!.userId))).limit(1);
@@ -218,11 +240,14 @@ router.get("/topup/:id/status", authenticate, async (req, res) => {
        // be present in the gateway mutation before the wallet is credited.
        // JagoPay's mutation id is the stable reference when the gateway does
        // not echo the generated QRIS reference.
+      // JagoPay's documented mutation payload does not echo our order ID.
+      // Without a stable order/gateway reference, amount + time is not enough
+      // to identify a payment safely. Refuse to credit rather than risk
+      // assigning somebody else's same-value payment.
       return Boolean(
         (orderNeedle && haystack.includes(orderNeedle)) ||
         (gatewayNeedle && haystack.includes(gatewayNeedle)) ||
-         mutation.reference === topup.gatewayReference ||
-         mutation.reference,
+        (topup.gatewayReference && mutation.reference === topup.gatewayReference),
       );
     });
 

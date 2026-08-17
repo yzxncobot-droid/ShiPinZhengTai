@@ -66,6 +66,7 @@ async function run() {
     DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'cancelled'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     CREATE UNIQUE INDEX IF NOT EXISTS topups_order_id_unique ON topups(order_id) WHERE order_id IS NOT NULL;
     CREATE UNIQUE INDEX IF NOT EXISTS topups_gateway_reference_unique ON topups(gateway_reference) WHERE gateway_reference IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS topups_user_pending_idx ON topups(user_id, created_at DESC) WHERE status = 'pending';
   `);
   console.log("✅  topup automatic QRIS columns and status values ensured");
 

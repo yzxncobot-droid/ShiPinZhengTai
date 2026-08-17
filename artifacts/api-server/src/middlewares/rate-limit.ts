@@ -79,3 +79,11 @@ export const uploadRateLimit = rateLimit({
   endpoint: "upload",
   message: "Upload rate limit reached. Please wait before trying again.",
 });
+
+/** Prevent QRIS creation/status polling from being abused or creating duplicate charges. */
+export const qrisRateLimit = rateLimit({
+  max: 30,
+  windowSeconds: 60,
+  endpoint: "qris",
+  message: "Terlalu banyak permintaan QRIS. Coba lagi sebentar.",
+});
