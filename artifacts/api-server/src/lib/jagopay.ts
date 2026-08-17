@@ -77,6 +77,17 @@ function firstValue(source: any, keys: string[]): unknown {
 
 function asDate(value: unknown): Date | null {
   if (value == null) return null;
+  if (typeof value === "string") {
+    const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+    if (match) {
+      const [, day, month, year, hour = "00", minute = "00", second = "00"] = match;
+      const date = new Date(
+        Number(year), Number(month) - 1, Number(day),
+        Number(hour), Number(minute), Number(second),
+      );
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+  }
   const date = new Date(String(value));
   return Number.isNaN(date.getTime()) ? null : date;
 }
@@ -107,8 +118,13 @@ export async function createDynamicQris(amount: number): Promise<QrisCreation> {
 function flattenRecords(value: any): any[] {
   if (Array.isArray(value)) return value.flatMap(flattenRecords);
   if (!value || typeof value !== "object") return [];
-  for (const key of ["data", "results", "mutations", "transactions", "mutasi"]) {
+  // JagoPay returns qris_mutasi records under data.mutasi. Keep the
+  // generic fallbacks for compatible gateway response wrappers.
+  for (const key of ["mutasi", "mutations", "transactions", "results"]) {
     if (Array.isArray(value[key])) return value[key].flatMap(flattenRecords);
+  }
+  if (value.data && typeof value.data === "object") {
+    return flattenRecords(value.data);
   }
   return [value];
 }
@@ -116,8 +132,8 @@ function flattenRecords(value: any): any[] {
 export async function fetchQrisMutations(): Promise<MutationRecord[]> {
   const body = await request("qris_mutasi", { page: "1" });
   return flattenRecords(body).map((item: any) => {
-    const amountRaw = firstValue(item, ["amount", "nominal", "jumlah", "total"]);
-    const parsedAmount = Number(amountRaw);
+    const amountRaw = firstValue(item, ["amount", "nominal", "jumlah", "total", "kredit"]);
+    const parsedAmount = Number(String(amountRaw ?? "").replace(/[^\d.-]/g, ""));
     return {
       amount: Number.isFinite(parsedAmount) ? parsedAmount : null,
       reference: String(firstValue(item, [

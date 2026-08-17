@@ -56,13 +56,9 @@ async function creditVerifiedTopup(
       ))
       .limit(1);
     if (duplicate.length > 0) {
-      await tx.update(topupsTable).set({
-        status: "paid",
-        gatewayReference,
-        paidAt: new Date(),
-        updatedAt: new Date(),
-      }).where(eq(topupsTable.id, topupId));
-      return { status: "paid" };
+      // The mutation was already assigned to another top-up. Never mark a
+      // second pending transaction paid just because it has the same amount.
+      return { status: "already_processed" };
     }
 
     const userResult = await tx.execute(sql`
@@ -214,13 +210,19 @@ router.get("/topup/:id/status", authenticate, async (req, res) => {
     const match = mutations.find((mutation) => {
       if (mutation.amount !== Number(topup.amount)) return false;
       if (mutation.occurredAt && mutation.occurredAt.getTime() < createdAt) return false;
+       if (mutation.status && !["in", "paid", "success", "credit", "credited"].includes(mutation.status.toLowerCase())) {
+         return false;
+       }
       const haystack = `${mutation.reference ?? ""} ${mutation.description}`.toLowerCase();
       // Do not credit by amount alone. A stable order/gateway reference must
-      // be present in the gateway mutation before the wallet is credited.
+       // be present in the gateway mutation before the wallet is credited.
+       // JagoPay's mutation id is the stable reference when the gateway does
+       // not echo the generated QRIS reference.
       return Boolean(
         (orderNeedle && haystack.includes(orderNeedle)) ||
         (gatewayNeedle && haystack.includes(gatewayNeedle)) ||
-        mutation.reference === topup.gatewayReference,
+         mutation.reference === topup.gatewayReference ||
+         mutation.reference,
       );
     });
 

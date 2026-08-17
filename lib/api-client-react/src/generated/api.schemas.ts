@@ -396,13 +396,58 @@ export interface SubscriptionUpdate {
   isActive?: boolean;
 }
 
+export type AutomaticTopupStatus = typeof AutomaticTopupStatus[keyof typeof AutomaticTopupStatus];
+
+
+export const AutomaticTopupStatus = {
+  pending: 'pending',
+  paid: 'paid',
+  confirmed: 'confirmed',
+  expired: 'expired',
+  failed: 'failed',
+  cancelled: 'cancelled',
+} as const;
+
+export interface AutomaticTopup {
+  success: boolean;
+  id: string;
+  orderId: string;
+  amount: number;
+  status: AutomaticTopupStatus;
+  paid?: boolean;
+  paymentMethod: string;
+  gateway: string;
+  /** @nullable */
+  qrCodeUrl?: string | null;
+  /** @nullable */
+  qrisString?: string | null;
+  /** @nullable */
+  gatewayReference?: string | null;
+  /** @nullable */
+  expiredAt: string | null;
+  /** @nullable */
+  paidAt?: string | null;
+}
+
+export interface AutomaticTopupInput {
+  /**
+     * @minimum 100
+     * @maximum 1000000
+     */
+  amount: number;
+}
+
 export type TopupStatus = typeof TopupStatus[keyof typeof TopupStatus];
 
 
 export const TopupStatus = {
   pending: 'pending',
   confirmed: 'confirmed',
+  paid: 'paid',
   denied: 'denied',
+  expired: 'expired',
+  failed: 'failed',
+  cancelled: 'cancelled',
 } as const;
 
 export interface Topup {
@@ -412,6 +457,22 @@ export interface Topup {
   amount: number;
   /** @nullable */
   paymentProof?: string | null;
+  /** @nullable */
+  orderId?: string | null;
+  /** @nullable */
+  paymentMethod?: string | null;
+  /** @nullable */
+  gateway?: string | null;
+  /** @nullable */
+  gatewayReference?: string | null;
+  /** @nullable */
+  qrCodeUrl?: string | null;
+  /** @nullable */
+  qrisString?: string | null;
+  /** @nullable */
+  expiredAt?: string | null;
+  /** @nullable */
+  paidAt?: string | null;
   status: TopupStatus;
   createdAt: string;
   updatedAt?: string;
@@ -419,7 +480,12 @@ export interface Topup {
 
 export interface TopupInput {
   amount: number;
-  paymentProof: string;
+  /** @nullable */
+  paymentProof?: string | null;
+  /** @nullable */
+  paymentProofId?: string | null;
+  /** @nullable */
+  transferAmount?: number | null;
 }
 
 export interface TopupList {

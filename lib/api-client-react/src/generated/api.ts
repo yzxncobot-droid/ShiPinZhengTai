@@ -23,6 +23,8 @@ import type {
   AdminStats,
   AnalyticsOverview,
   AuthResponse,
+  AutomaticTopup,
+  AutomaticTopupInput,
   BanInput,
   Bundle,
   BundleDetail,
@@ -3310,6 +3312,153 @@ export function useGetWallet<TData = Awaited<ReturnType<typeof getWallet>>, TErr
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetWalletQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateAutomaticTopupUrl = () => {
+
+
+
+
+  return `/api/topup/create`
+}
+
+/**
+ * @summary Create a dynamic QRIS topup
+ */
+export const createAutomaticTopup = async (automaticTopupInput: AutomaticTopupInput, options?: RequestInit): Promise<AutomaticTopup> => {
+
+  return customFetch<AutomaticTopup>(getCreateAutomaticTopupUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(automaticTopupInput)
+  }
+);}
+
+
+
+
+export const getCreateAutomaticTopupMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAutomaticTopup>>, TError,{data: BodyType<AutomaticTopupInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAutomaticTopup>>, TError,{data: BodyType<AutomaticTopupInput>}, TContext> => {
+
+const mutationKey = ['createAutomaticTopup'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAutomaticTopup>>, {data: BodyType<AutomaticTopupInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createAutomaticTopup(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAutomaticTopupMutationResult = NonNullable<Awaited<ReturnType<typeof createAutomaticTopup>>>
+    export type CreateAutomaticTopupMutationBody = BodyType<AutomaticTopupInput>
+    export type CreateAutomaticTopupMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Create a dynamic QRIS topup
+ */
+export const useCreateAutomaticTopup = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAutomaticTopup>>, TError,{data: BodyType<AutomaticTopupInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createAutomaticTopup>>,
+        TError,
+        {data: BodyType<AutomaticTopupInput>},
+        TContext
+      > => {
+      return useMutation(getCreateAutomaticTopupMutationOptions(options));
+    }
+
+export const getGetAutomaticTopupStatusUrl = (id: string,) => {
+
+
+
+
+  return `/api/topup/${id}/status`
+}
+
+/**
+ * @summary Check and settle a dynamic QRIS topup
+ */
+export const getAutomaticTopupStatus = async (id: string, options?: RequestInit): Promise<AutomaticTopup> => {
+
+  return customFetch<AutomaticTopup>(getGetAutomaticTopupStatusUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAutomaticTopupStatusQueryKey = (id: string,) => {
+    return [
+    `/api/topup/${id}/status`
+    ] as const;
+    }
+
+
+export const getGetAutomaticTopupStatusQueryOptions = <TData = Awaited<ReturnType<typeof getAutomaticTopupStatus>>, TError = ErrorType<unknown>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAutomaticTopupStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAutomaticTopupStatusQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAutomaticTopupStatus>>> = ({ signal }) => getAutomaticTopupStatus(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAutomaticTopupStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAutomaticTopupStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getAutomaticTopupStatus>>>
+export type GetAutomaticTopupStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Check and settle a dynamic QRIS topup
+ */
+
+export function useGetAutomaticTopupStatus<TData = Awaited<ReturnType<typeof getAutomaticTopupStatus>>, TError = ErrorType<unknown>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAutomaticTopupStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAutomaticTopupStatusQueryOptions(id,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

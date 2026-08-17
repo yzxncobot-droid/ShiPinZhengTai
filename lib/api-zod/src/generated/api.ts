@@ -1576,6 +1576,59 @@ export const GetWalletResponse = zod.object({
 
 
 /**
+ * @summary Create a dynamic QRIS topup
+ */
+export const createAutomaticTopupBodyAmountMin = 100;
+export const createAutomaticTopupBodyAmountMax = 1000000;
+
+
+
+export const CreateAutomaticTopupBody = zod.object({
+  "amount": zod.number().min(createAutomaticTopupBodyAmountMin).max(createAutomaticTopupBodyAmountMax)
+})
+
+export const CreateAutomaticTopupResponse = zod.object({
+  "success": zod.boolean(),
+  "id": zod.string(),
+  "orderId": zod.string(),
+  "amount": zod.number(),
+  "status": zod.enum(['pending', 'paid', 'confirmed', 'expired', 'failed', 'cancelled']),
+  "paid": zod.boolean().optional(),
+  "paymentMethod": zod.string(),
+  "gateway": zod.string(),
+  "qrCodeUrl": zod.string().nullish(),
+  "qrisString": zod.string().nullish(),
+  "gatewayReference": zod.string().nullish(),
+  "expiredAt": zod.coerce.date().nullable(),
+  "paidAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Check and settle a dynamic QRIS topup
+ */
+export const GetAutomaticTopupStatusParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetAutomaticTopupStatusResponse = zod.object({
+  "success": zod.boolean(),
+  "id": zod.string(),
+  "orderId": zod.string(),
+  "amount": zod.number(),
+  "status": zod.enum(['pending', 'paid', 'confirmed', 'expired', 'failed', 'cancelled']),
+  "paid": zod.boolean().optional(),
+  "paymentMethod": zod.string(),
+  "gateway": zod.string(),
+  "qrCodeUrl": zod.string().nullish(),
+  "qrisString": zod.string().nullish(),
+  "gatewayReference": zod.string().nullish(),
+  "expiredAt": zod.coerce.date().nullable(),
+  "paidAt": zod.coerce.date().nullish()
+})
+
+
+/**
  * @summary List current user topup history
  */
 export const ListMyTopupsQueryParams = zod.object({
@@ -1622,7 +1675,15 @@ export const ListMyTopupsResponse = zod.object({
 }).optional(),
   "amount": zod.number(),
   "paymentProof": zod.string().nullish(),
-  "status": zod.enum(['pending', 'confirmed', 'denied']),
+  "orderId": zod.string().nullish(),
+  "paymentMethod": zod.string().nullish(),
+  "gateway": zod.string().nullish(),
+  "gatewayReference": zod.string().nullish(),
+  "qrCodeUrl": zod.string().nullish(),
+  "qrisString": zod.string().nullish(),
+  "expiredAt": zod.coerce.date().nullish(),
+  "paidAt": zod.coerce.date().nullish(),
+  "status": zod.enum(['pending', 'confirmed', 'paid', 'denied', 'expired', 'failed', 'cancelled']),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date().optional()
 })),
@@ -1637,7 +1698,9 @@ export const ListMyTopupsResponse = zod.object({
  */
 export const CreateTopupBody = zod.object({
   "amount": zod.number(),
-  "paymentProof": zod.string()
+  "paymentProof": zod.string().nullish(),
+  "paymentProofId": zod.string().nullish(),
+  "transferAmount": zod.number().nullish()
 })
 
 export const CreateTopupResponse = zod.object({
@@ -1678,7 +1741,15 @@ export const CreateTopupResponse = zod.object({
 }).optional(),
   "amount": zod.number(),
   "paymentProof": zod.string().nullish(),
-  "status": zod.enum(['pending', 'confirmed', 'denied']),
+  "orderId": zod.string().nullish(),
+  "paymentMethod": zod.string().nullish(),
+  "gateway": zod.string().nullish(),
+  "gatewayReference": zod.string().nullish(),
+  "qrCodeUrl": zod.string().nullish(),
+  "qrisString": zod.string().nullish(),
+  "expiredAt": zod.coerce.date().nullish(),
+  "paidAt": zod.coerce.date().nullish(),
+  "status": zod.enum(['pending', 'confirmed', 'paid', 'denied', 'expired', 'failed', 'cancelled']),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date().optional()
 })
@@ -1732,7 +1803,15 @@ export const ListAllTopupsResponse = zod.object({
 }).optional(),
   "amount": zod.number(),
   "paymentProof": zod.string().nullish(),
-  "status": zod.enum(['pending', 'confirmed', 'denied']),
+  "orderId": zod.string().nullish(),
+  "paymentMethod": zod.string().nullish(),
+  "gateway": zod.string().nullish(),
+  "gatewayReference": zod.string().nullish(),
+  "qrCodeUrl": zod.string().nullish(),
+  "qrisString": zod.string().nullish(),
+  "expiredAt": zod.coerce.date().nullish(),
+  "paidAt": zod.coerce.date().nullish(),
+  "status": zod.enum(['pending', 'confirmed', 'paid', 'denied', 'expired', 'failed', 'cancelled']),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date().optional()
 })),
@@ -1787,7 +1866,15 @@ export const ConfirmTopupResponse = zod.object({
 }).optional(),
   "amount": zod.number(),
   "paymentProof": zod.string().nullish(),
-  "status": zod.enum(['pending', 'confirmed', 'denied']),
+  "orderId": zod.string().nullish(),
+  "paymentMethod": zod.string().nullish(),
+  "gateway": zod.string().nullish(),
+  "gatewayReference": zod.string().nullish(),
+  "qrCodeUrl": zod.string().nullish(),
+  "qrisString": zod.string().nullish(),
+  "expiredAt": zod.coerce.date().nullish(),
+  "paidAt": zod.coerce.date().nullish(),
+  "status": zod.enum(['pending', 'confirmed', 'paid', 'denied', 'expired', 'failed', 'cancelled']),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date().optional()
 })
@@ -1838,7 +1925,15 @@ export const DenyTopupResponse = zod.object({
 }).optional(),
   "amount": zod.number(),
   "paymentProof": zod.string().nullish(),
-  "status": zod.enum(['pending', 'confirmed', 'denied']),
+  "orderId": zod.string().nullish(),
+  "paymentMethod": zod.string().nullish(),
+  "gateway": zod.string().nullish(),
+  "gatewayReference": zod.string().nullish(),
+  "qrCodeUrl": zod.string().nullish(),
+  "qrisString": zod.string().nullish(),
+  "expiredAt": zod.coerce.date().nullish(),
+  "paidAt": zod.coerce.date().nullish(),
+  "status": zod.enum(['pending', 'confirmed', 'paid', 'denied', 'expired', 'failed', 'cancelled']),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date().optional()
 })

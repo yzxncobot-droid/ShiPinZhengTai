@@ -15,6 +15,22 @@ export interface Topup {
   amount: number;
   /** @nullable */
   paymentProof?: string | null;
+  /** @nullable */
+  orderId?: string | null;
+  /** @nullable */
+  paymentMethod?: string | null;
+  /** @nullable */
+  gateway?: string | null;
+  /** @nullable */
+  gatewayReference?: string | null;
+  /** @nullable */
+  qrCodeUrl?: string | null;
+  /** @nullable */
+  qrisString?: string | null;
+  /** @nullable */
+  expiredAt?: Date | null;
+  /** @nullable */
+  paidAt?: Date | null;
   status: TopupStatus;
   createdAt: Date;
   updatedAt?: Date;

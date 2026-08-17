@@ -6,14 +6,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type TopupStatus = typeof TopupStatus[keyof typeof TopupStatus];
+export type AutomaticTopupStatus = typeof AutomaticTopupStatus[keyof typeof AutomaticTopupStatus];
 
 
-export const TopupStatus = {
+export const AutomaticTopupStatus = {
   pending: 'pending',
-  confirmed: 'confirmed',
   paid: 'paid',
-  denied: 'denied',
+  confirmed: 'confirmed',
   expired: 'expired',
   failed: 'failed',
   cancelled: 'cancelled',

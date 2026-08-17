@@ -866,6 +866,44 @@ paths:
                 $ref: "#/components/schemas/Wallet"
 
   # ── TOPUPS ────────────────────────────────────────────────────────────────
+  /topup/create:
+    post:
+      operationId: createAutomaticTopup
+      tags: [topups]
+      summary: Create a dynamic QRIS topup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutomaticTopupInput"
+      responses:
+        "201":
+          description: Dynamic QRIS transaction created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomaticTopup"
+
+  /topup/{id}/status:
+    get:
+      operationId: getAutomaticTopupStatus
+      tags: [topups]
+      summary: Check and settle a dynamic QRIS topup
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current topup status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomaticTopup"
+
   /topups:
     get:
       operationId: listMyTopups
@@ -1841,6 +1879,49 @@ components:
           type: boolean
 
     # ── TOPUP ───────────────────────────────────────────────────────────────
+    AutomaticTopup:
+      type: object
+      required: [success, id, orderId, amount, status, paymentMethod, gateway, expiredAt]
+      properties:
+        success:
+          type: boolean
+        id:
+          type: string
+        orderId:
+          type: string
+        amount:
+          type: number
+        status:
+          type: string
+          enum: [pending, paid, confirmed, expired, failed, cancelled]
+        paid:
+          type: boolean
+        paymentMethod:
+          type: string
+        gateway:
+          type: string
+        qrCodeUrl:
+          type: ["string", "null"]
+        qrisString:
+          type: ["string", "null"]
+        gatewayReference:
+          type: ["string", "null"]
+        expiredAt:
+          type: ["string", "null"]
+          format: date-time
+        paidAt:
+          type: ["string", "null"]
+          format: date-time
+
+    AutomaticTopupInput:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          type: number
+          minimum: 100
+          maximum: 1000000
+
     Topup:
       type: object
       required: [id, userId, amount, status, createdAt]
@@ -1855,9 +1936,27 @@ components:
           type: number
         paymentProof:
           type: ["string", "null"]
+        orderId:
+          type: ["string", "null"]
+        paymentMethod:
+          type: ["string", "null"]
+        gateway:
+          type: ["string", "null"]
+        gatewayReference:
+          type: ["string", "null"]
+        qrCodeUrl:
+          type: ["string", "null"]
+        qrisString:
+          type: ["string", "null"]
+        expiredAt:
+          type: ["string", "null"]
+          format: date-time
+        paidAt:
+          type: ["string", "null"]
+          format: date-time
         status:
           type: string
-          enum: [pending, confirmed, denied]
+          enum: [pending, confirmed, paid, denied, expired, failed, cancelled]
         createdAt:
           type: string
           format: date-time
@@ -1867,12 +1966,16 @@ components:
 
     TopupInput:
       type: object
-      required: [amount, paymentProof]
+      required: [amount]
       properties:
         amount:
           type: number
         paymentProof:
-          type: string
+          type: ["string", "null"]
+        paymentProofId:
+          type: ["string", "null"]
+        transferAmount:
+          type: ["number", "null"]
 
     TopupList:
       type: object

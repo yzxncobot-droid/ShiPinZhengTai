@@ -8,5 +8,10 @@
 
 export interface TopupInput {
   amount: number;
-  paymentProof: string;
+  /** @nullable */
+  paymentProof?: string | null;
+  /** @nullable */
+  paymentProofId?: string | null;
+  /** @nullable */
+  transferAmount?: number | null;
 }
