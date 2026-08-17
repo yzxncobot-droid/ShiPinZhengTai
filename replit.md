@@ -85,6 +85,29 @@ Both services start automatically via their configured workflows:
 > The Replit-managed `DATABASE_URL` is intentionally not used. Connection string is set as a Replit Secret.
 > See `lib/db/src/index.ts` — it prefers `NEON_DATABASE_URL ?? DATABASE_URL`.
 
+### Automatic QRIS (JagoPay)
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `JAGOPAY_API_KEY` | ✅ Set (Secret) | Backend-only JagoPay API key for dynamic QRIS and mutation checks |
+
+The QRIS integration uses the documented JagoPay endpoints:
+
+- `GET https://jagopay.my.id/api.php?apikey=...&action=qris_dinamis&nominal=...`
+- `GET https://jagopay.my.id/api.php?apikey=...&action=qris_mutasi&page=1`
+
+The API key is never returned to the frontend or written to logs. The application
+creates `POST /api/topup/create` transactions, stores the QRIS response in
+`topups`, and checks payment status with `GET /api/topup/:id/status`.
+Wallet crediting is idempotent and runs inside a database transaction.
+
+For safety, the backend does **not** credit a payment when JagoPay provides only
+an amount/time match without a stable order or gateway reference. This prevents
+another user's same-value QRIS payment from being assigned to the wrong wallet.
+If a JagoPay account's mutation response does not contain a correlating
+reference, the transaction remains pending until a supported reference/webhook
+mapping is available.
+
 ## Database
 
 Schema is managed by Drizzle ORM. To push schema changes to the dev DB:

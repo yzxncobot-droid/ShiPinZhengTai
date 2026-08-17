@@ -18,3 +18,4 @@
 - [Social system architecture](social-system.md) — follow/DM/notifications schema + routes added; profile follower stats still hardcoded 0; notifications not auto-fired from purchase/payment flows yet.
 - [Dynamic role system (custom_role_id on users)](dynamic-role-system.md) — users.custom_role_id FK → custom_roles; display-only; system role (users.role) still drives auth middleware.
 - [Auth profile fetch resilience](auth-profile-fetch-resilience.md) — transient `/auth/me` failures must not clear a valid login token; only explicit 401/403 responses invalidate it
+- [JagoPay QRIS safety](jagopay-qris-safety.md) — mutation examples may lack order correlation; never auto-credit from amount alone
