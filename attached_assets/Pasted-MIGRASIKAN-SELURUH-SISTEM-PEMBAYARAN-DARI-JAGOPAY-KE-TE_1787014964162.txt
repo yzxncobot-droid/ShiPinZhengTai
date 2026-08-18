@@ -1,0 +1,153 @@
+MIGRASIKAN SELURUH SISTEM PEMBAYARAN DARI JAGOPAY KE TEMANQRIS.
+
+PENTING:
+Gunakan API, endpoint, parameter, webhook, signature verification, response, dan flow SESUAI DOKUMENTASI RESMI TEMANQRIS:
+https://temanqris.com/docs
+
+Jangan membuat API/flow TemanQRIS sendiri atau mengarang endpoint.
+
+1. HAPUS JAGOPAY
+
+- Cari dan hapus seluruh kode, service, route, helper, environment variable, dependency, webhook, dan logic yang berkaitan dengan JagoPay.
+- Jangan meminta JagoPay API Key lagi.
+- Jangan meminta ID/password Orderkuota.
+- Pastikan tidak ada dependency JagoPay yang tersisa.
+
+2. TEMANQRIS
+   Gunakan:
+   Base URL: https://temanqris.com/api/qris
+   Authentication:
+   X-API-Key: process.env.TEMANQRIS_API_KEY
+
+API key hanya boleh digunakan backend.
+
+3. QRIS
+   Gunakan flow resmi TemanQRIS:
+
+- GET /my-qris untuk mengecek QRIS.
+- POST /upload hanya jika QRIS belum tersimpan.
+- POST /generate untuk membuat QRIS dynamic.
+- POST /render jika perlu membuat gambar QR dari QRIS string.
+- POST /payment-link jika menggunakan payment link.
+
+Gunakan response "qr_image", "payment_link", "order_id", "amount", "expires_at", dll sesuai response resmi TemanQRIS.
+
+4. PAYMENT
+   Saat user melakukan top up:
+
+- Buat order ID unik.
+- Simpan order ke Neon PostgreSQL dengan status "pending".
+- Generate QRIS/payment link melalui TemanQRIS.
+- Tampilkan QRIS dynamic kepada user.
+- Nominal harus berasal dari database/backend, bukan dipercaya dari frontend.
+
+5. WEBHOOK
+   Buat endpoint webhook TemanQRIS, contoh:
+   POST /webhooks/temanqris
+
+Gunakan:
+X-TemanQRIS-Signature
+X-TemanQRIS-Event
+X-TemanQRIS-Retry
+
+Implementasikan HMAC-SHA256 verification sesuai contoh resmi TemanQRIS.
+
+Tangani event:
+
+- payment.awaiting_confirmation
+- payment.confirmed
+
+Jangan menganggap "payment.awaiting_confirmation" sebagai pembayaran berhasil.
+
+6. VERIFY PAYMENT
+   Ikuti flow resmi TemanQRIS:
+
+- GET /orders/:orderId untuk mengecek status.
+- POST /orders/:orderId/verify hanya setelah pembayaran benar-benar terverifikasi.
+- Setelah status menjadi "paid/payment.confirmed", proses top up saldo user.
+
+7. ANTI DOUBLE PAYMENT
+   Gunakan transaction/database locking/idempotency:
+
+- Satu order hanya boleh diproses satu kali.
+- "payment.confirmed" yang masuk berkali-kali tidak boleh menambah saldo berkali-kali.
+- Simpan transaction/order ID yang sudah diproses.
+- Pastikan update status + penambahan saldo dilakukan secara atomic transaction di Neon.
+
+8. STATUS
+   Gunakan status yang sesuai flow TemanQRIS:
+   pending
+   awaiting_confirmation
+   paid
+   expired
+   failed
+
+Jangan memberikan saldo saat:
+
+- pending
+- awaiting_confirmation
+- expired
+- failed
+
+Saldo hanya ditambahkan ketika pembayaran benar-benar confirmed/paid.
+
+9. FRONTEND
+   Pertahankan desain website yang sekarang.
+   Jangan mengubah UI utama kecuali bagian yang memang diperlukan untuk mengganti sistem pembayaran.
+
+Tetap tampilkan:
+
+- nominal
+- QRIS
+- status pembayaran
+- countdown/expired jika tersedia
+- order ID
+- status otomatis diperbarui
+
+10. FALLBACK STATUS CHECK
+    Jika webhook terlambat/gagal:
+
+- Backend dapat melakukan GET /orders/:orderId.
+- Jangan hanya mengandalkan frontend.
+- Jangan menganggap redirect/callback sebagai bukti pembayaran.
+
+11. ENVIRONMENT VARIABLES
+    Gunakan:
+    TEMANQRIS_API_KEY
+    TEMANQRIS_WEBHOOK_SECRET
+
+Hapus variable JagoPay.
+
+12. SECURITY
+
+- API key tidak boleh masuk frontend.
+- Validasi webhook signature.
+- Jangan percaya nominal/status dari client.
+- Jangan membuat endpoint public untuk verify payment.
+- Verify hanya dari backend.
+- Sanitize dan validate order_id.
+
+13. REFACTOR
+    Periksa SELURUH project dan sesuaikan semua bagian yang sebelumnya memanggil JagoPay:
+    checkout
+    topup
+    payment creation
+    payment status
+    webhook
+    database
+    saldo
+    transaction history
+    admin/payment status
+    error handling
+    environment variables
+    frontend API calls
+
+Setelah migrasi:
+
+- Tidak ada lagi kode JagoPay.
+- Tidak ada lagi ketergantungan Orderkuota.
+- Semua payment menggunakan TemanQRIS.
+- Semua endpoint TemanQRIS mengikuti dokumentasi resmi.
+- Jalankan test end-to-end untuk create payment → QRIS → webhook → verify → paid → saldo bertambah.
+
+Jika ada perbedaan antara kode project saat ini dengan dokumentasi TemanQRIS, prioritaskan dokumentasi resmi TemanQRIS dan sesuaikan kode project tanpa mengubah UI utama.
