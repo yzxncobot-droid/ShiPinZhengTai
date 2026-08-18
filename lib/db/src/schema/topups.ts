@@ -7,7 +7,7 @@ import { usersTable } from "./users";
 import { paymentProofsTable } from "./payment-proofs";
 
 export const topupStatusEnum = pgEnum("topup_status", [
-  "pending", "confirmed", "paid", "denied", "expired", "failed", "cancelled",
+  "pending", "awaiting_confirmation", "confirmed", "paid", "denied", "expired", "failed", "cancelled",
 ]);
 
 /**
@@ -29,6 +29,7 @@ export const topupsTable = pgTable(
     gatewayReference: text("gateway_reference").unique(),
     qrCodeUrl: text("qr_code_url"),
     qrisString: text("qris_string"),
+    paymentLink: text("payment_link"),
     expiredAt: timestamp("expired_at"),
     paidAt: timestamp("paid_at"),
 

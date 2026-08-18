@@ -192,11 +192,13 @@ export async function runBestEffortStartupMigration(): Promise<void> {
       ALTER TABLE topups ADD COLUMN IF NOT EXISTS gateway_reference text;
       ALTER TABLE topups ADD COLUMN IF NOT EXISTS qr_code_url text;
       ALTER TABLE topups ADD COLUMN IF NOT EXISTS qris_string text;
+       ALTER TABLE topups ADD COLUMN IF NOT EXISTS payment_link text;
       ALTER TABLE topups ADD COLUMN IF NOT EXISTS expired_at timestamptz;
       ALTER TABLE topups ADD COLUMN IF NOT EXISTS paid_at timestamptz;
     `);
     await runStep(client, "topups automatic QRIS status/indexes", `
       DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'paid'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+       DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'awaiting_confirmation'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
       DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'expired'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
       DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'failed'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
       DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'cancelled'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;

@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { redis, keys, TTL } from "../lib/redis";
+import { redis, keys, TTL, isAtomicRedisAvailable } from "../lib/redis";
 import { logger } from "../lib/logger";
 
 interface RateLimitOptions {
@@ -26,6 +26,10 @@ export function rateLimit(opts: RateLimitOptions) {
   } = opts;
 
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    if (!isAtomicRedisAvailable) {
+      next();
+      return;
+    }
     const ip =
       (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ??
       req.ip ??

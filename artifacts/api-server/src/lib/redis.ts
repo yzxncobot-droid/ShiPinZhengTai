@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { cloudflareKV, isCloudflareKVAvailable } from "./cloudflare-kv";
 
 // ── Availability flag ─────────────────────────────────────────────────────────
 
@@ -7,8 +8,14 @@ import { logger } from "./logger";
  * Used by the auth middleware to skip session-store checks when Redis is
  * not configured (so the server degrades gracefully instead of crashing).
  */
-export const isRedisAvailable =
+const isUpstashAvailable =
   !!process.env.UPSTASH_REDIS_REST_URL && !!process.env.UPSTASH_REDIS_REST_TOKEN;
+
+/** True when a backend session/cache store is available. */
+export const isRedisAvailable = isUpstashAvailable || isCloudflareKVAvailable;
+
+/** Only Upstash provides atomic INCR/EXPIRE semantics used by rate limits/views. */
+export const isAtomicRedisAvailable = isUpstashAvailable;
 
 // ── No-op stub ────────────────────────────────────────────────────────────────
 
@@ -58,6 +65,18 @@ if (isRedisAvailable) {
     .catch((err) => {
       logger.warn({ err }, "Redis import failed — running without Redis cache");
     });
+} else if (isCloudflareKVAvailable) {
+  _redis = {
+    get: cloudflareKV.get,
+    setex: cloudflareKV.setex,
+    del: cloudflareKV.del,
+    incr: async () => {
+      throw new Error("Cloudflare KV does not support atomic increment");
+    },
+    expire: async () => 0,
+    ttl: async () => -1,
+    ping: cloudflareKV.ping,
+  };
 } else {
   logger.warn(
     "UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set — " +
@@ -197,6 +216,7 @@ export async function consumeTempToken(type: string, token: string): Promise<unk
 
 /** Increment Redis view counter and return the new count. */
 export async function incrementVideoViews(videoId: string): Promise<number> {
+  if (!isAtomicRedisAvailable) return 0;
   return (await redis.incr(keys.videoViews(videoId))) as number;
 }
 
