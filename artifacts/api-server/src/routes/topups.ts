@@ -10,8 +10,8 @@ import { qrisRateLimit } from "../middlewares/rate-limit";
 import { invalidateUserCache, invalidateCache, keys } from "../lib/redis";
 import { logger } from "../lib/logger";
 import {
-  createDynamicQris, fetchQrisMutations, gatewayErrorCode, getGatewayState,
-} from "../lib/jagopay";
+  createPaymentLink, getOrder, gatewayErrorCode, getGatewayState, verifyWebhookSignature,
+} from "../lib/temanqris";
 
 const router = Router();
 
@@ -167,18 +167,18 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
     amount,
     orderId,
     paymentMethod: "qris",
-    gateway: "jagopay",
+    gateway: "temanqris",
     status: "pending",
     expiredAt: new Date(Date.now() + 15 * 60 * 1000),
   }).returning();
 
   try {
-    const qris = await createDynamicQris(amount);
+    const qris = await createPaymentLink({ orderId, amount });
     const [updated] = await db.update(topupsTable).set({
-      qrCodeUrl: qris.qrisUrl,
+      qrCodeUrl: qris.qrImage,
       qrisString: qris.qrisString,
-      gatewayReference: qris.gatewayReference,
-      expiredAt: qris.expiresAt,
+      gatewayReference: qris.orderId,
+      expiredAt: qris.expiresAt ?? new Date(Date.now() + 15 * 60 * 1000),
       updatedAt: new Date(),
     }).where(eq(topupsTable.id, topup.id)).returning();
     res.status(201).json({
@@ -188,16 +188,17 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
       amount,
       status: "pending",
       paymentMethod: "qris",
-      gateway: "jagopay",
+      gateway: "temanqris",
       qrCodeUrl: updated.qrCodeUrl,
       qrisString: updated.qrisString,
+      paymentLink: qris.paymentLink,
       expiredAt: updated.expiredAt,
     });
   } catch (err) {
     const code = gatewayErrorCode(err);
     await db.update(topupsTable).set({ status: "failed", updatedAt: new Date() })
       .where(eq(topupsTable.id, topup.id));
-    const status = code === "NOT_CONFIGURED" ? 503 : code === "INVALID" || code === "AUTHENTICATION_REQUIRED" ? 502 : 502;
+    const status = code === "NOT_CONFIGURED" ? 503 : 502;
     res.status(status).json({ error: "QRIS creation failed.", gatewayStatus: code });
   }
 });
