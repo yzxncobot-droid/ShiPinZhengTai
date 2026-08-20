@@ -1,0 +1,64 @@
+# Base44 dev environment for the Yzu Video monorepo.
+# Runs the app FROM THE CLONED SOURCE with live-reload dev servers so edits
+# appear without image rebuilds. Frontend (Vite, port 21561 -> host 3000)
+# proxies /api to the backend (Express, port 8080) in a single origin.
+#
+# Bring up:   docker compose -f docker-compose.base44.yml up -d --build
+# View logs:  docker compose -f docker-compose.base44.yml logs -f web api
+services:
+  install:
+    # One-shot workspace dependency install. pnpm hoists node_modules to the
+    # repo root on the bind mount, so api/web share them without reinstalling.
+    image: node:20
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - pnpm-store:/root/.local/share/pnpm
+    command: >
+      sh -c "corepack enable && corepack prepare pnpm@9 --activate
+      && pnpm install --config.confirmModulesPurge=false"
+    env_file:
+      - ./.env.base44-defaults
+
+  api:
+    image: node:20
+    working_dir: /app
+    depends_on:
+      install:
+        condition: service_completed_successfully
+    volumes:
+      - ./:/app
+      - pnpm-store:/root/.local/share/pnpm
+    command: ["sh", "-c", "corepack enable && corepack prepare pnpm@9 --activate && pnpm --filter @workspace/api-server run dev"]
+    environment:
+      - NODE_ENV=development
+      - PORT=8080
+      - API_URL=http://api:8080
+      # Public base URL used for TemanQRIS callback URLs (optional, preview-only)
+      - TEMANQRIS_PUBLIC_URL=https://3000-${BASE44_PUBLIC_HOST_SUFFIX}
+    env_file:
+      - ./.env.base44-defaults
+      - /run/base44/app.env
+    expose:
+      - "8080"
+
+  web:
+    image: node:20
+    working_dir: /app
+    depends_on:
+      install:
+        condition: service_completed_successfully
+    volumes:
+      - ./:/app
+      - pnpm-store:/root/.local/share/pnpm
+    command: ["sh", "-c", "corepack enable && corepack prepare pnpm@9 --activate && PORT=21561 BASE_PATH=/ API_URL=http://api:8080 pnpm --filter @workspace/yzu-video run dev"]
+    environment:
+      - NODE_ENV=development
+    env_file:
+      - ./.env.base44-defaults
+      - /run/base44/app.env
+    ports:
+      - "3000:21561"
+
+volumes:
+  pnpm-store:

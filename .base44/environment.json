@@ -1,0 +1,19 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d --build",
+  "secrets": [
+    { "name": "NEON_DATABASE_URL", "description": "Postgres connection string for the existing Neon database (Neon dashboard). Required at boot.", "requiredAtBoot": true },
+    { "name": "SESSION_SECRET", "description": "Long random string used to sign JWTs. Required at boot (a dev placeholder is provided until set).", "requiredAtBoot": true },
+    { "name": "PUBLIC_SUPABASE_URL", "description": "Supabase PUBLIC project URL (creator video storage).", "requiredAtBoot": false },
+    { "name": "PUBLIC_SUPABASE_SERVICE_KEY", "description": "Supabase PUBLIC project service_role key.", "requiredAtBoot": false },
+    { "name": "OWNER_SUPABASE_URL", "description": "Supabase OWNER project URL (owner/admin video storage).", "requiredAtBoot": false },
+    { "name": "OWNER_SUPABASE_SERVICE_KEY", "description": "Supabase OWNER project service_role key.", "requiredAtBoot": false },
+    { "name": "MEDIA_SUPABASE_URL", "description": "Supabase MEDIA project URL (avatars, banners, QRIS images).", "requiredAtBoot": false },
+    { "name": "MEDIA_SUPABASE_SERVICE_KEY", "description": "Supabase MEDIA project service_role key.", "requiredAtBoot": false },
+    { "name": "TEMANQRIS_API_KEY", "description": "TemanQRIS API key for payment links (top-up only).", "requiredAtBoot": false },
+    { "name": "TEMANQRIS_WEBHOOK_SECRET", "description": "TemanQRIS webhook signing secret (top-up only).", "requiredAtBoot": false },
+    { "name": "UPSTASH_REDIS_REST_URL", "description": "Upstash Redis REST URL (caching/sessions, optional).", "requiredAtBoot": false },
+    { "name": "UPSTASH_REDIS_REST_TOKEN", "description": "Upstash Redis REST token (optional).", "requiredAtBoot": false }
+  ]
+}
