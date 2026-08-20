@@ -10,7 +10,7 @@ import { qrisRateLimit } from "../middlewares/rate-limit";
 import { invalidateUserCache, invalidateCache, keys } from "../lib/redis";
 import { logger } from "../lib/logger";
 import {
-  createPaymentLink, getOrder, gatewayErrorCode, getGatewayState, verifyWebhookSignature,
+  createPaymentLink, verifyOrder, gatewayErrorCode, getGatewayState, verifyWebhookSignature,
 } from "../lib/temanqris";
 
 const router = Router();
@@ -226,7 +226,14 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
   }
 
   try {
-    const mutations = await fetchQrisMutations();
+    // This asks TemanQRIS to verify the merchant order and emit its
+    // payment.confirmed webhook when the payment is genuinely settled.
+    const order = await verifyOrder(String(topup.orderId));
+    const confirmed = ["paid", "success", "confirmed", "completed", "settled"].includes(order.status);
+    if (confirmed) {
+      await creditVerifiedTopup(id, order.orderId);
+    }
+    /*
     const createdAt = new Date(topup.createdAt).getTime();
     const orderNeedle = String(topup.orderId ?? "").toLowerCase();
     const gatewayNeedle = String(topup.gatewayReference ?? "").toLowerCase();
@@ -254,7 +261,7 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
 
     if (match?.reference) {
       await creditVerifiedTopup(id, match.reference);
-    }
+    }*/
   } catch (err) {
     const code = gatewayErrorCode(err);
     res.json({ ...topup, paid: false, gatewayStatus: code });
@@ -263,6 +270,47 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
 
   const [latest] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
   res.json({ ...(latest ?? topup), status: isPaidStatus(latest?.status ?? "pending") ? "paid" : latest?.status ?? "pending", paid: isPaidStatus(latest?.status ?? "pending") });
+});
+
+// TemanQRIS calls this after its merchant verification. Only
+// payment.confirmed is allowed to credit a wallet.
+router.post("/webhooks/temanqris", async (req, res) => {
+  const rawBody = (req as any).rawBody as Buffer | undefined;
+  const signature = String(req.headers["x-temanqris-signature"] ?? req.headers["x-signature"] ?? "");
+  if (!rawBody || !verifyWebhookSignature(rawBody, signature)) {
+    res.status(401).json({ error: "Invalid webhook signature" });
+    return;
+  }
+
+  const body: any = req.body ?? {};
+  const data: any = body.data ?? body.result ?? body;
+  const event = String(body.event ?? body.type ?? data.event ?? data.type ?? "").toLowerCase();
+  if (event !== "payment.confirmed") {
+    res.json({ received: true, ignored: true });
+    return;
+  }
+
+  const orderId = String(data.order_id ?? data.orderId ?? data.merchant_order_id ?? "").trim();
+  if (!orderId) {
+    res.status(400).json({ error: "Missing order_id" });
+    return;
+  }
+  const [topup] = await db.select().from(topupsTable)
+    .where(eq(topupsTable.orderId, orderId)).limit(1);
+  if (!topup) {
+    res.json({ received: true, ignored: true });
+    return;
+  }
+
+  const gatewayReference = String(
+    data.transaction_id ?? data.transactionId ?? data.reference ?? orderId,
+  ).trim();
+  const result = await creditVerifiedTopup(topup.id, gatewayReference);
+  if (result.status === "paid" || result.status === "already_processed") {
+    await invalidateUserCache(topup.userId).catch(() => {});
+    await invalidateCache(keys.analytics("overview")).catch(() => {});
+  }
+  res.json({ received: true, status: result.status });
 });
 
 // ── GET /topups — user's own top-up history ────────────────────────────────────

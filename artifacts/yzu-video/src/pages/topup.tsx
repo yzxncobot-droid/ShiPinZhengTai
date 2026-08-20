@@ -297,7 +297,7 @@ function AutomaticQrisModal({
                         className="h-11 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 disabled:opacity-50"
                       >
                         {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                        Periksa Pembayaran
+                         Saya Sudah Bayar
                       </button>
                     </div>
 
@@ -373,8 +373,9 @@ export default function TopupPage() {
 
   useEffect(() => {
     if (!qrisOpen || !activeTopup?.id || activeTopup.status !== "pending") return;
-    const timer = window.setInterval(() => void checkPayment(), POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
+    // Verification is user initiated. This prevents a wallet credit from
+    // being triggered by background polling before the customer confirms.
+    return;
   }, [qrisOpen, activeTopup?.id, activeTopup?.status]);
 
   const startTopup = (amount: number) => {
@@ -388,7 +389,7 @@ export default function TopupPage() {
     createTopup.mutate(
       { data: { amount } },
       {
-        onSuccess: (created) => setActiveTopup(created),
+        onSuccess: (created: AutomaticTopup) => setActiveTopup(created),
         onError: (error: any) => {
           setQrisOpen(false);
           toast({

@@ -85,28 +85,22 @@ Both services start automatically via their configured workflows:
 > The Replit-managed `DATABASE_URL` is intentionally not used. Connection string is set as a Replit Secret.
 > See `lib/db/src/index.ts` — it prefers `NEON_DATABASE_URL ?? DATABASE_URL`.
 
-### Automatic QRIS (JagoPay)
+### Automatic QRIS (TemanQRIS)
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `JAGOPAY_API_KEY` | ✅ Set (Secret) | Backend-only JagoPay API key for dynamic QRIS and mutation checks |
+| `TEMANQRIS_API_KEY` | ✅ Set (Secret) | Backend-only TemanQRIS API key for payment links and order verification |
+| `TEMANQRIS_WEBHOOK_SECRET` | ✅ Set (Secret) | Secret used to verify TemanQRIS webhook signatures |
+| `TEMANQRIS_PUBLIC_URL` | Optional | Public app URL used for callback URLs |
+| `TEMANQRIS_WEBHOOK_URL` | Optional | Override webhook URL; defaults to `/api/webhooks/temanqris` |
 
-The QRIS integration uses the documented JagoPay endpoints:
-
-- `GET https://jagopay.my.id/api.php?apikey=...&action=qris_dinamis&nominal=...`
-- `GET https://jagopay.my.id/api.php?apikey=...&action=qris_mutasi&page=1`
-
-The API key is never returned to the frontend or written to logs. The application
-creates `POST /api/topup/create` transactions, stores the QRIS response in
-`topups`, and checks payment status with `GET /api/topup/:id/status`.
-Wallet crediting is idempotent and runs inside a database transaction.
-
-For safety, the backend does **not** credit a payment when JagoPay provides only
-an amount/time match without a stable order or gateway reference. This prevents
-another user's same-value QRIS payment from being assigned to the wrong wallet.
-If a JagoPay account's mutation response does not contain a correlating
-reference, the transaction remains pending until a supported reference/webhook
-mapping is available.
+The application creates a TemanQRIS payment link through `POST /api/topup/create`.
+The customer scans and pays, then presses **Saya Sudah Bayar**. The backend calls
+TemanQRIS order verification through `GET /api/topup/:id/status`; it never credits
+the wallet from the button click alone. TemanQRIS must confirm the order and send
+the signed `payment.confirmed` callback to `POST /api/webhooks/temanqris`. Only
+that verified event (or a successful order verification response) credits the
+wallet inside an idempotent database transaction.
 
 ## Database
 

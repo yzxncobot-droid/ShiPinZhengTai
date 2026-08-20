@@ -47,7 +47,7 @@ app.use(
 app.use(express.json({
   limit: "10mb",
   verify: (req, _res, buf) => {
-    if (req.originalUrl.includes("/webhooks/temanqris")) {
+    if ((req as any).originalUrl?.includes("/webhooks/temanqris")) {
       (req as any).rawBody = Buffer.from(buf);
     }
   },
