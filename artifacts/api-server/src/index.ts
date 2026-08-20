@@ -5,6 +5,7 @@ import {
   runBestEffortStartupMigration,
 } from "./lib/startup-migration";
 import { ensureStorageBuckets } from "./lib/storage/setup";
+import { sweepStalePendingTopups } from "./routes/topups";
 
 const rawPort = process.env["PORT"];
 
@@ -50,5 +51,11 @@ app.listen(port, (err) => {
   // once the bucket exists.
   ensureStorageBuckets().catch((e) =>
     logger.warn({ err: e?.message }, "Storage bucket setup: unexpected error"),
+  );
+
+  // Best-effort: cancel any pending (menunggu) QRIS top-ups older than 5 min so
+  // no payment lingers in "menunggu" across restarts.
+  sweepStalePendingTopups().catch((e) =>
+    logger.warn({ err: (e as any)?.message }, "topup: startup stale sweep failed"),
   );
 });

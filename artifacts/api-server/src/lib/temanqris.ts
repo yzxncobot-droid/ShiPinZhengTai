@@ -44,7 +44,9 @@ function asDate(value: unknown): Date | null {
 }
 
 function payloadOf(body: any): any {
-  return body?.data ?? body?.result ?? body;
+  // TemanQRIS nests results under `order` (GET/verify/cancel) or exposes
+  // fields at the top level (/generate). Fall back to the raw body.
+  return body?.data ?? body?.result ?? body?.order ?? body;
 }
 
 function firstValue(source: any, names: string[]): unknown {
@@ -129,25 +131,30 @@ export async function createPaymentLink(input: {
   const callbackUrl = publicAppUrl()
     ? `${publicAppUrl()}/topup?order_id=${encodeURIComponent(input.orderId)}`
     : undefined;
-  const body = await temanqrisRequest("/payment-link", "POST", {
-    order_id: input.orderId,
+  // POST /generate returns the renderable QR image (base64 PNG), the raw QRIS
+  // string, and a shareable payment_link — everything needed to render the
+  // QR inline. (POST /payment-link only returns a hosted link, no QR image.)
+  const body = await temanqrisRequest("/generate", "POST", {
     amount: input.amount,
+    order_id: input.orderId,
+    description: `Top up saldo Rp ${input.amount.toLocaleString("id-ID")}`,
     ...(webhookUrl ? { webhook_url: webhookUrl } : {}),
     ...(callbackUrl ? { callback_url: callbackUrl } : {}),
   });
   const data = payloadOf(body);
-  const orderId = String(firstValue(data, ["order_id", "orderId"]) ?? input.orderId);
-  const amount = Number(firstValue(data, ["amount", "nominal"]) ?? input.amount);
-  const qrImage = String(firstValue(data, ["qr_image", "qrImage", "qr_url"]) ?? "") || null;
-  const qrisString = String(firstValue(data, ["qris_string", "qr_string", "qr"]) ?? "") || null;
-  const paymentLink = String(firstValue(data, ["payment_link", "paymentLink", "url"]) ?? "") || null;
-  const expiresAt = asDate(firstValue(data, ["expires_at", "expired_at", "expiresAt"]));
+  const link = data?.payment_link;
+  const orderId = String(link?.order_id ?? data?.order_id ?? input.orderId);
+  const amount = Number(data?.amount ?? link?.amount ?? input.amount);
+  const qrImage = String(data?.qr_image ?? "") || null;
+  const qrisString = String(data?.qris ?? data?.qris_string ?? "") || null;
+  const linkUrl = link?.url ? (String(link.url).startsWith("http") ? String(link.url) : `https://temanqris.com${link.url}`) : null;
+  const expiresAt = asDate(data?.expires_at ?? link?.expires_at);
 
-  if (!paymentLink && !qrImage && !qrisString) {
+  if (!linkUrl && !qrImage && !qrisString) {
     throw gatewayError("TemanQRIS returned no payment link or QRIS payload", "INVALID_RESPONSE");
   }
 
-  return { orderId, amount, qrImage, qrisString, paymentLink, expiresAt, raw: body };
+  return { orderId, amount, qrImage, qrisString, paymentLink: linkUrl, expiresAt, raw: body };
 }
 
 export async function getOrder(orderId: string): Promise<TemanQrisOrder> {
@@ -175,6 +182,21 @@ export async function verifyOrder(orderId: string): Promise<TemanQrisOrder> {
     orderId: String(firstValue(data, ["order_id", "orderId"]) ?? orderId),
     amount: Number(firstValue(data, ["amount", "nominal"]) ?? NaN) || null,
     status: String(firstValue(data, ["status", "state"]) ?? "pending").toLowerCase(),
+    expiresAt: asDate(firstValue(data, ["expires_at", "expired_at", "expiresAt"])),
+    raw: body,
+  };
+}
+
+export async function cancelOrder(orderId: string): Promise<TemanQrisOrder> {
+  if (!/^[A-Za-z0-9_-]{3,80}$/.test(orderId)) {
+    throw gatewayError("Invalid TemanQRIS order ID", "INVALID_ORDER_ID");
+  }
+  const body = await temanqrisRequest(`/orders/${encodeURIComponent(orderId)}/cancel`, "POST");
+  const data = payloadOf(body);
+  return {
+    orderId: String(firstValue(data, ["order_id", "orderId"]) ?? orderId),
+    amount: Number(firstValue(data, ["amount", "nominal"]) ?? NaN) || null,
+    status: String(firstValue(data, ["status", "state"]) ?? "cancelled").toLowerCase(),
     expiresAt: asDate(firstValue(data, ["expires_at", "expired_at", "expiresAt"])),
     raw: body,
   };

@@ -4,13 +4,14 @@ import {
   topupsTable, usersTable, walletsTable, walletTransactionsTable,
   transactionsTable, notificationsTable, paymentProofsTable,
 } from "@workspace/db";
-import { eq, and, desc, sql, count } from "drizzle-orm";
+import { eq, and, desc, sql, count, lt } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
 import { qrisRateLimit } from "../middlewares/rate-limit";
 import { invalidateUserCache, invalidateCache, keys } from "../lib/redis";
 import { logger } from "../lib/logger";
 import {
-  createPaymentLink, verifyOrder, gatewayErrorCode, getGatewayState, verifyWebhookSignature,
+  createPaymentLink, getOrder, verifyOrder, cancelOrder,
+  gatewayErrorCode, getGatewayState, verifyWebhookSignature,
 } from "../lib/temanqris";
 
 const router = Router();
@@ -18,6 +19,15 @@ const router = Router();
 const MIN_TOPUP = 100;
 const MAX_TOPUP = 1_000_000;
 const PRESET_TOPUPS = new Set([1_000, 5_000, 10_000, 15_000, 25_000, 50_000]);
+
+/**
+ * A pending (menunggu) QRIS order is automatically cancelled this long after it
+ * is created — and only while it is still pending. Paid/verified orders are
+ * never cancelled. Keeps no payment lingering in "menunggu".
+ */
+const AUTO_CANCEL_MS = 5 * 60 * 1000;
+
+const VERIFIED_STATUSES = ["paid", "success", "confirmed", "completed", "settled"];
 
 function parseTopupAmount(value: unknown): number | null {
   const amount = Number(value);
@@ -27,6 +37,49 @@ function parseTopupAmount(value: unknown): number | null {
 
 function isPaidStatus(status: string): boolean {
   return status === "paid" || status === "confirmed";
+}
+
+function isVerifiedGatewayStatus(status: string): boolean {
+  return VERIFIED_STATUSES.includes(status);
+}
+
+/** Best-effort: tell TemanQRIS to cancel an order. Never throws — cancelling
+ *  a payment that the gateway already marked paid is handled by the caller. */
+async function cancelOrderAtGateway(orderId: string | null): Promise<void> {
+  if (!orderId) return;
+  try {
+    await cancelOrder(orderId);
+  } catch (err: any) {
+    logger.warn({ err: err?.message, orderId }, "topup: gateway cancel failed (best-effort)");
+  }
+}
+
+/** Final, terminal status once verified — nothing else should override it. */
+function isTerminalVerified(status: string): boolean {
+  return status === "paid" || status === "confirmed";
+}
+
+/**
+ * Cancel every pending top-up older than AUTO_CANCEL_MS at the gateway and
+ * locally. Runs on startup, before creating a new top-up, and on status
+ * checks. Guarantees no payment lingers in "menunggu" (pending) past 5 min.
+ */
+export async function sweepStalePendingTopups(limit = 50): Promise<number> {
+  const cutoff = new Date(Date.now() - AUTO_CANCEL_MS);
+  const stale = await db
+    .select({ id: topupsTable.id, orderId: topupsTable.orderId, status: topupsTable.status })
+    .from(topupsTable)
+    .where(and(eq(topupsTable.status, "pending"), lt(topupsTable.createdAt, cutoff)))
+    .limit(limit);
+
+  for (const t of stale) {
+    await cancelOrderAtGateway(t.orderId);
+    await db
+      .update(topupsTable)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(and(eq(topupsTable.id, t.id), eq(topupsTable.status, "pending")));
+  }
+  return stale.length;
 }
 
 /**
@@ -140,6 +193,12 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
     return;
   }
 
+  // Sweep any pending (menunggu) orders past the 5-min auto-cancel window so
+  // nothing lingers — for this user and globally.
+  await sweepStalePendingTopups().catch((e) =>
+    logger.warn({ err: (e as any)?.message }, "topup: stale sweep failed"),
+  );
+
   // Keep one active QRIS transaction per user. This also protects callers
   // that bypass the web UI and call the API directly.
   const [existingPending] = await db.select().from(topupsTable)
@@ -147,8 +206,11 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
     .orderBy(desc(topupsTable.createdAt))
     .limit(1);
   if (existingPending) {
-    if (existingPending.expiredAt && new Date(existingPending.expiredAt).getTime() <= Date.now()) {
-      await db.update(topupsTable).set({ status: "expired", updatedAt: new Date() })
+    const createdAt = new Date(existingPending.createdAt).getTime();
+    if (Date.now() - createdAt >= AUTO_CANCEL_MS) {
+      // Stale — cancel at the gateway and locally, then proceed to create a new one.
+      await cancelOrderAtGateway(existingPending.orderId);
+      await db.update(topupsTable).set({ status: "cancelled", updatedAt: new Date() })
         .where(and(eq(topupsTable.id, existingPending.id), eq(topupsTable.status, "pending")));
     } else {
       res.status(409).json({
@@ -169,16 +231,18 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
     paymentMethod: "qris",
     gateway: "temanqris",
     status: "pending",
-    expiredAt: new Date(Date.now() + 15 * 60 * 1000),
+    expiredAt: new Date(Date.now() + AUTO_CANCEL_MS),
   }).returning();
 
   try {
     const qris = await createPaymentLink({ orderId, amount });
+    // The local 5-min auto-cancel window always wins — never adopt the
+    // gateway's (possibly much longer) expiry, so menunggu orders are cancelled
+    // exactly 5 min after creation.
     const [updated] = await db.update(topupsTable).set({
       qrCodeUrl: qris.qrImage,
       qrisString: qris.qrisString,
       gatewayReference: qris.orderId,
-      expiredAt: qris.expiresAt ?? new Date(Date.now() + 15 * 60 * 1000),
       updatedAt: new Date(),
     }).where(eq(topupsTable.id, topup.id)).returning();
     res.status(201).json({
@@ -210,58 +274,87 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
     .where(and(eq(topupsTable.id, id), eq(topupsTable.userId, req.user!.userId))).limit(1);
   if (!topup) { res.status(404).json({ error: "Top-up not found" }); return; }
 
+  // Already verified — nothing to do. The wallet was credited when verified.
   if (isPaidStatus(topup.status)) {
     res.json({ ...topup, status: "paid", paid: true });
     return;
   }
-  if (topup.status === "expired" || topup.status === "failed" || topup.status === "cancelled") {
+  // Already cancelled somehow (e.g. by the user) — reflect terminal state.
+  if (topup.status === "cancelled" || topup.status === "denied" || topup.status === "failed") {
     res.json({ ...topup, paid: false });
     return;
   }
-  if (topup.expiredAt && new Date(topup.expiredAt).getTime() <= Date.now()) {
-    const [expired] = await db.update(topupsTable).set({ status: "expired", updatedAt: new Date() })
+
+  // Auto-cancel: pending past the 5-min window. Only menunggu orders are
+  // cancelled; anything the gateway verified as paid is credited instead.
+  const createdAt = new Date(topup.createdAt).getTime();
+  const pastAutoCancel = Date.now() - createdAt >= AUTO_CANCEL_MS;
+  if (pastAutoCancel && topup.status === "pending") {
+    // Before cancelling, make sure the gateway did not already verify it paid.
+    try {
+      const checked = await getOrder(String(topup.orderId));
+      if (isVerifiedGatewayStatus(checked.status)) {
+        const result = await creditVerifiedTopup(id, checked.orderId);
+        if (result.status === "paid") {
+          await invalidateUserCache(topup.userId).catch(() => {});
+        }
+        const [latest] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
+        res.json({ ...(latest ?? topup), status: "paid", paid: true });
+        return;
+      }
+    } catch (err) {
+      logger.warn({ err: (err as any)?.message, id }, "topup: pre-cancel check failed");
+    }
+    await cancelOrderAtGateway(topup.orderId);
+    const [cancelled] = await db.update(topupsTable).set({ status: "cancelled", updatedAt: new Date() })
       .where(and(eq(topupsTable.id, id), eq(topupsTable.status, "pending"))).returning();
-    res.json({ ...(expired ?? topup), paid: false });
+    res.json({ ...(cancelled ?? topup), status: "cancelled", paid: false });
     return;
   }
 
-  try {
-    // This asks TemanQRIS to verify the merchant order and emit its
-    // payment.confirmed webhook when the payment is genuinely settled.
-    const order = await verifyOrder(String(topup.orderId));
-    const confirmed = ["paid", "success", "confirmed", "completed", "settled"].includes(order.status);
-    if (confirmed) {
-      await creditVerifiedTopup(id, order.orderId);
-    }
-    /*
-    const createdAt = new Date(topup.createdAt).getTime();
-    const orderNeedle = String(topup.orderId ?? "").toLowerCase();
-    const gatewayNeedle = String(topup.gatewayReference ?? "").toLowerCase();
-    const match = mutations.find((mutation) => {
-      if (mutation.amount !== Number(topup.amount)) return false;
-      if (mutation.occurredAt && mutation.occurredAt.getTime() < createdAt) return false;
-       if (mutation.status && !["in", "paid", "success", "credit", "credited"].includes(mutation.status.toLowerCase())) {
-         return false;
-       }
-      const haystack = `${mutation.reference ?? ""} ${mutation.description}`.toLowerCase();
-      // Do not credit by amount alone. A stable order/gateway reference must
-       // be present in the gateway mutation before the wallet is credited.
-       // JagoPay's mutation id is the stable reference when the gateway does
-       // not echo the generated QRIS reference.
-      // JagoPay's documented mutation payload does not echo our order ID.
-      // Without a stable order/gateway reference, amount + time is not enough
-      // to identify a payment safely. Refuse to credit rather than risk
-      // assigning somebody else's same-value payment.
-      return Boolean(
-        (orderNeedle && haystack.includes(orderNeedle)) ||
-        (gatewayNeedle && haystack.includes(gatewayNeedle)) ||
-        (topup.gatewayReference && mutation.reference === topup.gatewayReference),
-      );
-    });
+  if (topup.status === "expired") {
+    res.json({ ...topup, paid: false });
+    return;
+  }
 
-    if (match?.reference) {
-      await creditVerifiedTopup(id, match.reference);
-    }*/
+  // Check the order at the gateway, then verify — wallet is only credited
+  // after a verified "paid" gateway response (or the signed webhook).
+  try {
+    // 1. Check order status (GET /orders/:orderId).
+    let gatewayStatus: string | null = null;
+    try {
+      const checked = await getOrder(String(topup.orderId));
+      gatewayStatus = checked.status;
+      if (isVerifiedGatewayStatus(checked.status)) {
+        // Gateway already marked it paid — credit and finish.
+        const result = await creditVerifiedTopup(id, checked.orderId);
+        if (result.status === "paid") {
+          await invalidateUserCache(topup.userId).catch(() => {});
+        }
+        const [latest] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
+        res.json({ ...(latest ?? topup), status: "paid", paid: true });
+        return;
+      }
+      if (checked.status === "cancelled" || checked.status === "expired") {
+        const [ended] = await db.update(topupsTable)
+          .set({ status: checked.status === "cancelled" ? "cancelled" : "expired", updatedAt: new Date() })
+          .where(and(eq(topupsTable.id, id), eq(topupsTable.status, "pending"))).returning();
+        res.json({ ...(ended ?? topup), paid: false });
+        return;
+      }
+    } catch (err) {
+      logger.warn({ err: (err as any)?.message, id }, "topup: getOrder failed");
+    }
+
+    // 2. Verify the order (POST /orders/:orderId/verify). Only a verified
+    //    "paid" response credits the wallet — never the button click alone.
+    const order = await verifyOrder(String(topup.orderId));
+    if (isVerifiedGatewayStatus(order.status)) {
+      const result = await creditVerifiedTopup(id, order.orderId);
+      if (result.status === "paid") {
+        await invalidateUserCache(topup.userId).catch(() => {});
+      }
+    }
   } catch (err) {
     const code = gatewayErrorCode(err);
     res.json({ ...topup, paid: false, gatewayStatus: code });
@@ -269,7 +362,54 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
   }
 
   const [latest] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
-  res.json({ ...(latest ?? topup), status: isPaidStatus(latest?.status ?? "pending") ? "paid" : latest?.status ?? "pending", paid: isPaidStatus(latest?.status ?? "pending") });
+  const finalStatus = latest?.status ?? "pending";
+  const paid = isPaidStatus(finalStatus);
+  res.json({ ...(latest ?? topup), status: paid ? "paid" : finalStatus, paid });
+});
+
+// ── POST /topup/:id/cancel — user cancels a pending top-up ────────────────────
+router.post("/topup/:id/cancel", authenticate, qrisRateLimit, async (req, res) => {
+  const id = String(req.params.id);
+  const [topup] = await db.select().from(topupsTable)
+    .where(and(eq(topupsTable.id, id), eq(topupsTable.userId, req.user!.userId))).limit(1);
+  if (!topup) { res.status(404).json({ error: "Top-up not found" }); return; }
+
+  // Already verified — can never cancel a paid/confirmed top-up.
+  if (isPaidStatus(topup.status)) {
+    res.status(400).json({ error: "Pembayaran sudah terverifikasi dan tidak dapat dibatalkan." });
+    return;
+  }
+  if (topup.status === "cancelled" || topup.status === "expired" || topup.status === "denied" || topup.status === "failed") {
+    res.json({ ...topup, paid: false });
+    return;
+  }
+  if (topup.status !== "pending") {
+    res.status(400).json({ error: `Tidak dapat membatalkan top-up berstatus "${topup.status}".` });
+    return;
+  }
+
+  // Don't cancel a payment the gateway already verified paid.
+  try {
+    const checked = await getOrder(String(topup.orderId));
+    if (isVerifiedGatewayStatus(checked.status)) {
+      const result = await creditVerifiedTopup(topup.id, checked.orderId);
+      if (result.status === "paid") {
+        await invalidateUserCache(topup.userId).catch(() => {});
+      }
+      res.status(409).json({ error: "Pembayaran sudah terverifikasi dan tidak dapat dibatalkan." });
+      return;
+    }
+  } catch (err) {
+    logger.warn({ err: (err as any)?.message, id }, "topup: pre-cancel check failed");
+  }
+
+  await cancelOrderAtGateway(topup.orderId);
+  const [cancelled] = await db.update(topupsTable)
+    .set({ status: "cancelled", updatedAt: new Date() })
+    .where(and(eq(topupsTable.id, id), eq(topupsTable.status, "pending")))
+    .returning();
+
+  res.json({ ...(cancelled ?? topup), status: "cancelled", paid: false });
 });
 
 // TemanQRIS calls this after its merchant verification. Only
