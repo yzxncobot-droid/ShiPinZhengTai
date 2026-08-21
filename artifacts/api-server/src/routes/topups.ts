@@ -54,11 +54,6 @@ async function cancelOrderAtGateway(orderId: string | null): Promise<void> {
   }
 }
 
-/** Final, terminal status once verified — nothing else should override it. */
-function isTerminalVerified(status: string): boolean {
-  return status === "paid" || status === "confirmed";
-}
-
 /**
  * Cancel every pending top-up older than AUTO_CANCEL_MS at the gateway and
  * locally. Runs on startup, before creating a new top-up, and on status
