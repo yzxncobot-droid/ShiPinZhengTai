@@ -55,8 +55,9 @@ export async function runCriticalStartupMigration(): Promise<void> {
     // payout_status enum
     await runCriticalStep(client, "payout_status enum", `
       DO $$ BEGIN
-        CREATE TYPE payout_status AS ENUM ('pending', 'paid', 'cancelled');
-      EXCEPTION WHEN duplicate_object THEN NULL;
+        IF to_regtype('public.payout_status') IS NULL THEN
+          CREATE TYPE public.payout_status AS ENUM ('pending', 'paid', 'cancelled');
+        END IF;
       END $$;
     `);
 
