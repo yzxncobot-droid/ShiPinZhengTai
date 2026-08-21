@@ -10,7 +10,7 @@ import { qrisRateLimit } from "../middlewares/rate-limit";
 import { invalidateUserCache, invalidateCache, keys } from "../lib/redis";
 import { logger } from "../lib/logger";
 import {
-  createPaymentLink, getOrder, verifyOrder, cancelOrder,
+  createPaymentLink, getOrder, cancelOrder,
   gatewayErrorCode, getGatewayState, verifyWebhookSignature,
 } from "../lib/temanqris";
 
@@ -312,44 +312,39 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
     return;
   }
 
-  // Check the order at the gateway, then verify — wallet is only credited
-  // after a verified "paid" gateway response (or the signed webhook).
+  // CRITICAL SECURITY: this endpoint MUST NOT call the gateway "verify"
+  // action. TemanQRIS /orders/:id/verify marks an order "paid" instantly
+  // WITHOUT any real payment, so letting the customer's "Sudah Bayar" button
+  // trigger it would grant free wallet balance with no transfer. The wallet
+  // is credited here ONLY when TemanQRIS itself already reports the order
+  // "paid" (i.e. the merchant/gateway verified real funds arrived), or when
+  // the signed payment.confirmed webhook — which no customer can forge —
+  // settles it. Checkout is read-only (GET /orders) so a click never mints
+  // balance. Only an authenticated owner may mark a payment verified via the
+  // admin confirm/deny routes below.
   try {
-    // 1. Check order status (GET /orders/:orderId).
-    let gatewayStatus: string | null = null;
-    try {
-      const checked = await getOrder(String(topup.orderId));
-      gatewayStatus = checked.status;
-      if (isVerifiedGatewayStatus(checked.status)) {
-        // Gateway already marked it paid — credit and finish.
-        const result = await creditVerifiedTopup(id, checked.orderId);
-        if (result.status === "paid") {
-          await invalidateUserCache(topup.userId).catch(() => {});
-        }
-        const [latest] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
-        res.json({ ...(latest ?? topup), status: "paid", paid: true });
-        return;
-      }
-      if (checked.status === "cancelled" || checked.status === "expired") {
-        const [ended] = await db.update(topupsTable)
-          .set({ status: checked.status === "cancelled" ? "cancelled" : "expired", updatedAt: new Date() })
-          .where(and(eq(topupsTable.id, id), eq(topupsTable.status, "pending"))).returning();
-        res.json({ ...(ended ?? topup), paid: false });
-        return;
-      }
-    } catch (err) {
-      logger.warn({ err: (err as any)?.message, id }, "topup: getOrder failed");
-    }
-
-    // 2. Verify the order (POST /orders/:orderId/verify). Only a verified
-    //    "paid" response credits the wallet — never the button click alone.
-    const order = await verifyOrder(String(topup.orderId));
-    if (isVerifiedGatewayStatus(order.status)) {
-      const result = await creditVerifiedTopup(id, order.orderId);
+    const checked = await getOrder(String(topup.orderId));
+    if (isVerifiedGatewayStatus(checked.status)) {
+      // Gateway itself marked it paid (real funds) — credit and finish.
+      const result = await creditVerifiedTopup(id, checked.orderId);
       if (result.status === "paid") {
         await invalidateUserCache(topup.userId).catch(() => {});
       }
+      const [latest] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
+      res.json({ ...(latest ?? topup), status: "paid", paid: true });
+      return;
     }
+    if (checked.status === "cancelled" || checked.status === "expired") {
+      const [ended] = await db.update(topupsTable)
+        .set({ status: checked.status === "cancelled" ? "cancelled" : "expired", updatedAt: new Date() })
+        .where(and(eq(topupsTable.id, id), eq(topupsTable.status, "pending"))).returning();
+      res.json({ ...(ended ?? topup), paid: false });
+      return;
+    }
+    // Still pending at the gateway — payment not yet verified. Do not credit.
+    const [latest] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
+    res.json({ ...(latest ?? topup), status: "pending", paid: false, gatewayStatus: checked.status });
+    return;
   } catch (err) {
     const code = gatewayErrorCode(err);
     res.json({ ...topup, paid: false, gatewayStatus: code });
