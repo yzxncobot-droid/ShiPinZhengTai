@@ -20,6 +20,19 @@ export interface TemanQrisOrder {
   amount: number | null;
   status: string;
   expiresAt: Date | null;
+  title: string | null;
+  description: string | null;
+  isPaid: boolean | null;
+  paidAt: Date | null;
+  createdAt: Date | null;
+  linkCode: string | null;
+  confirmedBy: string | null;
+  raw: unknown;
+}
+
+export interface TemanQrisOrderList {
+  orders: TemanQrisOrder[];
+  pagination: { limit: number; offset: number; total: number | null } | null;
   raw: unknown;
 }
 
@@ -105,6 +118,29 @@ async function temanqrisRequest(
   }
 }
 
+/** Map a raw TemanQRIS order object to our normalized shape, covering the
+ *  fields documented for GET /orders/:orderId, GET /orders, POST .../verify
+ *  and the webhook `data` payload. */
+function mapOrder(data: any, raw: unknown, fallbackOrderId: string, fallbackStatus = "pending"): TemanQrisOrder {
+  const strOrNull = (v: unknown) => (v != null ? String(v) : null);
+  return {
+    orderId: String(firstValue(data, ["order_id", "orderId"]) ?? fallbackOrderId),
+    amount: Number(firstValue(data, ["amount", "nominal"]) ?? NaN) || null,
+    status: String(firstValue(data, ["status", "state"]) ?? fallbackStatus).toLowerCase(),
+    expiresAt: asDate(firstValue(data, ["expires_at", "expired_at", "expiresAt"])),
+    title: strOrNull(firstValue(data, ["title"])),
+    description: strOrNull(firstValue(data, ["description"])),
+    isPaid: firstValue(data, ["is_paid", "isPaid"]) != null
+      ? Boolean(firstValue(data, ["is_paid", "isPaid"]))
+      : null,
+    paidAt: asDate(firstValue(data, ["paid_at", "paidAt"])),
+    createdAt: asDate(firstValue(data, ["created_at", "createdAt"])),
+    linkCode: strOrNull(firstValue(data, ["link_code", "linkCode"])),
+    confirmedBy: strOrNull(firstValue(data, ["confirmed_by", "confirmedBy"])),
+    raw,
+  };
+}
+
 function publicAppUrl(): string | null {
   const configured = process.env.TEMANQRIS_PUBLIC_URL?.trim() || process.env.PUBLIC_APP_URL?.trim();
   if (configured) return configured.replace(/\/+$/, "");
@@ -162,29 +198,27 @@ export async function getOrder(orderId: string): Promise<TemanQrisOrder> {
     throw gatewayError("Invalid TemanQRIS order ID", "INVALID_ORDER_ID");
   }
   const body = await temanqrisRequest(`/orders/${encodeURIComponent(orderId)}`, "GET");
-  const data = payloadOf(body);
-  return {
-    orderId: String(firstValue(data, ["order_id", "orderId"]) ?? orderId),
-    amount: Number(firstValue(data, ["amount", "nominal"]) ?? NaN) || null,
-    status: String(firstValue(data, ["status", "state"]) ?? "pending").toLowerCase(),
-    expiresAt: asDate(firstValue(data, ["expires_at", "expired_at", "expiresAt"])),
-    raw: body,
-  };
+  return mapOrder(payloadOf(body), body, orderId);
 }
 
-export async function verifyOrder(orderId: string): Promise<TemanQrisOrder> {
+/** Verify Order (Merchant) — POST /orders/:orderId/verify marks an order as
+ *  paid. Optional `payer_name` / `payer_note` are forwarded to TemanQRIS. */
+export async function verifyOrder(
+  orderId: string,
+  options?: { payerName?: string; payerNote?: string },
+): Promise<TemanQrisOrder> {
   if (!/^[A-Za-z0-9_-]{3,80}$/.test(orderId)) {
     throw gatewayError("Invalid TemanQRIS order ID", "INVALID_ORDER_ID");
   }
-  const body = await temanqrisRequest(`/orders/${encodeURIComponent(orderId)}/verify`, "POST");
-  const data = payloadOf(body);
-  return {
-    orderId: String(firstValue(data, ["order_id", "orderId"]) ?? orderId),
-    amount: Number(firstValue(data, ["amount", "nominal"]) ?? NaN) || null,
-    status: String(firstValue(data, ["status", "state"]) ?? "pending").toLowerCase(),
-    expiresAt: asDate(firstValue(data, ["expires_at", "expired_at", "expiresAt"])),
-    raw: body,
-  };
+  const body = await temanqrisRequest(
+    `/orders/${encodeURIComponent(orderId)}/verify`,
+    "POST",
+    {
+      ...(options?.payerName ? { payer_name: options.payerName } : {}),
+      ...(options?.payerNote ? { payer_note: options.payerNote } : {}),
+    },
+  );
+  return mapOrder(payloadOf(body), body, orderId);
 }
 
 export async function cancelOrder(orderId: string): Promise<TemanQrisOrder> {
@@ -192,12 +226,36 @@ export async function cancelOrder(orderId: string): Promise<TemanQrisOrder> {
     throw gatewayError("Invalid TemanQRIS order ID", "INVALID_ORDER_ID");
   }
   const body = await temanqrisRequest(`/orders/${encodeURIComponent(orderId)}/cancel`, "POST");
+  return mapOrder(payloadOf(body), body, orderId, "cancelled");
+}
+
+/** List all orders with pagination — GET /orders?status=&limit=&offset= */
+export async function listOrders(options?: {
+  status?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<TemanQrisOrderList> {
+  const params = new URLSearchParams();
+  if (options?.status) params.set("status", options.status);
+  if (options?.limit != null) params.set("limit", String(options.limit));
+  if (options?.offset != null) params.set("offset", String(options.offset));
+  const query = params.toString() ? `?${params.toString()}` : "";
+  const body = await temanqrisRequest(`/orders${query}`, "GET");
   const data = payloadOf(body);
+  const rawOrders = firstValue(data, ["orders", "data", "results", "items"]);
+  const orders = Array.isArray(rawOrders) ? rawOrders : [];
+  const pg = data?.pagination ?? data?.meta ?? null;
   return {
-    orderId: String(firstValue(data, ["order_id", "orderId"]) ?? orderId),
-    amount: Number(firstValue(data, ["amount", "nominal"]) ?? NaN) || null,
-    status: String(firstValue(data, ["status", "state"]) ?? "cancelled").toLowerCase(),
-    expiresAt: asDate(firstValue(data, ["expires_at", "expired_at", "expiresAt"])),
+    orders: orders.map((o: any) => mapOrder(o, o, String(firstValue(o, ["order_id", "orderId"]) ?? ""))),
+    pagination: pg
+      ? {
+          limit: Number(firstValue(pg, ["limit", "per_page"]) ?? options?.limit ?? 20) || 20,
+          offset: Number(firstValue(pg, ["offset", "skip"]) ?? options?.offset ?? 0) || 0,
+          total: firstValue(pg, ["total", "count"]) != null
+            ? Number(firstValue(pg, ["total", "count"]))
+            : null,
+        }
+      : null,
     raw: body,
   };
 }

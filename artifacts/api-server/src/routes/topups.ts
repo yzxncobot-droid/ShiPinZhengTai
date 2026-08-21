@@ -487,9 +487,16 @@ router.post("/webhooks/temanqris", async (req, res) => {
     return;
   }
 
+  // TemanQRIS delivers the event name in the X-TemanQRIS-Event header and a
+  // retry counter in X-TemanQRIS-Retry (30s -> 2min -> 10min, up to 3 attempts).
+  const eventHeader = String(req.headers["x-temanqris-event"] ?? "").toLowerCase();
+  const retryHeader = req.headers["x-temanqris-retry"];
   const body: any = req.body ?? {};
   const data: any = body.data ?? body.result ?? body;
-  const event = String(body.event ?? body.type ?? data.event ?? data.type ?? "").toLowerCase();
+  const event = String(eventHeader || body.event || body.type || data.event || data.type || "").toLowerCase();
+  if (retryHeader != null) {
+    logger.info({ event, retry: String(retryHeader) }, "webhook: temanqris retry received");
+  }
   const isAwaiting = event === "payment.awaiting_confirmation" || event === "awaiting_confirmation";
   const isConfirmed = event === "payment.confirmed" || event === "payment.paid" || event === "paid";
   if (!isAwaiting && !isConfirmed) {
