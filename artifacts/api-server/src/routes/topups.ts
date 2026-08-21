@@ -4,7 +4,7 @@ import {
   topupsTable, usersTable, walletsTable, walletTransactionsTable,
   transactionsTable, notificationsTable, paymentProofsTable,
 } from "@workspace/db";
-import { eq, and, desc, sql, count, lt, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, count, lt, gt, inArray } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
 import { qrisRateLimit } from "../middlewares/rate-limit";
 import { invalidateUserCache, invalidateCache, keys } from "../lib/redis";
@@ -75,6 +75,55 @@ export async function sweepStalePendingTopups(limit = 50): Promise<number> {
       .where(and(eq(topupsTable.id, t.id), eq(topupsTable.status, "pending")));
   }
   return stale.length;
+}
+
+/**
+ * Auto-settle verified top-ups — the "full automatic" path. Polls every
+ * pending / awaiting_confirmation TemanQRIS top-up against the gateway
+ * (GET /orders/:id, read-only) and credits the wallet the moment TemanQRIS
+ * reports the order paid. No merchant action is needed: the customer pays,
+ * TemanQRIS detects the QRIS transfer, and the wallet is credited.
+ *
+ * It never calls the gateway "verify" action, so it cannot mint balance
+ * without a real payment. Runs on startup and on a 30s interval.
+ */
+export async function settlePaidTopups(limit = 50): Promise<number> {
+  // Only check recent orders (last 30 min) to bound gateway API usage — older
+  // pending orders are already handled by the stale-cancel sweep.
+  const since = new Date(Date.now() - 30 * 60 * 1000);
+  const candidates = await db
+    .select({ id: topupsTable.id, orderId: topupsTable.orderId, userId: topupsTable.userId })
+    .from(topupsTable)
+    .where(and(
+      eq(topupsTable.gateway, "temanqris"),
+      inArray(topupsTable.status, ["pending", "awaiting_confirmation"]),
+      gt(topupsTable.createdAt, since),
+    ))
+    .limit(limit);
+
+  let settled = 0;
+  for (const t of candidates) {
+    if (!t.orderId) continue;
+    try {
+      const checked = await getOrder(String(t.orderId));
+      if (isVerifiedGatewayStatus(checked.status)) {
+        const result = await creditVerifiedTopup(t.id, checked.orderId);
+        if (result.status === "paid") {
+          settled++;
+          await invalidateUserCache(t.userId).catch(() => {});
+          await invalidateCache(keys.analytics("overview")).catch(() => {});
+          logger.info({ topupId: t.id, orderId: t.orderId }, "topup: auto-settled via gateway poll");
+        }
+      } else if (checked.status === "awaiting_confirmation") {
+        // Keep the local status in sync so the verification queue is accurate.
+        await db.update(topupsTable).set({ status: "awaiting_confirmation", updatedAt: new Date() })
+          .where(and(eq(topupsTable.id, t.id), eq(topupsTable.status, "pending")));
+      }
+    } catch (err: any) {
+      logger.warn({ err: err?.message, topupId: t.id, orderId: t.orderId }, "topup: auto-settle check failed (best-effort)");
+    }
+  }
+  return settled;
 }
 
 /**
@@ -497,8 +546,14 @@ router.post("/webhooks/temanqris", async (req, res) => {
   if (retryHeader != null) {
     logger.info({ event, retry: String(retryHeader) }, "webhook: temanqris retry received");
   }
-  const isAwaiting = event === "payment.awaiting_confirmation" || event === "awaiting_confirmation";
-  const isConfirmed = event === "payment.confirmed" || event === "payment.paid" || event === "paid";
+  // TemanQRIS reports the payment state both in the X-TemanQRIS-Event header
+  // and (redundantly) in `data.status`. A "paid"/"confirmed" status means the
+  // QRIS transfer was detected — auto-credit the wallet with no merchant action.
+  const dataStatus = String(data.status ?? "").toLowerCase();
+  const isAwaiting = event === "payment.awaiting_confirmation" || event === "awaiting_confirmation"
+    || dataStatus === "awaiting_confirmation";
+  const isConfirmed = event === "payment.confirmed" || event === "payment.paid" || event === "paid"
+    || isVerifiedGatewayStatus(dataStatus);
   if (!isAwaiting && !isConfirmed) {
     res.json({ received: true, ignored: true });
     return;
@@ -516,24 +571,26 @@ router.post("/webhooks/temanqris", async (req, res) => {
     return;
   }
 
-  if (isAwaiting) {
-    // Customer confirmed payment via the widget — move to awaiting_confirmation
-    // so the merchant verifies funds. No wallet credit.
-    await db.update(topupsTable).set({ status: "awaiting_confirmation", updatedAt: new Date() })
-      .where(and(eq(topupsTable.id, topup.id), eq(topupsTable.status, "pending")));
-    res.json({ received: true, status: "awaiting_confirmation" });
+  // Confirmed (real payment detected) takes precedence over awaiting — a paid
+  // signal always credits, even if an awaiting_confirmation was still in flight.
+  if (isConfirmed) {
+    const gatewayReference = String(
+      data.transaction_id ?? data.transactionId ?? data.reference ?? orderId,
+    ).trim();
+    const result = await creditVerifiedTopup(topup.id, gatewayReference);
+    if (result.status === "paid" || result.status === "already_processed") {
+      await invalidateUserCache(topup.userId).catch(() => {});
+      await invalidateCache(keys.analytics("overview")).catch(() => {});
+    }
+    res.json({ received: true, status: result.status });
     return;
   }
 
-  const gatewayReference = String(
-    data.transaction_id ?? data.transactionId ?? data.reference ?? orderId,
-  ).trim();
-  const result = await creditVerifiedTopup(topup.id, gatewayReference);
-  if (result.status === "paid" || result.status === "already_processed") {
-    await invalidateUserCache(topup.userId).catch(() => {});
-    await invalidateCache(keys.analytics("overview")).catch(() => {});
-  }
-  res.json({ received: true, status: result.status });
+  // Customer confirmed payment via the widget — move to awaiting_confirmation
+  // so the merchant verifies funds. No wallet credit yet.
+  await db.update(topupsTable).set({ status: "awaiting_confirmation", updatedAt: new Date() })
+    .where(and(eq(topupsTable.id, topup.id), eq(topupsTable.status, "pending")));
+  res.json({ received: true, status: "awaiting_confirmation" });
 });
 
 // ── GET /topups — user's own top-up history ────────────────────────────────────
