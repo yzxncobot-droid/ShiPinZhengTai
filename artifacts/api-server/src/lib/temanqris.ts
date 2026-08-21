@@ -124,11 +124,14 @@ export function getGatewayState(): GatewayState {
 export async function createPaymentLink(input: {
   orderId: string;
   amount: number;
+  returnUrl?: string;
 }): Promise<TemanQrisPayment> {
   const webhookUrl = temanqrisWebhookUrl();
-  const callbackUrl = publicAppUrl()
-    ? `${publicAppUrl()}/topup?order_id=${encodeURIComponent(input.orderId)}`
-    : undefined;
+  const callbackUrl = input.returnUrl ?? (
+    publicAppUrl()
+      ? `${publicAppUrl()}/topup?order_id=${encodeURIComponent(input.orderId)}`
+      : undefined
+  );
   const body = await temanqrisRequest("/payment-link", "POST", {
     order_id: input.orderId,
     amount: input.amount,

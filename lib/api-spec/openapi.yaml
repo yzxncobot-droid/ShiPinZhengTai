@@ -1904,6 +1904,8 @@ components:
           type: ["string", "null"]
         qrisString:
           type: ["string", "null"]
+        paymentLink:
+          type: ["string", "null"]
         gatewayReference:
           type: ["string", "null"]
         expiredAt:
@@ -1947,6 +1949,8 @@ components:
         qrCodeUrl:
           type: ["string", "null"]
         qrisString:
+          type: ["string", "null"]
+        paymentLink:
           type: ["string", "null"]
         expiredAt:
           type: ["string", "null"]

@@ -269,6 +269,16 @@ function AutomaticQrisModal({
                         </div>
                       )}
                     </div>
+                    {topup.paymentLink && !expired && (
+                      <a
+                        href={topup.paymentLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="h-10 rounded-xl border border-indigo-200 text-indigo-600 font-extrabold text-xs flex items-center justify-center hover:bg-indigo-50"
+                      >
+                        Buka halaman pembayaran
+                      </a>
+                    )}
 
                     <div className={`flex items-center justify-center gap-2 text-sm font-extrabold ${expired ? "text-red-500" : "text-amber-600"}`}>
                       <Clock className="h-4 w-4" />
@@ -339,6 +349,32 @@ export default function TopupPage() {
   useEffect(() => {
     if (shouldShowRules(sessionKey)) setShowRules(true);
   }, [sessionKey]);
+
+  useEffect(() => {
+    const topupId = new URLSearchParams(window.location.search).get("topup_id");
+    if (!topupId || !token) return;
+    let cancelled = false;
+    void fetch(`/api/topup/${encodeURIComponent(topupId)}/status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error ?? "Gagal memuat status top up.");
+        if (cancelled) return;
+        setActiveTopup(result);
+        setQrisOpen(true);
+        if (result.paid || result.status === "paid" || result.status === "confirmed") {
+          refreshAfterPaid();
+        }
+      })
+      .catch(() => {
+        // The return URL is best-effort; the user can still open Top Up and
+        // check the transaction manually if the session has expired.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   const refreshAfterPaid = () => {
     queryClient.invalidateQueries({ queryKey: getListMyTopupsQueryKey({ limit: 5 }) });

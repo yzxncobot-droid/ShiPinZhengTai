@@ -422,6 +422,8 @@ export interface AutomaticTopup {
   /** @nullable */
   qrisString?: string | null;
   /** @nullable */
+  paymentLink?: string | null;
+  /** @nullable */
   gatewayReference?: string | null;
   /** @nullable */
   expiredAt: string | null;
@@ -469,6 +471,8 @@ export interface Topup {
   qrCodeUrl?: string | null;
   /** @nullable */
   qrisString?: string | null;
+  /** @nullable */
+  paymentLink?: string | null;
   /** @nullable */
   expiredAt?: string | null;
   /** @nullable */

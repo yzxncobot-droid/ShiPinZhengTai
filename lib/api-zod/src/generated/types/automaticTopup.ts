@@ -21,6 +21,8 @@ export interface AutomaticTopup {
   /** @nullable */
   qrisString?: string | null;
   /** @nullable */
+  paymentLink?: string | null;
+  /** @nullable */
   gatewayReference?: string | null;
   /** @nullable */
   expiredAt: Date | null;

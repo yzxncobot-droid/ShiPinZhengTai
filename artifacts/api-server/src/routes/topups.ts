@@ -1,4 +1,5 @@
 import { Router } from "express";
+import crypto from "node:crypto";
 import { db } from "@workspace/db";
 import {
   topupsTable, usersTable, walletsTable, walletTransactionsTable,
@@ -38,6 +39,10 @@ async function creditVerifiedTopup(
   gatewayReference: string,
 ): Promise<{ status: string; newBalance?: number }> {
   return db.transaction(async (tx: any) => {
+    // Serialize all callbacks/polls for the same gateway mutation, even when
+    // they point at different local rows. This closes the race where two
+    // pending rows could both pass the duplicate-reference check.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${gatewayReference}))`);
     const lockedResult = await tx.execute(sql`
       SELECT id, user_id, amount, status
       FROM topups
@@ -173,10 +178,17 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
   }).returning();
 
   try {
-    const qris = await createPaymentLink({ orderId, amount });
+    const qris = await createPaymentLink({
+      orderId,
+      amount,
+      returnUrl: process.env.TEMANQRIS_PUBLIC_URL?.trim()
+        ? `${process.env.TEMANQRIS_PUBLIC_URL.trim().replace(/\/+$/, "")}/topup?topup_id=${encodeURIComponent(topup.id)}`
+        : undefined,
+    });
     const [updated] = await db.update(topupsTable).set({
       qrCodeUrl: qris.qrImage,
       qrisString: qris.qrisString,
+      paymentLink: qris.paymentLink,
       gatewayReference: qris.orderId,
       expiredAt: qris.expiresAt ?? new Date(Date.now() + 15 * 60 * 1000),
       updatedAt: new Date(),
@@ -231,6 +243,14 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
     const order = await verifyOrder(String(topup.orderId));
     const confirmed = ["paid", "success", "confirmed", "completed", "settled"].includes(order.status);
     if (confirmed) {
+      if (order.orderId !== topup.orderId) {
+        res.json({ ...topup, paid: false, gatewayStatus: "ORDER_MISMATCH" });
+        return;
+      }
+      if (order.amount != null && order.amount !== Number(topup.amount)) {
+        res.json({ ...topup, paid: false, gatewayStatus: "AMOUNT_MISMATCH" });
+        return;
+      }
       await creditVerifiedTopup(id, order.orderId);
     }
     /*
@@ -305,6 +325,11 @@ router.post("/webhooks/temanqris", async (req, res) => {
   const gatewayReference = String(
     data.transaction_id ?? data.transactionId ?? data.reference ?? orderId,
   ).trim();
+  const webhookAmount = Number(data.amount ?? data.nominal ?? NaN);
+  if (Number.isFinite(webhookAmount) && webhookAmount !== Number(topup.amount)) {
+    res.status(400).json({ error: "Webhook amount does not match top-up amount" });
+    return;
+  }
   const result = await creditVerifiedTopup(topup.id, gatewayReference);
   if (result.status === "paid" || result.status === "already_processed") {
     await invalidateUserCache(topup.userId).catch(() => {});

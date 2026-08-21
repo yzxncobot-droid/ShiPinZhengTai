@@ -28,6 +28,8 @@ export interface Topup {
   /** @nullable */
   qrisString?: string | null;
   /** @nullable */
+  paymentLink?: string | null;
+  /** @nullable */
   expiredAt?: Date | null;
   /** @nullable */
   paidAt?: Date | null;
