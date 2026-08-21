@@ -177,14 +177,18 @@ function AutomaticQrisModal({
   topup,
   creating,
   checking,
+  canceling,
   onCheck,
+  onCancel,
 }: {
   open: boolean;
   onClose: () => void;
   topup: AutomaticTopup | null;
   creating: boolean;
   checking: boolean;
+  canceling: boolean;
   onCheck: () => void;
+  onCancel: () => void;
 }) {
   const [secondsLeft, setSecondsLeft] = useState(0);
 
@@ -201,6 +205,7 @@ function AutomaticQrisModal({
     return () => window.clearInterval(timer);
   }, [open, topup?.expiredAt]);
 
+  const cancelled = !creating && topup?.status === "cancelled";
   const expired = !creating && (!secondsLeft || topup?.status === "expired");
   const minutes = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
   const seconds = String(secondsLeft % 60).padStart(2, "0");
@@ -270,13 +275,13 @@ function AutomaticQrisModal({
                       )}
                     </div>
 
-                    <div className={`flex items-center justify-center gap-2 text-sm font-extrabold ${expired ? "text-red-500" : "text-amber-600"}`}>
+                    <div className={`flex items-center justify-center gap-2 text-sm font-extrabold ${cancelled ? "text-slate-500" : expired ? "text-red-500" : "text-amber-600"}`}>
                       <Clock className="h-4 w-4" />
-                      {expired ? "QRIS telah kedaluwarsa" : `Menunggu pembayaran · ${minutes}:${seconds}`}
+                      {cancelled ? "Pembayaran dibatalkan" : expired ? "Waktu habis — pembayaran dibatalkan" : `Menunggu pembayaran · ${minutes}:${seconds}`}
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
-                      {topup.qrCodeUrl && !expired ? (
+                      {topup.qrCodeUrl && !expired && !cancelled ? (
                         <a
                           href={topup.qrCodeUrl}
                           download={`QRIS-${topup.orderId}.png`}
@@ -293,13 +298,24 @@ function AutomaticQrisModal({
                       )}
                       <button
                         onClick={onCheck}
-                        disabled={checking || expired}
+                        disabled={checking || expired || cancelled}
                         className="h-11 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 disabled:opacity-50"
                       >
                         {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                          Saya Sudah Bayar
                       </button>
                     </div>
+
+                    {topup.status === "pending" && !cancelled && (
+                      <button
+                        onClick={onCancel}
+                        disabled={canceling}
+                        className="w-full h-10 rounded-xl border border-red-200 text-red-600 font-extrabold text-xs flex items-center justify-center gap-1.5 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {canceling ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                        Batalkan Pembayaran
+                      </button>
+                    )}
 
                     <div className="flex items-start gap-3 bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3">
                       <Shield className="h-4 w-4 text-purple-500 shrink-0 mt-0.5" />
@@ -331,6 +347,7 @@ export default function TopupPage() {
   const [customError, setCustomError] = useState("");
   const [activeTopup, setActiveTopup] = useState<AutomaticTopup | null>(null);
   const [checking, setChecking] = useState(false);
+  const [canceling, setCanceling] = useState(false);
 
   const sessionKey = (token ?? "anon").slice(0, 10);
   const historyList: Topup[] = useMemo(() => (topupHistory as any)?.data ?? [], [topupHistory]);
@@ -343,6 +360,26 @@ export default function TopupPage() {
   const refreshAfterPaid = () => {
     queryClient.invalidateQueries({ queryKey: getListMyTopupsQueryKey({ limit: 5 }) });
     queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+  };
+
+  const cancelTopup = async () => {
+    if (!activeTopup?.id || canceling) return;
+    setCanceling(true);
+    try {
+      const latest = await fetch(`/api/topup/${activeTopup.id}/cancel`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      const result = await latest.json();
+      if (!latest.ok) throw new Error(result.error ?? result.message ?? "Gagal membatalkan pembayaran.");
+      setActiveTopup(result);
+      toast({ title: "Pembayaran dibatalkan", description: "Transaksi dibatalkan dan QRIS dinonaktifkan." });
+      refreshAfterPaid();
+    } catch (error: any) {
+      toast({ title: "Gagal membatalkan", description: error?.message ?? "Silakan coba lagi.", variant: "destructive" });
+    } finally {
+      setCanceling(false);
+    }
   };
 
   const checkPayment = async () => {
@@ -359,6 +396,8 @@ export default function TopupPage() {
         toast({ title: "Top up berhasil!", description: "Saldo kamu sudah bertambah otomatis." });
         refreshAfterPaid();
         setQrisOpen(false);
+      } else if (result.status === "cancelled") {
+        toast({ title: "Pembayaran dibatalkan", description: "Transaksi dibatalkan. Buat baru untuk top up lagi.", variant: "destructive" });
       } else if (result.status === "expired") {
         toast({ title: "QRIS kedaluwarsa", description: "Buat transaksi baru untuk mencoba lagi.", variant: "destructive" });
       } else {
@@ -418,7 +457,7 @@ export default function TopupPage() {
 
   const closeQris = () => {
     setQrisOpen(false);
-    if (activeTopup?.status === "paid" || activeTopup?.status === "expired" || activeTopup?.status === "failed") {
+    if (activeTopup?.status === "paid" || activeTopup?.status === "expired" || activeTopup?.status === "failed" || activeTopup?.status === "cancelled") {
       setActiveTopup(null);
     }
   };
@@ -557,7 +596,9 @@ export default function TopupPage() {
           topup={activeTopup}
           creating={createTopup.isPending}
           checking={checking}
+          canceling={canceling}
           onCheck={checkPayment}
+          onCancel={cancelTopup}
         />
       </AppLayout>
     </ProtectedRoute>

@@ -72,6 +72,16 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    // In the dev environment the API is a separate process; proxy the
+    // frontend's relative /api requests to it so cookies/auth stay same-origin.
+    proxy: process.env.API_URL
+      ? {
+          '/api': {
+            target: process.env.API_URL,
+            changeOrigin: true,
+          },
+        }
+      : undefined,
   },
   preview: {
     port,
