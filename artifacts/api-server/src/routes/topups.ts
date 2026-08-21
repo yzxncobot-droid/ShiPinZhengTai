@@ -4,7 +4,7 @@ import {
   topupsTable, usersTable, walletsTable, walletTransactionsTable,
   transactionsTable, notificationsTable, paymentProofsTable,
 } from "@workspace/db";
-import { eq, and, desc, sql, count, lt } from "drizzle-orm";
+import { eq, and, desc, sql, count, lt, inArray } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
 import { qrisRateLimit } from "../middlewares/rate-limit";
 import { invalidateUserCache, invalidateCache, keys } from "../lib/redis";
@@ -95,7 +95,12 @@ async function creditVerifiedTopup(
     const topup = lockedResult.rows[0] as any;
     if (!topup) return { status: "not_found" };
     if (isPaidStatus(String(topup.status))) return { status: "paid" };
-    if (String(topup.status) !== "pending") return { status: String(topup.status) };
+    // A top-up awaiting the merchant's confirmation may still be credited by a
+    // signed gateway signal (webhook / gateway "paid"). Only terminal non-paid
+    // states block crediting.
+    if (String(topup.status) !== "pending" && String(topup.status) !== "awaiting_confirmation") {
+      return { status: String(topup.status) };
+    }
 
     const duplicate = await tx.select({ id: walletTransactionsTable.id })
       .from(walletTransactionsTable)
@@ -197,16 +202,26 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
   // Keep one active QRIS transaction per user. This also protects callers
   // that bypass the web UI and call the API directly.
   const [existingPending] = await db.select().from(topupsTable)
-    .where(and(eq(topupsTable.userId, req.user!.userId), eq(topupsTable.status, "pending")))
+    .where(and(eq(topupsTable.userId, req.user!.userId), inArray(topupsTable.status, ["pending", "awaiting_confirmation"])))
     .orderBy(desc(topupsTable.createdAt))
     .limit(1);
   if (existingPending) {
     const createdAt = new Date(existingPending.createdAt).getTime();
-    if (Date.now() - createdAt >= AUTO_CANCEL_MS) {
-      // Stale — cancel at the gateway and locally, then proceed to create a new one.
+    if (existingPending.status === "pending" && Date.now() - createdAt >= AUTO_CANCEL_MS) {
+      // Stale menunggu — cancel at the gateway and locally, then proceed to create a new one.
       await cancelOrderAtGateway(existingPending.orderId);
       await db.update(topupsTable).set({ status: "cancelled", updatedAt: new Date() })
         .where(and(eq(topupsTable.id, existingPending.id), eq(topupsTable.status, "pending")));
+    } else if (existingPending.status === "awaiting_confirmation") {
+      // The customer already clicked "Sudah Bayar" — it must stay until the
+      // merchant verifies funds. Do not let them open a second order to game it.
+      res.status(409).json({
+        error: "Pembayaran kamu sedang menunggu verifikasi penjual. Tunggu hingga terverifikasi.",
+        topupId: existingPending.id,
+        orderId: existingPending.orderId,
+        expiredAt: existingPending.expiredAt,
+      });
+      return;
     } else {
       res.status(409).json({
         error: "You already have an active QRIS top-up.",
@@ -341,20 +356,80 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
       res.json({ ...(ended ?? topup), paid: false });
       return;
     }
-    // Still pending at the gateway — payment not yet verified. Do not credit.
+    // Gateway says the customer confirmed payment — sync our local status so
+    // the merchant's verification queue reflects "menunggu verifikasi". No credit.
+    if (checked.status === "awaiting_confirmation" && topup.status === "pending") {
+      await db.update(topupsTable).set({ status: "awaiting_confirmation", updatedAt: new Date() })
+        .where(and(eq(topupsTable.id, id), eq(topupsTable.status, "pending")));
+      res.json({ ...topup, status: "awaiting_confirmation", paid: false, gatewayStatus: "awaiting_confirmation" });
+      return;
+    }
+    // Payment not yet verified at the gateway — return the real local status
+    // (pending OR awaiting_confirmation), never credit on a customer poll.
     const [latest] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
-    res.json({ ...(latest ?? topup), status: "pending", paid: false, gatewayStatus: checked.status });
+    const localStatus = latest?.status ?? "pending";
+    res.json({ ...(latest ?? topup), status: localStatus, paid: false, gatewayStatus: checked.status });
     return;
   } catch (err) {
     const code = gatewayErrorCode(err);
     res.json({ ...topup, paid: false, gatewayStatus: code });
     return;
   }
+});
 
-  const [latest] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
-  const finalStatus = latest?.status ?? "pending";
-  const paid = isPaidStatus(finalStatus);
-  res.json({ ...(latest ?? topup), status: paid ? "paid" : finalStatus, paid });
+// ── POST /topup/:id/mark-paid — customer clicks "Saya Sudah Bayar" ───────────
+// Per TemanQRIS flow step 4: this moves the order to awaiting_confirmation and
+// alerts the merchant to verify the funds arrived. It NEVER credits the
+// wallet — the merchant must verify and confirm (Verify Order) below.
+router.post("/topup/:id/mark-paid", authenticate, qrisRateLimit, async (req, res) => {
+  const id = String(req.params.id);
+  const [topup] = await db.select().from(topupsTable)
+    .where(and(eq(topupsTable.id, id), eq(topupsTable.userId, req.user!.userId))).limit(1);
+  if (!topup) { res.status(404).json({ error: "Top-up not found" }); return; }
+
+  if (isPaidStatus(topup.status)) { res.json({ ...topup, status: "paid", paid: true }); return; }
+  if (topup.status === "cancelled" || topup.status === "denied" || topup.status === "failed" || topup.status === "expired") {
+    res.json({ ...topup, paid: false }); return;
+  }
+  if (topup.status === "awaiting_confirmation") {
+    res.json({ ...topup, status: "awaiting_confirmation", paid: false }); return;
+  }
+  if (topup.status !== "pending") {
+    res.status(409).json({ error: "Top-up cannot be marked paid in its current state." }); return;
+  }
+
+  const [updated] = await db.update(topupsTable)
+    .set({ status: "awaiting_confirmation", updatedAt: new Date() })
+    .where(and(eq(topupsTable.id, id), eq(topupsTable.status, "pending")))
+    .returning();
+
+  if (!updated) {
+    const [cur] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
+    res.json({ ...(cur ?? topup), paid: isPaidStatus(String(cur?.status ?? "")) });
+    return;
+  }
+
+  // Notify merchants/owners that a payment is awaiting their verification.
+  try {
+    const owners = await db.select({ id: usersTable.id }).from(usersTable)
+      .where(eq(usersTable.role, "owner"));
+    const amountFormatted = topup.amount.toLocaleString("id-ID");
+    for (const ow of owners) {
+      await db.insert(notificationsTable).values({
+        userId: ow.id,
+        title: "Pembayaran Menunggu Verifikasi",
+        message: `Top up Rp ${amountFormatted} sudah diklik "Sudah Bayar". Verifikasi dana di e-wallet/rekening Anda, lalu Approve.`,
+        type: "info",
+        category: "payment",
+        referenceType: "topup",
+        referenceId: topup.id,
+      });
+    }
+  } catch (e) {
+    logger.warn({ err: (e as any)?.message, id }, "topup: mark-paid owner notify failed (best-effort)");
+  }
+
+  res.json({ ...updated, status: "awaiting_confirmation", paid: false });
 });
 
 // ── POST /topup/:id/cancel — user cancels a pending top-up ────────────────────
@@ -415,7 +490,9 @@ router.post("/webhooks/temanqris", async (req, res) => {
   const body: any = req.body ?? {};
   const data: any = body.data ?? body.result ?? body;
   const event = String(body.event ?? body.type ?? data.event ?? data.type ?? "").toLowerCase();
-  if (event !== "payment.confirmed") {
+  const isAwaiting = event === "payment.awaiting_confirmation" || event === "awaiting_confirmation";
+  const isConfirmed = event === "payment.confirmed" || event === "payment.paid" || event === "paid";
+  if (!isAwaiting && !isConfirmed) {
     res.json({ received: true, ignored: true });
     return;
   }
@@ -429,6 +506,15 @@ router.post("/webhooks/temanqris", async (req, res) => {
     .where(eq(topupsTable.orderId, orderId)).limit(1);
   if (!topup) {
     res.json({ received: true, ignored: true });
+    return;
+  }
+
+  if (isAwaiting) {
+    // Customer confirmed payment via the widget — move to awaiting_confirmation
+    // so the merchant verifies funds. No wallet credit.
+    await db.update(topupsTable).set({ status: "awaiting_confirmation", updatedAt: new Date() })
+      .where(and(eq(topupsTable.id, topup.id), eq(topupsTable.status, "pending")));
+    res.json({ received: true, status: "awaiting_confirmation" });
     return;
   }
 
@@ -518,12 +604,27 @@ router.patch("/topups/:id/confirm", authenticate, requireRole("admin", "owner"),
   try {
     const [topup] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
     if (!topup) { res.status(404).json({ error: "Top-up not found" }); return; }
-    if (topup.status !== "pending") {
+    // The merchant verifies after the customer marks "Sudah Bayar" (awaiting)
+    // or while it is still pending. Once paid/confirmed it cannot be redone.
+    if (topup.status !== "pending" && topup.status !== "awaiting_confirmation") {
       res.status(400).json({ error: `Cannot confirm: top-up is already "${topup.status}"` }); return;
     }
     if (topup.amountMatchStatus === "mismatch") {
       res.status(400).json({ error: "Cannot confirm: transfer amount does not match selected amount. Please deny this payment." });
       return;
+    }
+
+    // "Verify Order" (merchant) — TemanQRIS POST /orders/:orderId/verify marks
+    // the gateway order as paid. The owner must have already confirmed the
+    // funds landed in their e-wallet/rekening. Best-effort: a gateway error
+    // (e.g. already verified) never blocks the owner's own verification.
+    if (topup.gateway === "temanqris" && topup.orderId) {
+      try {
+        const verified = await verifyOrder(String(topup.orderId));
+        logger.info({ topupId: id, orderId: topup.orderId, gwStatus: verified.status }, "Topup confirm: gateway Verify Order -> paid");
+      } catch (err: any) {
+        logger.warn({ err: (err as any)?.message ?? err, topupId: id, orderId: topup.orderId }, "Topup confirm: gateway verify failed (continuing with local verify)");
+      }
     }
 
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, topup.userId)).limit(1);
@@ -627,7 +728,7 @@ router.patch("/topups/:id/deny", authenticate, requireRole("admin", "owner"), as
   try {
     const [topup] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
     if (!topup) { res.status(404).json({ error: "Top-up not found" }); return; }
-    if (topup.status !== "pending") {
+    if (topup.status !== "pending" && topup.status !== "awaiting_confirmation") {
       res.status(400).json({ error: `Cannot deny: top-up is already "${topup.status}"` }); return;
     }
 

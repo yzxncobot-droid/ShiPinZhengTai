@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 export default function OwnerPayments() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<string>("pending");
+  const [statusFilter, setStatusFilter] = useState<string>("awaiting_confirmation");
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   
   const { data: topups, isLoading } = useListAllTopups({ 

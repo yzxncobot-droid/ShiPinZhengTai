@@ -102,8 +102,8 @@ export default function AdminPayments() {
           </div>
 
           {/* Quick stats */}
-          <div className="grid grid-cols-3 gap-4">
-            {(["pending", "confirmed", "denied"] as const).map((s) => {
+          <div className="grid grid-cols-4 gap-4">
+            {(["awaiting_confirmation", "pending", "confirmed", "denied"] as const).map((s) => {
               const count = payments.filter((p: any) => p.status === s).length;
               const cfg = STATUS_CONFIG[s];
               return (
@@ -210,7 +210,7 @@ export default function AdminPayments() {
                           </td>
                           <td className="p-3 hidden lg:table-cell text-muted-foreground text-xs">{fmtDateTime(p.createdAt)}</td>
                           <td className="p-3">
-                            {p.status === "pending" && (
+                            {(p.status === "pending" || p.status === "awaiting_confirmation") && (
                               <div className="flex items-center justify-center gap-1">
                                 {/* Confirm disabled for mismatch */}
                                 <Button
@@ -221,7 +221,7 @@ export default function AdminPayments() {
                                   onClick={() => !isMismatch && setConfirmAction({ id: p.id, action: "confirm", user: p.user?.username, amount: p.amount })}
                                 >
                                   <CheckCircle2 className="h-3.5 w-3.5" />
-                                  <span className="hidden sm:block text-xs">Konfirmasi</span>
+                                  <span className="hidden sm:block text-xs">{p.status === "awaiting_confirmation" ? "Verifikasi" : "Konfirmasi"}</span>
                                 </Button>
                                 <Button size="sm" variant="ghost" className="h-7 gap-1 text-destructive hover:bg-red-500/10"
                                   onClick={() => setConfirmAction({ id: p.id, action: "deny", user: p.user?.username, amount: p.amount })}>
@@ -278,7 +278,7 @@ export default function AdminPayments() {
                   <div>
                     <p className="text-muted-foreground text-xs">Nominal Transfer</p>
                     {viewPayment.transferAmount != null
-                      ? <p className={`font-bold ${viewPayment.amountMatchStatus === "mismatch" ? "text-red-600" : "text-green-600"}`}>
+                      ? <p className={`font-bold ${viewPayment.amo             ? <p className={`font-bold ${viewPayment.amountMatchStatus === "mismatch" ? "text-red-600" : "text-green-600"}`}>
                           {fmtRp(viewPayment.transferAmount)}
                         </p>
                       : <p className="text-muted-foreground">—</p>
@@ -342,7 +342,8 @@ export default function AdminPayments() {
                 )}
 
                 {/* Action buttons */}
-                {viewPayment.status === "pending" && (
+                {viewPayment.status === "pending" || viewPayment.status === "awaiting_confirmation" ? (
+
                   <div className="flex gap-2 pt-2 border-t">
                     {viewPayment.amountMatchStatus !== "mismatch" && (
                       <Button className="flex-1 gap-1 bg-green-600 hover:bg-green-700"
@@ -388,6 +389,13 @@ export default function AdminPayments() {
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
+        </AlertDialog>
+
+      </AdminLayout>
+    </ProtectedRoute>
+  );
+}
+ogContent>
         </AlertDialog>
 
       </AdminLayout>

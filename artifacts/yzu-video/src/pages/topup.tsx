@@ -207,6 +207,7 @@ function AutomaticQrisModal({
 
   const cancelled = !creating && topup?.status === "cancelled";
   const expired = !creating && (!secondsLeft || topup?.status === "expired");
+  const awaiting = topup?.status === "awaiting_confirmation";
   const minutes = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
   const seconds = String(secondsLeft % 60).padStart(2, "0");
 
@@ -275,9 +276,9 @@ function AutomaticQrisModal({
                       )}
                     </div>
 
-                    <div className={`flex items-center justify-center gap-2 text-sm font-extrabold ${cancelled ? "text-slate-500" : expired ? "text-red-500" : "text-amber-600"}`}>
+                    <div className={`flex items-center justify-center gap-2 text-sm font-extrabold ${cancelled ? "text-slate-500" : expired ? "text-red-500" : awaiting ? "text-blue-600" : "text-amber-600"}`}>
                       <Clock className="h-4 w-4" />
-                      {cancelled ? "Pembayaran dibatalkan" : expired ? "Waktu habis — pembayaran dibatalkan" : `Menunggu pembayaran · ${minutes}:${seconds}`}
+                      {cancelled ? "Pembayaran dibatalkan" : expired ? "Waktu habis — pembayaran dibatalkan" : awaiting ? "Menunggu verifikasi penjual" : `Menunggu pembayaran · ${minutes}:${seconds}`}
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
@@ -296,14 +297,23 @@ function AutomaticQrisModal({
                           <Download className="h-4 w-4" /> Download QRIS
                         </button>
                       )}
-                      <button
-                        onClick={onCheck}
-                        disabled={checking || expired || cancelled}
-                        className="h-11 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 disabled:opacity-50"
-                      >
-                        {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                         Saya Sudah Bayar
-                      </button>
+                      {awaiting ? (
+                        <button
+                          disabled
+                          className="h-11 rounded-xl bg-blue-50 border border-blue-200 text-blue-600 font-extrabold text-xs flex items-center justify-center gap-1.5"
+                        >
+                          <Loader2 className="h-4 w-4 animate-spin" /> Menunggu Verifikasi
+                        </button>
+                      ) : (
+                        <button
+                          onClick={onCheck}
+                          disabled={checking || expired || cancelled || topup.status !== "pending"}
+                          className="h-11 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 disabled:opacity-50"
+                        >
+                          {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                          Saya Sudah Bayar
+                        </button>
+                      )}
                     </div>
 
                     {topup.status === "pending" && !cancelled && (
@@ -320,7 +330,9 @@ function AutomaticQrisModal({
                     <div className="flex items-start gap-3 bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3">
                       <Shield className="h-4 w-4 text-purple-500 shrink-0 mt-0.5" />
                       <p className="text-[11px] text-slate-500 font-medium leading-snug">
-                        Setelah pembayaran terdeteksi dan diverifikasi, saldo akan bertambah otomatis. Jangan bayar QRIS yang sudah kedaluwarsa.
+                        {awaiting
+                          ? "Pembayaran sedang diverifikasi penjual. Saldo bertambah otomatis setelah diverifikasi. Jangan bayar lagi ke QRIS yang sama."
+                          : "Setelah pembayaran terdeteksi dan diverifikasi, saldo akan bertambah otomatis. Jangan bayar QRIS yang sudah kedaluwarsa."}
                       </p>
                     </div>
                   </>
@@ -351,7 +363,7 @@ export default function TopupPage() {
 
   const sessionKey = (token ?? "anon").slice(0, 10);
   const historyList: Topup[] = useMemo(() => (topupHistory as any)?.data ?? [], [topupHistory]);
-  const activePending = activeTopup && ["pending"].includes(activeTopup.status);
+  const activePending = activeTopup && ["pending", "awaiting_confirmation"].includes(activeTopup.status);
 
   useEffect(() => {
     if (shouldShowRules(sessionKey)) setShowRules(true);
@@ -386,7 +398,11 @@ export default function TopupPage() {
     if (!activeTopup?.id || checking) return;
     setChecking(true);
     try {
-      const latest = await fetch(`/api/topup/${activeTopup.id}/status`, {
+      // "Saya Sudah Bayar" — customer signals payment. This NEVER credits the
+      // wallet; it moves the order to awaiting_confirmation so the merchant
+      // verifies the funds arrived (Verify Order), then the wallet is credited.
+      const latest = await fetch(`/api/topup/${activeTopup.id}/mark-paid`, {
+        method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       const result = await latest.json();
@@ -396,12 +412,14 @@ export default function TopupPage() {
         toast({ title: "Top up berhasil!", description: "Saldo kamu sudah bertambah otomatis." });
         refreshAfterPaid();
         setQrisOpen(false);
+      } else if (result.status === "awaiting_confirmation") {
+        toast({ title: "Menunggu verifikasi", description: "Pembayaran diterima. Penjual akan memverifikasi dan saldo bertambah otomatis." });
       } else if (result.status === "cancelled") {
         toast({ title: "Pembayaran dibatalkan", description: "Transaksi dibatalkan. Buat baru untuk top up lagi.", variant: "destructive" });
+      } else if (result.status === "denied") {
+        toast({ title: "Pembayaran ditolak", description: "Penjual menolak pembayaran ini. Hubungi admin bila perlu.", variant: "destructive" });
       } else if (result.status === "expired") {
         toast({ title: "QRIS kedaluwarsa", description: "Buat transaksi baru untuk mencoba lagi.", variant: "destructive" });
-      } else {
-        toast({ title: "Belum ada pembayaran", description: "Pembayaran belum terdeteksi. Coba lagi beberapa saat." });
       }
     } catch (error: any) {
       toast({ title: "Gagal memeriksa pembayaran", description: error?.message ?? "Silakan coba lagi.", variant: "destructive" });
@@ -411,10 +429,35 @@ export default function TopupPage() {
   };
 
   useEffect(() => {
-    if (!qrisOpen || !activeTopup?.id || activeTopup.status !== "pending") return;
-    // Verification is user initiated. This prevents a wallet credit from
-    // being triggered by background polling before the customer confirms.
-    return;
+    if (!qrisOpen || !activeTopup?.id || activeTopup.status !== "awaiting_confirmation") return;
+    // Once the customer marked "Sudah Bayar", poll the gateway status so the
+    // wallet update from the merchant's Verify Order is reflected live. This
+    // only READS — it never mints balance (the status route is read-only).
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const r = await fetch(`/api/topup/${activeTopup.id}/status`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
+        const d = await r.json();
+        if (cancelled) return;
+        if (d.paid || d.status === "paid" || d.status === "confirmed") {
+          setActiveTopup(d);
+          toast({ title: "Top up berhasil!", description: "Pembayaran terverifikasi. Saldo bertambah otomatis." });
+          refreshAfterPaid();
+          setQrisOpen(false);
+        } else if (d.status === "denied" || d.status === "cancelled") {
+          setActiveTopup(d);
+          refreshAfterPaid();
+        } else {
+          setActiveTopup(d);
+        }
+      } catch {}
+    };
+    poll();
+    const t = window.setInterval(poll, 5000);
+    return () => { cancelled = true; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qrisOpen, activeTopup?.id, activeTopup?.status]);
 
   const startTopup = (amount: number) => {
@@ -599,6 +642,11 @@ export default function TopupPage() {
           canceling={canceling}
           onCheck={checkPayment}
           onCancel={cancelTopup}
+        />
+      </AppLayout>
+    </ProtectedRoute>
+  );
+}}
         />
       </AppLayout>
     </ProtectedRoute>
