@@ -336,14 +336,97 @@ router.post("/webhooks/temanqris", async (req, res) => {
   }
   const [topup] = await db.select().from(topupsTable)
     .where(eq(topupsTable.orderId, orderId)).limit(1);
-  if (!topup) {
-    res.json({ received: true, ignored: true });
-    return;
-  }
-
   const gatewayReference = String(
     data.transaction_id ?? data.transactionId ?? data.reference ?? orderId,
   ).trim();
+
+  if (!topup) {
+    // Widget-based payment: no pre-existing topup record. The TemanQRIS
+    // widget creates the payment link client-side; the backend only learns
+    // about it via this webhook. Extract the user ID from the description
+    // (set by the frontend widget's data-description attribute) to
+    // associate the payment with a user, create a topup record, and credit
+    // the wallet. The webhook signature is already verified above, so the
+    // payload is authentic.
+    const description = String(data.description ?? "");
+    const userMatch = description.match(
+      /user:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/,
+    );
+    if (!userMatch) {
+      res.json({ received: true, ignored: true });
+      return;
+    }
+    const widgetUserId = userMatch[1];
+    const [widgetUser] = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.id, widgetUserId))
+      .limit(1);
+    if (!widgetUser) {
+      res.json({ received: true, ignored: true });
+      return;
+    }
+    const widgetAmount = Number(data.amount ?? data.nominal ?? NaN);
+    if (!Number.isFinite(widgetAmount) || widgetAmount <= 0) {
+      res.json({ received: true, ignored: true });
+      return;
+    }
+
+    try {
+      const [newTopup] = await db
+        .insert(topupsTable)
+        .values({
+          userId: widgetUserId,
+          amount: widgetAmount,
+          orderId,
+          paymentMethod: "qris",
+          gateway: "temanqris",
+          status: "pending",
+        })
+        .returning();
+
+      const widgetResult = await creditVerifiedTopup(
+        newTopup.id,
+        gatewayReference,
+      );
+      if (
+        widgetResult.status === "paid" ||
+        widgetResult.status === "already_processed"
+      ) {
+        await invalidateUserCache(widgetUserId).catch(() => {});
+        await invalidateCache(keys.analytics("overview")).catch(() => {});
+      }
+      res.json({ received: true, status: widgetResult.status });
+      return;
+    } catch (insertErr: any) {
+      // Unique constraint on order_id — another concurrent webhook beat us.
+      if (String(insertErr?.cause?.code ?? insertErr?.code) === "23505") {
+        const [existing] = await db
+          .select()
+          .from(topupsTable)
+          .where(eq(topupsTable.orderId, orderId))
+          .limit(1);
+        if (existing) {
+          const existingResult = await creditVerifiedTopup(
+            existing.id,
+            gatewayReference,
+          );
+          if (
+            existingResult.status === "paid" ||
+            existingResult.status === "already_processed"
+          ) {
+            await invalidateUserCache(existing.userId).catch(() => {});
+            await invalidateCache(keys.analytics("overview")).catch(() => {});
+          }
+          res.json({ received: true, status: existingResult.status });
+          return;
+        }
+      }
+      logger.error({ err: insertErr, orderId }, "Widget topup insert failed");
+    }
+    res.json({ received: true, ignored: true });
+    return;
+  }
   const webhookAmount = Number(data.amount ?? data.nominal ?? NaN);
   if (Number.isFinite(webhookAmount) && webhookAmount !== Number(topup.amount)) {
     res.status(400).json({ error: "Webhook amount does not match top-up amount" });
