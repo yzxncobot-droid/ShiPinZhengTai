@@ -199,6 +199,7 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
       status: "pending",
       paymentMethod: "qris",
       gateway: "temanqris",
+      linkCode: qris.linkCode,
       qrCodeUrl: updated.qrCodeUrl,
       qrisString: updated.qrisString,
       paymentLink: qris.paymentLink,
@@ -211,6 +212,51 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
     const status = code === "NOT_CONFIGURED" ? 503 : 502;
     res.status(status).json({ error: "QRIS creation failed.", gatewayStatus: code });
   }
+});
+
+// ── POST /topup/register-widget-order — register a TemanQRIS widget order ──
+// The hosted TemanQRIS widget (widget.js) generates its own QRIS order
+// client-side using only the public merchant ID — no server API key required.
+// This records that widget-generated order against the authenticated user so
+// the TemanQRIS webhook (POST /webhooks/temanqris) can credit the wallet when
+// the payment is confirmed, and so an admin can confirm it manually.
+router.post("/topup/register-widget-order", authenticate, qrisRateLimit, async (req, res) => {
+  const amount = parseTopupAmount(req.body?.amount);
+  const orderId = String(req.body?.orderId ?? "").trim();
+  if (amount == null) {
+    res.status(400).json({
+      error: `Amount must be an integer between Rp ${MIN_TOPUP.toLocaleString("id-ID")} and Rp ${MAX_TOPUP.toLocaleString("id-ID")}.`,
+    });
+    return;
+  }
+  if (!orderId) {
+    res.status(400).json({ error: "orderId is required." });
+    return;
+  }
+
+  // Idempotent: if this gateway order was already registered, return it.
+  const [existing] = await db.select().from(topupsTable)
+    .where(eq(topupsTable.orderId, orderId)).limit(1);
+  if (existing) {
+    if (existing.userId !== req.user!.userId) {
+      res.status(403).json({ error: "Order belongs to another user." });
+      return;
+    }
+    res.json({ success: true, id: existing.id, orderId: existing.orderId, amount: existing.amount, status: existing.status });
+    return;
+  }
+
+  const [topup] = await db.insert(topupsTable).values({
+    userId: req.user!.userId,
+    amount,
+    orderId,
+    paymentMethod: "qris",
+    gateway: "temanqris",
+    status: "pending",
+    expiredAt: new Date(Date.now() + 15 * 60 * 1000),
+  }).returning();
+
+  res.status(201).json({ success: true, id: topup.id, orderId: topup.orderId, amount: topup.amount, status: topup.status });
 });
 
 // ── GET /topup/:id/status — safely check and settle one own transaction ─────
@@ -374,27 +420,14 @@ router.get("/topups", authenticate, async (req, res) => {
   res.json({ data, total: Number(total), page: pageNum, limit: limitNum });
 });
 
-// ── POST /topups — submit a top-up request ────────────────────────────────────
-router.post("/topups", authenticate, async (req, res) => {
-  const userId = req.user!.userId;
-  const { amount, paymentProof, paymentProofId, transferAmount } = req.body;
-
-  if (!amount || amount <= 0) {
-    res.status(400).json({ error: "Invalid amount" }); return;
-  }
-
-  // Compute match status: compare selected amount vs what user claims to have transferred
-  const parsedTransfer = transferAmount != null ? Number(transferAmount) : null;
-  const amountMatchStatus =
-    parsedTransfer != null && parsedTransfer !== Number(amount) ? "mismatch" : "match";
-
-  const [topup] = await db.insert(topupsTable).values({
-    userId, amount, paymentProof, paymentProofId: paymentProofId ?? null,
-    transferAmount: parsedTransfer,
-    amountMatchStatus,
-  }).returning();
-
-  res.status(201).json(topup);
+// ── POST /topups — DISABLED (legacy manual top-up with payment proof) ─────────
+// The old manual proof-based top-up system is retired in favour of the
+// automatic TemanQRIS widget flow (POST /topup/create). Historical rows are
+// preserved; only new manual submissions are blocked.
+router.post("/topups", authenticate, async (_req, res) => {
+  res.status(410).json({
+    error: "Top up manual sudah dinonaktifkan. Silakan gunakan tombol Top Up QRIS otomatis.",
+  });
 });
 
 // ── GET /topups/all — list all top-ups (admin/owner) ─────────────────────────

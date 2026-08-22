@@ -8,6 +8,7 @@ export type GatewayState = "CONNECTED" | "NOT_CONFIGURED" | "INVALID";
 export interface TemanQrisPayment {
   orderId: string;
   amount: number;
+  linkCode: string | null;
   qrImage: string | null;
   qrisString: string | null;
   paymentLink: string | null;
@@ -135,12 +136,13 @@ export async function createPaymentLink(input: {
 }): Promise<TemanQrisPayment> {
   const webhookUrl = temanqrisWebhookUrl();
   const callbackUrl = input.returnUrl;
-  // `/generate` returns both the dynamic QR image and the hosted payment link.
-  // The link endpoint only returns the link metadata, which leaves the QR
-  // modal without anything to render.
-  const body = await temanqrisRequest("/generate", "POST", {
+  // Official endpoint: POST /payment-link creates a hosted QRIS payment page
+  // at https://temanqris.com/p/{link_code}. The API key stays server-side; the
+  // frontend only receives the resulting hosted URL (never the API key).
+  const body = await temanqrisRequest("/payment-link", "POST", {
     order_id: input.orderId,
     amount: input.amount,
+    description: `Top Up Wallet ${input.orderId}`,
     ...(webhookUrl ? { webhook_url: webhookUrl } : {}),
     ...(callbackUrl ? { callback_url: callbackUrl } : {}),
   });
@@ -156,6 +158,7 @@ export async function createPaymentLink(input: {
       ?? firstValue(paymentLinkData, ["amount", "nominal"])
       ?? input.amount,
   );
+  const linkCode = String(firstValue(paymentLinkData, ["link_code", "linkCode"]) ?? "") || null;
   const qrImage = String(firstValue(data, ["qr_image", "qrImage", "qr_url"]) ?? "") || null;
   const qrisString = String(firstValue(data, ["qris_string", "qr_string", "qris", "qr"]) ?? "") || null;
   const rawPaymentLink = String(firstValue(paymentLinkData, ["url", "payment_url", "paymentLink"]) ?? "") || null;
@@ -163,17 +166,19 @@ export async function createPaymentLink(input: {
     ? rawPaymentLink.startsWith("http")
       ? rawPaymentLink
       : `https://temanqris.com${rawPaymentLink.startsWith("/") ? "" : "/"}${rawPaymentLink}`
-    : null;
+    : linkCode
+      ? `https://temanqris.com/p/${linkCode}`
+      : null;
   const expiresAt = asDate(
     firstValue(data, ["expires_at", "expired_at", "expiresAt"])
       ?? firstValue(paymentLinkData, ["expires_at", "expired_at", "expiresAt"]),
   );
 
-  if (!paymentLink && !qrImage && !qrisString) {
-    throw gatewayError("TemanQRIS returned no payment link or QRIS payload", "INVALID_RESPONSE");
+  if (!paymentLink) {
+    throw gatewayError("TemanQRIS returned no payment link", "INVALID_RESPONSE");
   }
 
-  return { orderId, amount, qrImage, qrisString, paymentLink, expiresAt, raw: body };
+  return { orderId, amount, linkCode, qrImage, qrisString, paymentLink, expiresAt, raw: body };
 }
 
 export async function getOrder(orderId: string): Promise<TemanQrisOrder> {

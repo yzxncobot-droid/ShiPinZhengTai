@@ -69,6 +69,14 @@ export default defineConfig({
     strictPort: true,
     host: '0.0.0.0',
     allowedHosts: true,
+    // Single-origin: proxy API calls to the Express backend so the frontend's
+    // relative "/api" fetches resolve in the Base44 dev environment.
+    proxy: {
+      '/api': {
+        target: process.env.API_PROXY_TARGET ?? 'http://api:8080',
+        changeOrigin: true,
+      },
+    },
     fs: {
       strict: true,
     },
