@@ -18,9 +18,13 @@ services:
       POSTGRES_DB: yzu
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./.base44/pg-certs:/certs:ro
+      - ./.base44/pg-certs:/certs-src:ro
+      - ./.base44/db-entrypoint.sh:/usr/local/bin/base44-db-entrypoint.sh:ro
     # Self-signed SSL so the app's hardcoded `ssl: { rejectUnauthorized: false }`
-    # pool config connects without code changes.
+    # pool config connects without code changes. The entrypoint wrapper copies
+    # the bind-mounted certs to a writable /certs with correct ownership/mode
+    # (git doesn't track file perms, so a fresh clone would otherwise fail).
+    entrypoint: ["base44-db-entrypoint.sh"]
     command: postgres -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/certs/server.key
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U yzu -d yzu"]
