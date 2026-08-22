@@ -4,7 +4,7 @@ import {
   topupsTable, usersTable, walletsTable, walletTransactionsTable,
   transactionsTable, notificationsTable, paymentProofsTable,
 } from "@workspace/db";
-import { eq, and, desc, sql, count, lt, gt, inArray } from "drizzle-orm";
+import { eq, and, or, desc, sql, count, lt, gt, inArray } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
 import { qrisRateLimit } from "../middlewares/rate-limit";
 import { invalidateUserCache, invalidateCache, keys } from "../lib/redis";
@@ -88,16 +88,21 @@ export async function sweepStalePendingTopups(limit = 50): Promise<number> {
  * without a real payment. Runs on startup and on a 30s interval.
  */
 export async function settlePaidTopups(limit = 50): Promise<number> {
-  // Only check recent orders (last 30 min) to bound gateway API usage — older
-  // pending orders are already handled by the stale-cancel sweep.
-  const since = new Date(Date.now() - 30 * 60 * 1000);
+  // Pending orders are only checked within a short recent window (they are
+  // short-lived and auto-cancelled after 5 min). Awaiting-confirmation orders
+  // are checked regardless of age so payments stuck there are always
+  // resolved — to paid via a Verify Order retry, or cancelled if the gateway
+  // order already expired.
+  const since = new Date(Date.now() - AUTO_CANCEL_MS * 6);
   const candidates = await db
-    .select({ id: topupsTable.id, orderId: topupsTable.orderId, userId: topupsTable.userId })
+    .select({ id: topupsTable.id, orderId: topupsTable.orderId, userId: topupsTable.userId, status: topupsTable.status })
     .from(topupsTable)
     .where(and(
       eq(topupsTable.gateway, "temanqris"),
-      inArray(topupsTable.status, ["pending", "awaiting_confirmation"]),
-      gt(topupsTable.createdAt, since),
+      or(
+        and(eq(topupsTable.status, "pending"), gt(topupsTable.createdAt, since)),
+        eq(topupsTable.status, "awaiting_confirmation"),
+      ),
     ))
     .limit(limit);
 
@@ -105,6 +110,7 @@ export async function settlePaidTopups(limit = 50): Promise<number> {
   for (const t of candidates) {
     if (!t.orderId) continue;
     try {
+      // Read the gateway status first (idempotent). Credit at once if already paid.
       const checked = await getOrder(String(t.orderId));
       if (isVerifiedGatewayStatus(checked.status)) {
         const result = await creditVerifiedTopup(t.id, checked.orderId);
@@ -114,8 +120,37 @@ export async function settlePaidTopups(limit = 50): Promise<number> {
           await invalidateCache(keys.analytics("overview")).catch(() => {});
           logger.info({ topupId: t.id, orderId: t.orderId }, "topup: auto-settled via gateway poll");
         }
+        continue;
+      }
+
+      if (t.status === "awaiting_confirmation") {
+        // The customer already clicked "Sudah Bayar" but the gateway never
+        // marked the order paid — the payment is stuck. Resolve it:
+        if (checked.status === "cancelled" || checked.status === "expired") {
+          // The gateway order lapsed — cancel locally so it stops lingering.
+          await db.update(topupsTable).set({ status: "cancelled", updatedAt: new Date() })
+            .where(eq(topupsTable.id, t.id));
+          logger.info({ topupId: t.id, orderId: t.orderId }, "topup: stuck awaiting -> cancelled (gateway expired)");
+        } else {
+          // Perform the "Verify Order" action the customer's click requested,
+          // then credit. Retrying every sweep clears the stuck state.
+          try {
+            const verified = await verifyOrder(String(t.orderId));
+            if (isVerifiedGatewayStatus(verified.status)) {
+              const result = await creditVerifiedTopup(t.id, verified.orderId);
+              if (result.status === "paid") {
+                settled++;
+                await invalidateUserCache(t.userId).catch(() => {});
+                await invalidateCache(keys.analytics("overview")).catch(() => {});
+                logger.info({ topupId: t.id, orderId: t.orderId }, "topup: stuck awaiting -> paid via Verify Order retry");
+              }
+            }
+          } catch (verifyErr: any) {
+            logger.warn({ err: verifyErr?.message, topupId: t.id, orderId: t.orderId }, "topup: Verify Order retry failed (will retry next sweep)");
+          }
+        }
       } else if (checked.status === "awaiting_confirmation") {
-        // Keep the local status in sync so the verification queue is accurate.
+        // Pending locally, but the customer confirmed at the gateway — sync.
         await db.update(topupsTable).set({ status: "awaiting_confirmation", updatedAt: new Date() })
           .where(and(eq(topupsTable.id, t.id), eq(topupsTable.status, "pending")));
       }
