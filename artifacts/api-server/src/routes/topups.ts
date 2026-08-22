@@ -199,6 +199,7 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
       status: "pending",
       paymentMethod: "qris",
       gateway: "temanqris",
+      linkCode: qris.linkCode,
       qrCodeUrl: updated.qrCodeUrl,
       qrisString: updated.qrisString,
       paymentLink: qris.paymentLink,
@@ -374,27 +375,14 @@ router.get("/topups", authenticate, async (req, res) => {
   res.json({ data, total: Number(total), page: pageNum, limit: limitNum });
 });
 
-// ── POST /topups — submit a top-up request ────────────────────────────────────
-router.post("/topups", authenticate, async (req, res) => {
-  const userId = req.user!.userId;
-  const { amount, paymentProof, paymentProofId, transferAmount } = req.body;
-
-  if (!amount || amount <= 0) {
-    res.status(400).json({ error: "Invalid amount" }); return;
-  }
-
-  // Compute match status: compare selected amount vs what user claims to have transferred
-  const parsedTransfer = transferAmount != null ? Number(transferAmount) : null;
-  const amountMatchStatus =
-    parsedTransfer != null && parsedTransfer !== Number(amount) ? "mismatch" : "match";
-
-  const [topup] = await db.insert(topupsTable).values({
-    userId, amount, paymentProof, paymentProofId: paymentProofId ?? null,
-    transferAmount: parsedTransfer,
-    amountMatchStatus,
-  }).returning();
-
-  res.status(201).json(topup);
+// ── POST /topups — DISABLED (legacy manual top-up with payment proof) ─────────
+// The old manual proof-based top-up system is retired in favour of the
+// automatic TemanQRIS widget flow (POST /topup/create). Historical rows are
+// preserved; only new manual submissions are blocked.
+router.post("/topups", authenticate, async (_req, res) => {
+  res.status(410).json({
+    error: "Top up manual sudah dinonaktifkan. Silakan gunakan tombol Top Up QRIS otomatis.",
+  });
 });
 
 // ── GET /topups/all — list all top-ups (admin/owner) ─────────────────────────

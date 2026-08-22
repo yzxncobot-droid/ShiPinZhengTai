@@ -3,39 +3,31 @@ import { ProtectedRoute } from "@/lib/protected-route";
 import { useAuth } from "@/lib/auth";
 import {
   useCreateAutomaticTopup,
-  useListMyTopups,
   getGetMeQueryKey,
   getListMyTopupsQueryKey,
 } from "@workspace/api-client-react";
-import type { AutomaticTopup, Topup } from "@workspace/api-client-react";
+import type { AutomaticTopup } from "@workspace/api-client-react";
 import {
-  AlertCircle,
   ArrowUpRight,
   CheckCircle2,
-  ChevronRight,
-  Clock,
-  Download,
   ExternalLink,
   Loader2,
   QrCode,
   RefreshCw,
   Shield,
-  ShieldAlert,
   Sparkles,
   X,
   Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { format } from "date-fns";
-import { id as localeId } from "date-fns/locale";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-const DEFAULT_TOPUP_AMOUNT = 1000;
+const MIN_TOPUP = 100;
+const MAX_TOPUP = 1_000_000;
+const POLL_INTERVAL_MS = 4_000;
 
 const TOPUP_STEPS = [
   { title: "Buka Widget Top Up", description: "Tekan tombol 'Top Up' di bawah untuk membuka widget QRIS.", Icon: ExternalLink },
@@ -46,7 +38,7 @@ const TOPUP_STEPS = [
 ];
 
 const PAYMENT_METHODS = [
-  { id: "qris", label: "QRIS", color: "#7C3AED", selectable: true },
+  { id: "qris", label: "QRIS", color: "#7C3AED" },
   { id: "gopay", label: "GoPay", color: "#00AED6" },
   { id: "ovo", label: "OVO", color: "#4C3494" },
   { id: "dana", label: "DANA", color: "#118EEA" },
@@ -60,264 +52,110 @@ const PAYMENT_METHODS = [
   { id: "cimb", label: "CIMB", color: "#C1392B" },
 ];
 
-const LS_KEY = "topup_rules_ack";
-const POLL_INTERVAL_MS = 4_000;
-
-function shouldShowRules(sessionKey: string): boolean {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return true;
-    const { ts, sk } = JSON.parse(raw) as { ts: number; sk: string };
-    return sk !== sessionKey || Date.now() - ts > 24 * 60 * 60 * 1000;
-  } catch {
-    return true;
-  }
+function isPaidStatus(status: string | undefined): boolean {
+  return status === "paid" || status === "confirmed";
 }
 
-const RULES = [
-  "QRIS yang muncul dibuat khusus untuk nominal dan transaksi ini.",
-  "Bayar sesuai nominal yang tertera agar pembayaran dapat terdeteksi.",
-  "QRIS hanya berlaku selama countdown masih berjalan.",
-  "Saldo bertambah otomatis setelah pembayaran terverifikasi.",
-  "Download QRIS bukan bukti pembayaran dan tidak membuat transaksi baru.",
-];
-
-function RulesModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  return (
-    <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
-      <DialogContent
-        className="max-w-sm w-[95vw] rounded-3xl border-0 p-0 overflow-hidden shadow-2xl"
-        onPointerDownOutside={(event) => event.preventDefault()}
-        onEscapeKeyDown={(event) => event.preventDefault()}
-      >
-        <div className="bg-gradient-to-br from-purple-600 to-indigo-600 px-6 pt-6 pb-5 text-center">
-          <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
-            <ShieldAlert className="h-7 w-7 text-white" />
-          </div>
-          <h2 className="text-white font-extrabold text-lg">Aturan Pembayaran QRIS</h2>
-          <p className="text-white/80 text-xs mt-1 font-medium">Baca sebelum melakukan top up</p>
-        </div>
-        <div className="bg-white px-5 pt-4 pb-2 space-y-2.5 max-h-[55vh] overflow-y-auto">
-          <ol className="space-y-2.5">
-            {RULES.map((rule, index) => (
-              <li key={rule} className="flex gap-3 text-sm text-slate-700">
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-purple-100 text-purple-600 font-extrabold text-xs flex items-center justify-center mt-0.5">
-                  {index + 1}
-                </span>
-                <span className="leading-snug">{rule}</span>
-              </li>
-            ))}
-          </ol>
-        </div>
-        <div className="bg-white px-5 pb-5 pt-3">
-          <Button
-            className="w-full h-12 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-extrabold"
-            onClick={onClose}
-          >
-            Saya Mengerti <ChevronRight className="h-4 w-4 ml-1" />
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function statusDetails(status: string) {
-  return {
-    pending: { label: "Menunggu", bg: "bg-amber-50", text: "text-amber-600", dot: "bg-amber-500" },
-    awaiting_confirmation: { label: "Menunggu verifikasi", bg: "bg-blue-50", text: "text-blue-600", dot: "bg-blue-500" },
-    confirmed: { label: "Berhasil", bg: "bg-green-50", text: "text-green-600", dot: "bg-green-500" },
-    paid: { label: "Berhasil", bg: "bg-green-50", text: "text-green-600", dot: "bg-green-500" },
-    denied: { label: "Ditolak", bg: "bg-red-50", text: "text-red-600", dot: "bg-red-500" },
-    expired: { label: "Kedaluwarsa", bg: "bg-slate-100", text: "text-slate-500", dot: "bg-slate-400" },
-    failed: { label: "Gagal", bg: "bg-red-50", text: "text-red-600", dot: "bg-red-500" },
-    cancelled: { label: "Dibatalkan", bg: "bg-slate-100", text: "text-slate-500", dot: "bg-slate-400" },
-  }[status] ?? { label: status, bg: "bg-slate-100", text: "text-slate-500", dot: "bg-slate-400" };
-}
-
-function HistoryCard({ topup }: { topup: Topup }) {
-  const status = statusDetails(topup.status);
-  return (
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-      <div className="flex items-center justify-between mb-2 gap-3">
-        <span className="font-extrabold text-slate-800 text-base">
-          Rp {topup.amount.toLocaleString("id-ID")}
-        </span>
-        <span className={`flex items-center gap-1.5 text-[11px] font-extrabold px-2.5 py-1 rounded-full ${status.bg} ${status.text}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
-          {status.label}
-        </span>
-      </div>
-      <div className="space-y-1 text-[11px] text-slate-500 font-medium">
-        <div className="flex items-center gap-1.5">
-          <Clock className="h-3 w-3 shrink-0" />
-          <span>{format(new Date(topup.createdAt), "dd MMM yyyy, HH:mm", { locale: localeId })}</span>
-        </div>
-        {topup.orderId && (
-          <div className="flex items-center gap-1.5">
-            <QrCode className="h-3 w-3 shrink-0" />
-            <span className="truncate">Order: {topup.orderId}</span>
-          </div>
-        )}
-        {topup.paidAt && (
-          <div className="flex items-center gap-1.5 text-green-600">
-            <CheckCircle2 className="h-3 w-3 shrink-0" />
-            <span>Dibayar: {format(new Date(topup.paidAt), "dd MMM yyyy, HH:mm", { locale: localeId })}</span>
-          </div>
-        )}
-        <div className="flex items-center gap-1.5">
-          <span className="h-3 w-3 shrink-0 text-center font-bold">•</span>
-          <span>{topup.gateway ? `${topup.paymentMethod?.toUpperCase() ?? "QRIS"} · ${topup.gateway}` : "QRIS"}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AutomaticQrisModal({
+/**
+ * TemanQRIS payment overlay.
+ *
+ * The hosted TemanQRIS payment page (https://temanqris.com/p/{link_code}) sets
+ * `X-Frame-Options: SAMEORIGIN`, so it cannot be embedded in an iframe. It is
+ * opened in a popup window instead, while this modal stays as the in-page
+ * status overlay. The wallet is NEVER credited from the frontend — only the
+ * server-side webhook may credit the balance. This modal only polls the
+ * backend status endpoint to update the UI.
+ */
+function PaymentModal({
   open,
   onClose,
   topup,
-  creating,
   checking,
   onCheck,
+  onOpenPayment,
 }: {
   open: boolean;
   onClose: () => void;
   topup: AutomaticTopup | null;
-  creating: boolean;
   checking: boolean;
   onCheck: () => void;
+  onOpenPayment: () => void;
 }) {
-  const [secondsLeft, setSecondsLeft] = useState(0);
-
-  useEffect(() => {
-    if (!open || !topup?.expiredAt) {
-      setSecondsLeft(0);
-      return;
-    }
-    const update = () => {
-      setSecondsLeft(Math.max(0, Math.ceil((new Date(topup.expiredAt!).getTime() - Date.now()) / 1000)));
-    };
-    update();
-    const timer = window.setInterval(update, 1000);
-    return () => window.clearInterval(timer);
-  }, [open, topup?.expiredAt]);
-
-  const expired = !creating && (!secondsLeft || topup?.status === "expired");
-  const minutes = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
-  const seconds = String(secondsLeft % 60).padStart(2, "0");
-
   return (
     <AnimatePresence>
       {open && (
         <>
           <motion.div
-            key="qris-backdrop"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm"
             onClick={onClose}
           />
           <motion.div
-            key="qris-modal"
-            initial={{ opacity: 0, scale: 0.94, y: 20 }}
+            initial={{ opacity: 0, scale: 0.96, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 14 }}
-            className="fixed inset-0 z-50 flex items-center justify-center px-4 pointer-events-none"
+            exit={{ opacity: 0, scale: 0.97, y: 10 }}
+            className="fixed inset-0 z-[100] flex items-end justify-center pointer-events-none sm:items-center sm:px-4"
           >
-            <div className="w-full max-w-sm rounded-[26px] overflow-hidden bg-white shadow-2xl pointer-events-auto">
-              <div className="bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-500 px-5 py-5 text-white">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="h-11 w-11 rounded-2xl bg-white/20 flex items-center justify-center">
-                      <QrCode className="h-6 w-6" />
-                    </div>
-                    <div>
-                      <h3 className="font-extrabold text-xl">Bayar QRIS</h3>
-                      <p className="text-xs text-white/75">QRIS dinamis untuk transaksi ini</p>
-                    </div>
+            <div className="pointer-events-auto w-full overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-w-sm sm:rounded-3xl">
+              <div className="flex items-center justify-between bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-4 text-white">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/20">
+                    <QrCode className="h-5 w-5" />
                   </div>
-                  <button onClick={onClose} className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center" aria-label="Tutup">
-                    <X className="h-4 w-4" />
-                  </button>
+                  <div>
+                    <h3 className="text-base font-extrabold">Top Up QRIS</h3>
+                    <p className="text-xs text-white/75">
+                      {topup ? `Rp ${topup.amount.toLocaleString("id-ID")}` : "Menyiapkan..."}
+                    </p>
+                  </div>
                 </div>
+                <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20" aria-label="Tutup">
+                  <X className="h-4 w-4" />
+                </button>
               </div>
 
-              <div className="p-5 space-y-4">
-                {creating || !topup ? (
-                  <div className="py-14 text-center">
-                    <Loader2 className="h-10 w-10 text-purple-600 animate-spin mx-auto mb-3" />
-                    <p className="text-sm font-extrabold text-slate-700">Membuat QRIS dinamis...</p>
-                    <p className="text-xs text-slate-400 mt-1">Mohon tunggu sebentar</p>
+              <div className="space-y-4 p-5">
+                {!topup ? (
+                  <div className="py-10 text-center">
+                    <Loader2 className="mx-auto mb-3 h-9 w-9 animate-spin text-violet-600" />
+                    <p className="text-sm font-extrabold text-slate-700">Membuat pembayaran QRIS...</p>
+                    <p className="mt-1 text-xs text-slate-400">Mohon tunggu sebentar</p>
                   </div>
                 ) : (
                   <>
-                    <div className="rounded-2xl bg-purple-50 border border-purple-100 px-4 py-3 text-center">
-                      <p className="text-[10px] font-extrabold text-purple-400 uppercase tracking-widest">Total Bayar</p>
-                      <p className="text-3xl font-extrabold text-purple-700">Rp {topup.amount.toLocaleString("id-ID")}</p>
-                      <p className="text-[10px] text-slate-400 mt-1">Order ID: {topup.orderId}</p>
+                    <div className="rounded-2xl border border-violet-100 bg-violet-50 p-4 text-center">
+                      <QrCode className="mx-auto mb-2 h-9 w-9 text-violet-500" />
+                      <p className="text-sm font-extrabold text-slate-700">Selesaikan Pembayaran</p>
+                      <p className="mt-1 text-xs font-medium leading-relaxed text-slate-500">
+                        Jendela pembayaran QRIS telah dibuka. Selesaikan pembayaran di sana, lalu tekan tombol di bawah.
+                      </p>
                     </div>
 
-                    <div className="flex justify-center">
-                      {topup.qrCodeUrl ? (
-                        <div className="bg-white rounded-3xl border border-slate-200 p-4 shadow-md">
-                          <img src={topup.qrCodeUrl} alt={`QRIS ${topup.orderId}`} className="w-52 h-52 object-contain" />
-                        </div>
-                      ) : (
-                        <div className="w-52 h-52 rounded-3xl bg-slate-50 border border-slate-200 flex flex-col gap-2 items-center justify-center text-center px-5">
-                          <AlertCircle className="h-8 w-8 text-amber-400" />
-                          <span className="text-xs font-bold text-slate-500">QRIS belum tersedia</span>
-                        </div>
-                      )}
-                    </div>
-                    {topup.paymentLink && !expired && (
-                      <a
-                        href={topup.paymentLink}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="h-10 rounded-xl border border-indigo-200 text-indigo-600 font-extrabold text-xs flex items-center justify-center hover:bg-indigo-50"
-                      >
-                        Buka halaman pembayaran
-                      </a>
-                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={onOpenPayment}
+                      className="h-11 w-full rounded-2xl gap-1.5 text-xs font-extrabold"
+                    >
+                      <ExternalLink className="h-4 w-4" /> Buka Ulang Pembayaran
+                    </Button>
 
-                    <div className={`flex items-center justify-center gap-2 text-sm font-extrabold ${expired ? "text-red-500" : "text-amber-600"}`}>
-                      <Clock className="h-4 w-4" />
-                      {expired ? "QRIS telah kedaluwarsa" : `Menunggu pembayaran · ${minutes}:${seconds}`}
-                    </div>
+                    <Button
+                      type="button"
+                      onClick={onCheck}
+                      disabled={checking}
+                      className="h-11 w-full rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 text-xs font-extrabold text-white"
+                    >
+                      {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                      Saya Sudah Bayar
+                    </Button>
 
-                    <div className="grid grid-cols-2 gap-2">
-                      {topup.qrCodeUrl && !expired ? (
-                        <a
-                          href={topup.qrCodeUrl}
-                          download={`QRIS-${topup.orderId}.png`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="h-11 rounded-xl border border-purple-200 text-purple-600 font-extrabold text-xs flex items-center justify-center gap-1.5 hover:bg-purple-50"
-                        >
-                          <Download className="h-4 w-4" /> Download QRIS
-                        </a>
-                      ) : (
-                        <button disabled className="h-11 rounded-xl border border-slate-200 text-slate-300 font-extrabold text-xs flex items-center justify-center gap-1.5">
-                          <Download className="h-4 w-4" /> Download QRIS
-                        </button>
-                      )}
-                      <button
-                        onClick={onCheck}
-                        disabled={checking || expired}
-                        className="h-11 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 disabled:opacity-50"
-                      >
-                        {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                         Saya Sudah Bayar
-                      </button>
-                    </div>
-
-                    <div className="flex items-start gap-3 bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3">
-                      <Shield className="h-4 w-4 text-purple-500 shrink-0 mt-0.5" />
-                      <p className="text-[11px] text-slate-500 font-medium leading-snug">
-                        Setelah pembayaran terdeteksi dan diverifikasi, saldo akan bertambah otomatis. Jangan bayar QRIS yang sudah kedaluwarsa.
+                    <div className="flex items-start gap-2.5 rounded-2xl bg-slate-50 px-4 py-3">
+                      <Shield className="mt-0.5 h-4 w-4 shrink-0 text-violet-500" />
+                      <p className="text-[11px] font-medium leading-snug text-slate-500">
+                        Saldo bertambah otomatis setelah pembayaran terverifikasi oleh sistem. Jangan menutup jendela sebelum pembayaran selesai.
                       </p>
                     </div>
                   </>
@@ -334,52 +172,79 @@ function AutomaticQrisModal({
 export default function TopupPage() {
   const { user, token } = useAuth();
   const { toast } = useToast();
-  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const { data: topupHistory, isLoading: loadingHistory } = useListMyTopups({ limit: 5 });
   const createTopup = useCreateAutomaticTopup();
-  const [showRules, setShowRules] = useState(false);
-  const [qrisOpen, setQrisOpen] = useState(false);
+
+  const [amount, setAmount] = useState("");
+  const [amountError, setAmountError] = useState<string | null>(null);
+  const [widgetOpen, setWidgetOpen] = useState(false);
   const [activeTopup, setActiveTopup] = useState<AutomaticTopup | null>(null);
   const [checking, setChecking] = useState(false);
-
-  const sessionKey = (token ?? "anon").slice(0, 10);
-  const historyList: Topup[] = useMemo(() => (topupHistory as any)?.data ?? [], [topupHistory]);
-  const activePending = activeTopup && ["pending"].includes(activeTopup.status);
-
-  useEffect(() => {
-    if (shouldShowRules(sessionKey)) setShowRules(true);
-  }, [sessionKey]);
-
-  useEffect(() => {
-    const topupId = new URLSearchParams(window.location.search).get("topup_id");
-    if (!topupId || !token) return;
-    let cancelled = false;
-    void fetch(`/api/topup/${encodeURIComponent(topupId)}/status`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(async (response) => {
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error ?? "Gagal memuat status top up.");
-        if (cancelled) return;
-        setActiveTopup(result);
-        setQrisOpen(true);
-        if (result.paid || result.status === "paid" || result.status === "confirmed") {
-          refreshAfterPaid();
-        }
-      })
-      .catch(() => {
-        // The return URL is best-effort; the user can still open Top Up and
-        // check the transaction manually if the session has expired.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+  const popupRef = useRef<Window | null>(null);
 
   const refreshAfterPaid = () => {
-    queryClient.invalidateQueries({ queryKey: getListMyTopupsQueryKey({ limit: 5 }) });
     queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListMyTopupsQueryKey() });
+  };
+
+  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const digits = e.target.value.replace(/\D/g, "");
+    setAmount(digits);
+    if (amountError) setAmountError(null);
+  };
+
+  const openPopup = (url: string) => {
+    const w = 420;
+    const h = 720;
+    const left = window.screenX + Math.max(0, (window.outerWidth - w) / 2);
+    const top = window.screenY + Math.max(0, (window.outerHeight - h) / 2);
+    popupRef.current = window.open(url, "temanqris-pay", `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`);
+  };
+
+  const startTopup = () => {
+    const amt = parseInt(amount, 10);
+    if (!Number.isInteger(amt) || amt < MIN_TOPUP || amt > MAX_TOPUP) {
+      setAmountError(`Nominal minimal Rp ${MIN_TOPUP.toLocaleString("id-ID")} dan maksimal Rp ${MAX_TOPUP.toLocaleString("id-ID")}.`);
+      return;
+    }
+    setAmountError(null);
+
+    // Open the popup synchronously so popup blockers don't interfere, then
+    // navigate it to the hosted payment URL once the backend returns it.
+    const popup = window.open("", "temanqris-pay", "width=420,height=720");
+    popupRef.current = popup;
+
+    setWidgetOpen(true);
+    setActiveTopup(null);
+    createTopup.mutate(
+      { data: { amount: amt } },
+      {
+        onSuccess: (created: AutomaticTopup) => {
+          setActiveTopup(created);
+          if (popup && created.paymentLink) {
+            popup.location.href = created.paymentLink;
+          } else if (!created.paymentLink) {
+            popup?.close();
+          }
+        },
+        onError: (error: any) => {
+          popup?.close();
+          setWidgetOpen(false);
+          toast({
+            title: "Top Up gagal",
+            description: error?.message ?? "Top Up sementara tidak tersedia. Silakan coba lagi.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const closeWidget = () => {
+    setWidgetOpen(false);
+    if (activeTopup && isPaidStatus(activeTopup.status)) {
+      setActiveTopup(null);
+    }
   };
 
   const checkPayment = async () => {
@@ -392,12 +257,15 @@ export default function TopupPage() {
       const result = await latest.json();
       if (!latest.ok) throw new Error(result.error ?? result.message ?? "Gagal memeriksa pembayaran.");
       setActiveTopup(result);
-      if (result.paid || result.status === "paid" || result.status === "confirmed") {
+      if (isPaidStatus(result.status)) {
         toast({ title: "Top up berhasil!", description: "Saldo kamu sudah bertambah otomatis." });
         refreshAfterPaid();
-        setQrisOpen(false);
-      } else if (result.status === "expired") {
-        toast({ title: "QRIS kedaluwarsa", description: "Buat transaksi baru untuk mencoba lagi.", variant: "destructive" });
+        setWidgetOpen(false);
+        popupRef.current?.close();
+      } else if (result.status === "expired" || result.status === "failed") {
+        toast({ title: "Pembayaran gagal", description: "Silakan coba lagi.", variant: "destructive" });
+      } else if (result.status === "awaiting_confirmation") {
+        toast({ title: "Pembayaran sedang diverifikasi", description: "Saldo akan diperbarui setelah pembayaran dikonfirmasi." });
       } else {
         toast({ title: "Belum ada pembayaran", description: "Pembayaran belum terdeteksi. Coba lagi beberapa saat." });
       }
@@ -408,9 +276,12 @@ export default function TopupPage() {
     }
   };
 
+  // Poll the backend status while the payment overlay is open. The backend is
+  // the single source of truth — it only reports "paid" after the TemanQRIS
+  // webhook credits the wallet.
   useEffect(() => {
-    if (!qrisOpen || !activeTopup?.id || !token) return;
-    if (!["pending", "awaiting_confirmation"].includes(activeTopup.status)) return;
+    if (!widgetOpen || !activeTopup?.id || !token) return;
+    if (isPaidStatus(activeTopup.status)) return;
 
     let cancelled = false;
     const poll = async () => {
@@ -421,13 +292,14 @@ export default function TopupPage() {
         const result = await response.json();
         if (cancelled || !response.ok) return;
         setActiveTopup(result);
-        if (result.paid || result.status === "paid" || result.status === "confirmed") {
+        if (isPaidStatus(result.status)) {
           toast({ title: "Top up berhasil!", description: "Saldo kamu sudah bertambah otomatis." });
           refreshAfterPaid();
-          setQrisOpen(false);
+          setWidgetOpen(false);
+          popupRef.current?.close();
         }
       } catch {
-        // Retry on the next interval if the network is temporarily unavailable.
+        // Retry on next interval if the network is temporarily unavailable.
       }
     };
 
@@ -436,50 +308,11 @@ export default function TopupPage() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [qrisOpen, activeTopup?.id, activeTopup?.status, token]);
-
-  const startTopup = (amount: number) => {
-    if (activePending) {
-      toast({ title: "Selesaikan transaksi sebelumnya", description: "Periksa pembayaran QRIS yang masih aktif terlebih dahulu.", variant: "destructive" });
-      setQrisOpen(true);
-      return;
-    }
-    setQrisOpen(true);
-    setActiveTopup(null);
-    createTopup.mutate(
-      { data: { amount } },
-      {
-        onSuccess: (created: AutomaticTopup) => setActiveTopup(created),
-        onError: (error: any) => {
-          setQrisOpen(false);
-          toast({
-            title: "QRIS gagal dibuat",
-            description: error?.message ?? "Gateway pembayaran belum siap. Silakan coba lagi.",
-            variant: "destructive",
-          });
-        },
-      },
-    );
-  };
-
-  const closeQris = () => {
-    setQrisOpen(false);
-    if (activeTopup?.status === "paid" || activeTopup?.status === "expired" || activeTopup?.status === "failed") {
-      setActiveTopup(null);
-    }
-  };
+  }, [widgetOpen, activeTopup?.id, activeTopup?.status, token]);
 
   return (
     <ProtectedRoute>
       <AppLayout>
-        <RulesModal
-          open={showRules}
-          onClose={() => {
-            localStorage.setItem(LS_KEY, JSON.stringify({ ts: Date.now(), sk: sessionKey }));
-            setShowRules(false);
-          }}
-        />
-
         <div className="relative overflow-hidden bg-[#f7f5ff] px-5 pb-7 pt-8 md:px-8 md:pt-10">
           <div className="pointer-events-none absolute -right-12 -top-16 h-48 w-48 rounded-full bg-pink-200/60" />
           <div className="pointer-events-none absolute bottom-0 left-1/2 h-20 w-20 rounded-full bg-blue-200/50" />
@@ -491,7 +324,7 @@ export default function TopupPage() {
               FUN+ Wallet
             </div>
             <h1 data-testid="text-topup-heading" className="max-w-md text-3xl font-extrabold leading-tight text-slate-900 md:text-4xl">Top Up Wallet</h1>
-            <p data-testid="text-topup-description" className="mt-2 max-w-md text-sm font-medium leading-relaxed text-slate-500">Tekan tombol di bawah ini untuk melakukan top up.</p>
+            <p data-testid="text-topup-description" className="mt-2 max-w-md text-sm font-medium leading-relaxed text-slate-500">Tekan tombol di bawah ini untuk menambah saldo wallet kamu.</p>
           </div>
         </div>
 
@@ -539,7 +372,7 @@ export default function TopupPage() {
             <p className="mb-4 mt-1 text-xs font-medium text-slate-500">Semua pembayaran diproses melalui QRIS</p>
             <div className="grid grid-cols-4 gap-2">
               {PAYMENT_METHODS.map((method) => (
-                <div key={method.id} data-testid={`payment-method-${method.id}`} className={`flex h-10 items-center justify-center rounded-xl border px-1.5 transition-all ${method.selectable ? "border-violet-300 bg-violet-50 ring-1 ring-violet-400" : "border-slate-100 bg-slate-50 opacity-70"}`}>
+                <div key={method.id} data-testid={`payment-method-${method.id}`} className="flex h-10 items-center justify-center rounded-xl border border-slate-100 bg-slate-50 px-1.5 opacity-80">
                   <span className="truncate text-center text-[9px] font-extrabold leading-tight sm:text-[10px]" style={{ color: method.color }}>{method.label}</span>
                 </div>
               ))}
@@ -548,57 +381,45 @@ export default function TopupPage() {
         </div>
 
         <section className="mx-auto mb-7 max-w-5xl px-4 md:px-8">
-          <div className="relative overflow-hidden rounded-[30px] bg-gradient-to-r from-violet-600 via-fuchsia-500 to-blue-500 p-6 shadow-[0_18px_45px_rgba(109,82,214,0.22)] md:flex md:items-center md:justify-between md:p-8">
+          <div className="relative overflow-hidden rounded-[30px] bg-gradient-to-r from-violet-600 via-fuchsia-500 to-blue-500 p-6 shadow-[0_18px_45px_rgba(109,82,214,0.22)] md:p-8">
             <div className="pointer-events-none absolute right-8 top-[-40px] h-32 w-32 rounded-full border-[16px] border-white/10" />
             <div className="relative z-10 text-white">
               <h2 className="text-2xl font-extrabold">Top Up Wallet</h2>
-              <p className="mt-1 max-w-sm text-sm font-medium text-white/80">Tekan tombol di bawah ini untuk melakukan top up.</p>
+              <p className="mt-1 max-w-sm text-sm font-medium text-white/80">Tekan tombol di bawah ini untuk menambah saldo wallet kamu.</p>
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="relative flex-1">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-extrabold text-white/60">Rp</span>
+                  <input
+                    data-testid="input-topup-amount"
+                    inputMode="numeric"
+                    value={amount ? Number(amount).toLocaleString("id-ID") : ""}
+                    onChange={handleAmountChange}
+                    placeholder="0"
+                    className="h-12 w-full rounded-2xl border border-white/20 bg-white/15 pl-11 pr-4 text-lg font-extrabold text-white outline-none placeholder:text-white/40 focus:border-white/40 focus:bg-white/25"
+                  />
+                </div>
+                <Button
+                  data-testid="button-topup"
+                  type="button"
+                  onClick={startTopup}
+                  disabled={createTopup.isPending}
+                  className="h-12 rounded-2xl bg-white px-8 text-sm font-extrabold tracking-widest text-violet-700 shadow-lg hover:bg-violet-50 disabled:opacity-60 sm:w-auto"
+                >
+                  {createTopup.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <>TOP UP <ArrowUpRight className="ml-1 h-4 w-4" /></>}
+                </Button>
+              </div>
+              {amountError && <p className="mt-2 text-xs font-bold text-red-200">{amountError}</p>}
             </div>
-            <Button data-testid="button-topup" type="button" onClick={() => startTopup(DEFAULT_TOPUP_AMOUNT)} disabled={createTopup.isPending} className="relative z-10 mt-5 h-12 w-full rounded-2xl bg-white px-6 text-sm font-extrabold tracking-widest text-violet-700 shadow-lg hover:bg-violet-50 md:mt-0 md:w-auto">
-              TOP UP <ArrowUpRight className="ml-2 h-4 w-4" />
-            </Button>
           </div>
         </section>
 
-        <div className="mx-auto mb-8 max-w-5xl px-4 md:px-8">
-          <div className="flex items-center justify-between mb-3">
-            <p className="font-extrabold text-slate-800 text-sm">Top Up History</p>
-            <button type="button" onClick={() => setLocation("/history")} className="text-[11px] font-bold text-purple-600 hover:text-purple-800">
-              See all <ChevronRight className="h-3 w-3 inline" />
-            </button>
-          </div>
-          {loadingHistory ? (
-            <div className="space-y-2.5">
-              {[1, 2, 3].map((item) => <div key={item} className="bg-white rounded-2xl border border-slate-100 p-4 animate-pulse h-20" />)}
-            </div>
-          ) : historyList.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-violet-200 bg-white p-7 text-center">
-              <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-50 text-violet-500">
-                <Clock className="h-5 w-5" />
-              </div>
-              <p className="text-sm font-extrabold text-slate-700">Belum ada riwayat top up</p>
-              <p className="mt-1 text-xs font-medium text-slate-400">Transaksi kamu akan muncul di sini.</p>
-            </div>
-          ) : (
-            <AnimatePresence>
-              <div className="space-y-2.5">
-                {historyList.map((topup, index) => (
-                  <motion.div key={topup.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
-                    <HistoryCard topup={topup} />
-                  </motion.div>
-                ))}
-              </div>
-            </AnimatePresence>
-          )}
-        </div>
-
-        <AutomaticQrisModal
-          open={qrisOpen}
-          onClose={closeQris}
+        <PaymentModal
+          open={widgetOpen}
+          onClose={closeWidget}
           topup={activeTopup}
-          creating={createTopup.isPending}
           checking={checking}
           onCheck={checkPayment}
+          onOpenPayment={() => activeTopup?.paymentLink && openPopup(activeTopup.paymentLink)}
         />
       </AppLayout>
     </ProtectedRoute>
