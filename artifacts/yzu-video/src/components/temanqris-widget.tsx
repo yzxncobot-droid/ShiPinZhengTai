@@ -3,6 +3,8 @@ import { useEffect, useRef } from "react";
 interface TemanQrisWidgetProps {
   merchantId: string;
   userId?: string;
+  /** Full callback URL (includes local topup ID as query param). If empty, the widget is not loaded. */
+  callbackUrl?: string;
   buttonText?: string;
   buttonColor?: string;
 }
@@ -14,27 +16,26 @@ interface TemanQrisWidgetProps {
  * button. When clicked, it opens the QRIS payment flow where the user enters
  * the nominal (since data-amount is omitted) and completes the payment.
  *
+ * The callbackUrl must include the local topup ID as a query param so the
+ * frontend can link the TemanQRIS order with the local transaction after the
+ * payment popup redirects back.
+ *
  * The webhook URL is set so TemanQRIS sends server-to-server confirmation to
  * our backend, which credits the wallet. The user ID is embedded in the
- * description so the webhook handler can associate the payment with a user
- * (the widget creates the order client-side; the backend has no pre-existing
- * topup record).
+ * description so the webhook handler can associate the payment with a user.
  */
 export function TemanQrisWidget({
   merchantId,
   userId,
+  callbackUrl,
   buttonText = "Top Up Sekarang",
   buttonColor = "#7C3AED",
 }: TemanQrisWidgetProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const propsRef = useRef({ merchantId, userId, buttonText, buttonColor });
-  propsRef.current = { merchantId, userId, buttonText, buttonColor };
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
-
-    const { merchantId, userId, buttonText, buttonColor } = propsRef.current;
+    if (!container || !callbackUrl) return;
 
     const script = document.createElement("script");
     script.src = "https://temanqris.com/widget.js";
@@ -44,7 +45,7 @@ export function TemanQrisWidget({
     script.setAttribute("data-button-text", buttonText);
     script.setAttribute("data-button-color", buttonColor);
     script.setAttribute("data-description", `Top Up Wallet user:${userId ?? ""}`);
-    script.setAttribute("data-callback", `${window.location.origin}/topup`);
+    script.setAttribute("data-callback", callbackUrl);
     script.setAttribute(
       "data-webhook",
       `${window.location.origin}/api/webhooks/temanqris`,
@@ -55,7 +56,9 @@ export function TemanQrisWidget({
     return () => {
       container.innerHTML = "";
     };
-  }, []);
+  }, [merchantId, userId, callbackUrl, buttonText, buttonColor]);
+
+  if (!callbackUrl) return null;
 
   return <div ref={containerRef} className="temanqris-widget-container" />;
 }
