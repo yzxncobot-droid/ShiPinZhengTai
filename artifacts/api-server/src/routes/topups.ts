@@ -214,6 +214,51 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
   }
 });
 
+// ── POST /topup/register-widget-order — register a TemanQRIS widget order ──
+// The hosted TemanQRIS widget (widget.js) generates its own QRIS order
+// client-side using only the public merchant ID — no server API key required.
+// This records that widget-generated order against the authenticated user so
+// the TemanQRIS webhook (POST /webhooks/temanqris) can credit the wallet when
+// the payment is confirmed, and so an admin can confirm it manually.
+router.post("/topup/register-widget-order", authenticate, qrisRateLimit, async (req, res) => {
+  const amount = parseTopupAmount(req.body?.amount);
+  const orderId = String(req.body?.orderId ?? "").trim();
+  if (amount == null) {
+    res.status(400).json({
+      error: `Amount must be an integer between Rp ${MIN_TOPUP.toLocaleString("id-ID")} and Rp ${MAX_TOPUP.toLocaleString("id-ID")}.`,
+    });
+    return;
+  }
+  if (!orderId) {
+    res.status(400).json({ error: "orderId is required." });
+    return;
+  }
+
+  // Idempotent: if this gateway order was already registered, return it.
+  const [existing] = await db.select().from(topupsTable)
+    .where(eq(topupsTable.orderId, orderId)).limit(1);
+  if (existing) {
+    if (existing.userId !== req.user!.userId) {
+      res.status(403).json({ error: "Order belongs to another user." });
+      return;
+    }
+    res.json({ success: true, id: existing.id, orderId: existing.orderId, amount: existing.amount, status: existing.status });
+    return;
+  }
+
+  const [topup] = await db.insert(topupsTable).values({
+    userId: req.user!.userId,
+    amount,
+    orderId,
+    paymentMethod: "qris",
+    gateway: "temanqris",
+    status: "pending",
+    expiredAt: new Date(Date.now() + 15 * 60 * 1000),
+  }).returning();
+
+  res.status(201).json({ success: true, id: topup.id, orderId: topup.orderId, amount: topup.amount, status: topup.status });
+});
+
 // ── GET /topup/:id/status — safely check and settle one own transaction ─────
 router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) => {
   const id = String(req.params.id);
