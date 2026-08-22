@@ -10,21 +10,23 @@ import {
 import type { AutomaticTopup, Topup } from "@workspace/api-client-react";
 import {
   AlertCircle,
+  ArrowUpRight,
   CheckCircle2,
   ChevronRight,
   Clock,
   Download,
-  Info,
+  ExternalLink,
   Loader2,
   QrCode,
   RefreshCw,
   Shield,
   ShieldAlert,
+  Sparkles,
   X,
+  Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
@@ -33,13 +35,14 @@ import { id as localeId } from "date-fns/locale";
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-const PRESETS = [
-  { amount: 1000, label: "Rp 1.000" },
-  { amount: 5000, label: "Rp 5.000" },
-  { amount: 10000, label: "Rp 10.000" },
-  { amount: 15000, label: "Rp 15.000" },
-  { amount: 25000, label: "Rp 25.000" },
-  { amount: 50000, label: "Rp 50.000" },
+const DEFAULT_TOPUP_AMOUNT = 1000;
+
+const TOPUP_STEPS = [
+  { title: "Buka Widget Top Up", description: "Tekan tombol 'Top Up' di bawah untuk membuka widget QRIS.", Icon: ExternalLink },
+  { title: "Scan Kode QRIS", description: "Pilih aplikasi pembayaran yang kamu gunakan, lalu scan kode QRIS yang muncul pada widget.", Icon: QrCode },
+  { title: "Masukkan Nominal", description: "Masukkan jumlah nominal top up yang ingin kamu bayarkan.", Icon: Wallet },
+  { title: "Konfirmasi Pembayaran", description: "Periksa kembali nominal dan detail pembayaran, lalu konfirmasi pembayaran di aplikasi kamu.", Icon: CheckCircle2 },
+  { title: "Saldo Berhasil Ditambahkan", description: "Setelah pembayaran berhasil, saldo akan otomatis masuk ke akun kamu.", Icon: Wallet },
 ];
 
 const PAYMENT_METHODS = [
@@ -337,8 +340,6 @@ export default function TopupPage() {
   const createTopup = useCreateAutomaticTopup();
   const [showRules, setShowRules] = useState(false);
   const [qrisOpen, setQrisOpen] = useState(false);
-  const [customValue, setCustomValue] = useState("");
-  const [customError, setCustomError] = useState("");
   const [activeTopup, setActiveTopup] = useState<AutomaticTopup | null>(null);
   const [checking, setChecking] = useState(false);
 
@@ -461,20 +462,6 @@ export default function TopupPage() {
     );
   };
 
-  const applyCustom = () => {
-    const amount = Number(customValue.replace(/[^\d]/g, ""));
-    if (!Number.isInteger(amount) || amount < 100) {
-      setCustomError("Minimum top up adalah Rp 100.");
-      return;
-    }
-    if (amount > 1_000_000) {
-      setCustomError("Maximum top up adalah Rp 1.000.000.");
-      return;
-    }
-    setCustomError("");
-    startTopup(amount);
-  };
-
   const closeQris = () => {
     setQrisOpen(false);
     if (activeTopup?.status === "paid" || activeTopup?.status === "expired" || activeTopup?.status === "failed") {
@@ -493,94 +480,87 @@ export default function TopupPage() {
           }}
         />
 
-        <div className="relative px-5 pt-6 pb-3 overflow-hidden bg-white">
-          <div className="absolute top-5 right-28 text-yellow-400 text-xl select-none pointer-events-none">★</div>
-          <div className="absolute top-12 right-14 text-yellow-300 text-sm select-none pointer-events-none animate-bounce">★</div>
-          <div className="absolute top-4 right-44 text-yellow-200 text-xs select-none pointer-events-none">✦</div>
-          <div className="absolute right-3 top-0 text-[72px] select-none pointer-events-none opacity-85 leading-none">🧒</div>
-          <div className="max-w-[65%]">
-            <h1 className="text-2xl font-extrabold text-slate-800 leading-tight">Top Up Balance</h1>
-            <p className="text-xs text-slate-500 font-medium mt-1.5 leading-snug">Top up your wallet instantly using QRIS.</p>
+        <div className="relative overflow-hidden bg-[#f7f5ff] px-5 pb-7 pt-8 md:px-8 md:pt-10">
+          <div className="pointer-events-none absolute -right-12 -top-16 h-48 w-48 rounded-full bg-pink-200/60" />
+          <div className="pointer-events-none absolute bottom-0 left-1/2 h-20 w-20 rounded-full bg-blue-200/50" />
+          <div className="relative mx-auto max-w-5xl">
+            <div className="mb-5 flex items-center gap-2 text-xs font-extrabold uppercase tracking-[0.18em] text-violet-500">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm">
+                <Sparkles className="h-4 w-4" />
+              </span>
+              FUN+ Wallet
+            </div>
+            <h1 data-testid="text-topup-heading" className="max-w-md text-3xl font-extrabold leading-tight text-slate-900 md:text-4xl">Top Up Wallet</h1>
+            <p data-testid="text-topup-description" className="mt-2 max-w-md text-sm font-medium leading-relaxed text-slate-500">Tekan tombol di bawah ini untuk melakukan top up.</p>
           </div>
         </div>
 
-        <div className="mx-4 mb-4">
+        <div className="relative mx-auto -mt-2 max-w-5xl px-4 md:px-8">
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="relative bg-gradient-to-br from-purple-600 via-indigo-600 to-blue-500 rounded-3xl p-5 shadow-xl overflow-hidden"
+            className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-violet-600 via-purple-600 to-blue-500 p-6 shadow-[0_18px_45px_rgba(109,82,214,0.24)] md:p-7"
           >
-            <div className="absolute top-0 right-0 w-36 h-36 bg-white/5 rounded-full -translate-x-6 -translate-y-10" />
-            <div className="absolute bottom-0 left-0 w-28 h-28 bg-white/5 rounded-full translate-x-2 translate-y-10" />
+            <div className="absolute -right-10 -top-16 h-44 w-44 rounded-full border-[18px] border-white/10" />
+            <div className="absolute -bottom-12 left-20 h-28 w-28 rounded-full bg-pink-400/20" />
             <div className="relative z-10">
-              <p className="text-white/60 text-[10px] font-extrabold uppercase tracking-[0.15em] mb-1">Current Balance</p>
-              <p className="text-white font-extrabold text-3xl tracking-tight">Rp {(user?.walletBalance ?? 0).toLocaleString("id-ID")}</p>
+              <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-white/65">CURRENT BALANCE</p>
+              <p data-testid="text-current-balance" className="mt-1 text-3xl font-extrabold tracking-tight text-white md:text-4xl">Rp {(user?.walletBalance ?? 0).toLocaleString("id-ID")}</p>
+              <p className="mt-3 text-xs font-semibold text-white/70">Saldo aman untuk menikmati lebih banyak cerita.</p>
             </div>
-            <div className="absolute right-5 top-5 text-white/10 text-4xl select-none">◆</div>
           </motion.div>
         </div>
 
-        <div className="mx-4 mb-4 bg-white rounded-3xl border border-slate-100 shadow-sm p-4">
-          <p className="font-extrabold text-slate-800 text-sm mb-3">Select Amount</p>
-          <div className="grid grid-cols-3 gap-2.5 mb-4">
-            {PRESETS.map((preset, index) => (
-              <motion.button
-                key={preset.amount}
-                type="button"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.04 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => startTopup(preset.amount)}
-                disabled={createTopup.isPending}
-                className="relative flex flex-col items-center py-3.5 px-2 rounded-2xl font-extrabold text-sm border transition-all bg-slate-50 text-slate-700 border-slate-200 hover:border-purple-300 hover:bg-purple-50 active:bg-purple-100 disabled:opacity-50"
-              >
-                <span className="text-xs font-extrabold text-slate-400">TOP UP</span>
-                <span className="text-sm font-extrabold mt-0.5 leading-tight">{preset.label}</span>
-              </motion.button>
-            ))}
-          </div>
-          <div className="border-t border-slate-100 pt-3.5">
-            <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-2">Custom Amount</p>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold pointer-events-none">Rp</span>
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="Min: Rp 100"
-                  value={customValue}
-                  onChange={(event) => { setCustomValue(event.target.value); setCustomError(""); }}
-                  onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); applyCustom(); } }}
-                  className="pl-10 h-11 rounded-xl border-slate-200 bg-slate-50 text-sm font-bold focus-visible:ring-purple-500"
-                />
+        <div className="mx-auto grid max-w-5xl gap-5 px-4 py-5 md:grid-cols-[1.15fr_.85fr] md:px-8">
+          <section className="rounded-[28px] border border-violet-100 bg-white p-5 shadow-[0_10px_35px_rgba(85,65,140,0.07)] md:p-6">
+            <div className="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-violet-500">Mudah & aman</p>
+                <h2 className="mt-1 text-xl font-extrabold text-slate-900">Tata Cara Top Up</h2>
               </div>
-              <Button type="button" onClick={applyCustom} disabled={createTopup.isPending} className="h-11 px-5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-sm gap-1 shrink-0">
-                <CheckCircle2 className="h-4 w-4" /> Use
-              </Button>
+              <div className="rounded-2xl bg-violet-50 p-3 text-violet-600"><QrCode className="h-5 w-5" /></div>
             </div>
-            {customError && (
-              <p className="text-xs text-red-500 font-medium mt-1.5 flex items-center gap-1">
-                <AlertCircle className="h-3 w-3" /> {customError}
-              </p>
-            )}
-            <p className="text-[10px] text-slate-400 font-medium mt-1.5">Minimum: Rp 100 · Maximum: Rp 1.000.000</p>
-          </div>
+            <div className="space-y-4">
+              {TOPUP_STEPS.map(({ title, description, Icon }, index) => (
+                <div key={title} className={`flex gap-3 ${index < TOPUP_STEPS.length - 1 ? "border-b border-slate-100 pb-4" : ""}`} data-testid={`step-topup-${index + 1}`}>
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-600 text-sm font-extrabold text-white">{index + 1}</span>
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0"><h3 className="text-sm font-extrabold text-slate-800">{title}</h3><p className="mt-0.5 text-xs font-medium leading-relaxed text-slate-500">{description}</p></div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-[28px] border border-slate-100 bg-white p-5 shadow-[0_10px_35px_rgba(85,65,140,0.07)] md:p-6">
+            <p className="mb-1 text-[10px] font-extrabold uppercase tracking-[0.18em] text-slate-400">Pilihan pembayaran</p>
+            <h2 className="text-base font-extrabold text-slate-900">METODE PEMBAYARAN</h2>
+            <p className="mb-4 mt-1 text-xs font-medium text-slate-500">Semua pembayaran diproses melalui QRIS</p>
+            <div className="grid grid-cols-4 gap-2">
+              {PAYMENT_METHODS.map((method) => (
+                <div key={method.id} data-testid={`payment-method-${method.id}`} className={`flex h-10 items-center justify-center rounded-xl border px-1.5 transition-all ${method.selectable ? "border-violet-300 bg-violet-50 ring-1 ring-violet-400" : "border-slate-100 bg-slate-50 opacity-70"}`}>
+                  <span className="truncate text-center text-[9px] font-extrabold leading-tight sm:text-[10px]" style={{ color: method.color }}>{method.label}</span>
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
 
-        <div className="mx-4 mb-4 bg-white rounded-3xl border border-slate-100 shadow-sm p-4">
-          <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Payment Methods</p>
-          <p className="text-xs text-slate-500 font-medium mb-3">All payments processed via QRIS</p>
-          <div className="grid grid-cols-4 gap-2">
-            {PAYMENT_METHODS.map((method) => (
-              <div key={method.id} className={`flex items-center justify-center h-10 rounded-xl border px-2 transition-all ${method.selectable ? "border-purple-300 bg-purple-50 ring-1 ring-purple-400" : "border-slate-100 bg-slate-50 opacity-70"}`}>
-                <span className="text-[10px] font-extrabold truncate leading-tight text-center" style={{ color: method.color }}>{method.label}</span>
-              </div>
-            ))}
+        <section className="mx-auto mb-7 max-w-5xl px-4 md:px-8">
+          <div className="relative overflow-hidden rounded-[30px] bg-gradient-to-r from-violet-600 via-fuchsia-500 to-blue-500 p-6 shadow-[0_18px_45px_rgba(109,82,214,0.22)] md:flex md:items-center md:justify-between md:p-8">
+            <div className="pointer-events-none absolute right-8 top-[-40px] h-32 w-32 rounded-full border-[16px] border-white/10" />
+            <div className="relative z-10 text-white">
+              <h2 className="text-2xl font-extrabold">Top Up Wallet</h2>
+              <p className="mt-1 max-w-sm text-sm font-medium text-white/80">Tekan tombol di bawah ini untuk melakukan top up.</p>
+            </div>
+            <Button data-testid="button-topup" type="button" onClick={() => startTopup(DEFAULT_TOPUP_AMOUNT)} disabled={createTopup.isPending} className="relative z-10 mt-5 h-12 w-full rounded-2xl bg-white px-6 text-sm font-extrabold tracking-widest text-violet-700 shadow-lg hover:bg-violet-50 md:mt-0 md:w-auto">
+              TOP UP <ArrowUpRight className="ml-2 h-4 w-4" />
+            </Button>
           </div>
-        </div>
+        </section>
 
-        <div className="mx-4 mb-8">
+        <div className="mx-auto mb-8 max-w-5xl px-4 md:px-8">
           <div className="flex items-center justify-between mb-3">
             <p className="font-extrabold text-slate-800 text-sm">Top Up History</p>
             <button type="button" onClick={() => setLocation("/history")} className="text-[11px] font-bold text-purple-600 hover:text-purple-800">
@@ -592,10 +572,12 @@ export default function TopupPage() {
               {[1, 2, 3].map((item) => <div key={item} className="bg-white rounded-2xl border border-slate-100 p-4 animate-pulse h-20" />)}
             </div>
           ) : historyList.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-100 p-6 text-center">
-              <div className="text-3xl mb-2">💳</div>
-              <p className="text-sm font-extrabold text-slate-600">No top-up history yet</p>
-              <p className="text-xs text-slate-400 font-medium mt-1">Your transactions will appear here</p>
+            <div className="rounded-2xl border border-dashed border-violet-200 bg-white p-7 text-center">
+              <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-50 text-violet-500">
+                <Clock className="h-5 w-5" />
+              </div>
+              <p className="text-sm font-extrabold text-slate-700">Belum ada riwayat top up</p>
+              <p className="mt-1 text-xs font-medium text-slate-400">Transaksi kamu akan muncul di sini.</p>
             </div>
           ) : (
             <AnimatePresence>
