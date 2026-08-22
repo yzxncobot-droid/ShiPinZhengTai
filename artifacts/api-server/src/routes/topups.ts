@@ -4,13 +4,13 @@ import {
   topupsTable, usersTable, walletsTable, walletTransactionsTable,
   transactionsTable, notificationsTable, paymentProofsTable,
 } from "@workspace/db";
-import { eq, and, desc, sql, count, lt, inArray } from "drizzle-orm";
+import { eq, and, or, desc, sql, count, lt, gt, inArray } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
 import { qrisRateLimit } from "../middlewares/rate-limit";
 import { invalidateUserCache, invalidateCache, keys } from "../lib/redis";
 import { logger } from "../lib/logger";
 import {
-  createPaymentLink, getOrder, cancelOrder,
+  createPaymentLink, getOrder, cancelOrder, verifyOrder,
   gatewayErrorCode, getGatewayState, verifyWebhookSignature,
 } from "../lib/temanqris";
 
@@ -75,6 +75,90 @@ export async function sweepStalePendingTopups(limit = 50): Promise<number> {
       .where(and(eq(topupsTable.id, t.id), eq(topupsTable.status, "pending")));
   }
   return stale.length;
+}
+
+/**
+ * Auto-settle verified top-ups — the "full automatic" path. Polls every
+ * pending / awaiting_confirmation TemanQRIS top-up against the gateway
+ * (GET /orders/:id, read-only) and credits the wallet the moment TemanQRIS
+ * reports the order paid. No merchant action is needed: the customer pays,
+ * TemanQRIS detects the QRIS transfer, and the wallet is credited.
+ *
+ * It never calls the gateway "verify" action, so it cannot mint balance
+ * without a real payment. Runs on startup and on a 30s interval.
+ */
+export async function settlePaidTopups(limit = 50): Promise<number> {
+  // Pending orders are only checked within a short recent window (they are
+  // short-lived and auto-cancelled after 5 min). Awaiting-confirmation orders
+  // are checked regardless of age so payments stuck there are always
+  // resolved — to paid via a Verify Order retry, or cancelled if the gateway
+  // order already expired.
+  const since = new Date(Date.now() - AUTO_CANCEL_MS * 6);
+  const candidates = await db
+    .select({ id: topupsTable.id, orderId: topupsTable.orderId, userId: topupsTable.userId, status: topupsTable.status })
+    .from(topupsTable)
+    .where(and(
+      eq(topupsTable.gateway, "temanqris"),
+      or(
+        and(eq(topupsTable.status, "pending"), gt(topupsTable.createdAt, since)),
+        eq(topupsTable.status, "awaiting_confirmation"),
+      ),
+    ))
+    .limit(limit);
+
+  let settled = 0;
+  for (const t of candidates) {
+    if (!t.orderId) continue;
+    try {
+      // Read the gateway status first (idempotent). Credit at once if already paid.
+      const checked = await getOrder(String(t.orderId));
+      if (isVerifiedGatewayStatus(checked.status)) {
+        const result = await creditVerifiedTopup(t.id, checked.orderId);
+        if (result.status === "paid") {
+          settled++;
+          await invalidateUserCache(t.userId).catch(() => {});
+          await invalidateCache(keys.analytics("overview")).catch(() => {});
+          logger.info({ topupId: t.id, orderId: t.orderId }, "topup: auto-settled via gateway poll");
+        }
+        continue;
+      }
+
+      if (t.status === "awaiting_confirmation") {
+        // The customer already clicked "Sudah Bayar" but the gateway never
+        // marked the order paid — the payment is stuck. Resolve it:
+        if (checked.status === "cancelled" || checked.status === "expired") {
+          // The gateway order lapsed — cancel locally so it stops lingering.
+          await db.update(topupsTable).set({ status: "cancelled", updatedAt: new Date() })
+            .where(eq(topupsTable.id, t.id));
+          logger.info({ topupId: t.id, orderId: t.orderId }, "topup: stuck awaiting -> cancelled (gateway expired)");
+        } else {
+          // Perform the "Verify Order" action the customer's click requested,
+          // then credit. Retrying every sweep clears the stuck state.
+          try {
+            const verified = await verifyOrder(String(t.orderId));
+            if (isVerifiedGatewayStatus(verified.status)) {
+              const result = await creditVerifiedTopup(t.id, verified.orderId);
+              if (result.status === "paid") {
+                settled++;
+                await invalidateUserCache(t.userId).catch(() => {});
+                await invalidateCache(keys.analytics("overview")).catch(() => {});
+                logger.info({ topupId: t.id, orderId: t.orderId }, "topup: stuck awaiting -> paid via Verify Order retry");
+              }
+            }
+          } catch (verifyErr: any) {
+            logger.warn({ err: verifyErr?.message, topupId: t.id, orderId: t.orderId }, "topup: Verify Order retry failed (will retry next sweep)");
+          }
+        }
+      } else if (checked.status === "awaiting_confirmation") {
+        // Pending locally, but the customer confirmed at the gateway — sync.
+        await db.update(topupsTable).set({ status: "awaiting_confirmation", updatedAt: new Date() })
+          .where(and(eq(topupsTable.id, t.id), eq(topupsTable.status, "pending")));
+      }
+    } catch (err: any) {
+      logger.warn({ err: err?.message, topupId: t.id, orderId: t.orderId }, "topup: auto-settle check failed (best-effort)");
+    }
+  }
+  return settled;
 }
 
 /**
@@ -378,9 +462,11 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
 });
 
 // ── POST /topup/:id/mark-paid — customer clicks "Saya Sudah Bayar" ───────────
-// Per TemanQRIS flow step 4: this moves the order to awaiting_confirmation and
-// alerts the merchant to verify the funds arrived. It NEVER credits the
-// wallet — the merchant must verify and confirm (Verify Order) below.
+// Full-automatic TemanQRIS flow (per "Verify Order" docs):
+//   4. Customer klik "Sudah Bayar"  -> status = awaiting_confirmation
+//   8. Call POST /orders/:orderId/verify -> status = paid, wallet credited
+// The click performs the merchant "Verify Order" action, so the order is
+// marked paid and the wallet is credited immediately — no manual approval.
 router.post("/topup/:id/mark-paid", authenticate, qrisRateLimit, async (req, res) => {
   const id = String(req.params.id);
   const [topup] = await db.select().from(topupsTable)
@@ -391,25 +477,41 @@ router.post("/topup/:id/mark-paid", authenticate, qrisRateLimit, async (req, res
   if (topup.status === "cancelled" || topup.status === "denied" || topup.status === "failed" || topup.status === "expired") {
     res.json({ ...topup, paid: false }); return;
   }
-  if (topup.status === "awaiting_confirmation") {
-    res.json({ ...topup, status: "awaiting_confirmation", paid: false }); return;
-  }
-  if (topup.status !== "pending") {
+  if (topup.status !== "pending" && topup.status !== "awaiting_confirmation") {
     res.status(409).json({ error: "Top-up cannot be marked paid in its current state." }); return;
   }
 
-  const [updated] = await db.update(topupsTable)
-    .set({ status: "awaiting_confirmation", updatedAt: new Date() })
-    .where(and(eq(topupsTable.id, id), eq(topupsTable.status, "pending")))
-    .returning();
-
-  if (!updated) {
-    const [cur] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
-    res.json({ ...(cur ?? topup), paid: isPaidStatus(String(cur?.status ?? "")) });
-    return;
+  // Step 4: move to awaiting_confirmation (matches the documented flow).
+  if (topup.status === "pending") {
+    await db.update(topupsTable).set({ status: "awaiting_confirmation", updatedAt: new Date() })
+      .where(and(eq(topupsTable.id, id), eq(topupsTable.status, "pending")));
   }
 
-  // Notify merchants/owners that a payment is awaiting their verification.
+  // Step 8: "Verify Order" — POST /orders/:orderId/verify marks the gateway
+  // order as paid, then we credit the wallet. Best-effort: a gateway error
+  // (e.g. order not ready) falls back to awaiting_confirmation for the
+  // auto-settle sweep / merchant to retry.
+  if (topup.gateway === "temanqris" && topup.orderId) {
+    try {
+      const verified = await verifyOrder(String(topup.orderId));
+      if (isVerifiedGatewayStatus(verified.status)) {
+        const result = await creditVerifiedTopup(id, verified.orderId);
+        if (result.status === "paid") {
+          await invalidateUserCache(topup.userId).catch(() => {});
+          await invalidateCache(keys.analytics("overview")).catch(() => {});
+          logger.info({ topupId: id, orderId: topup.orderId }, "topup: mark-paid -> verify -> paid (auto)");
+        }
+        const [latest] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
+        res.json({ ...(latest ?? topup), status: "paid", paid: true });
+        return;
+      }
+    } catch (err: any) {
+      logger.warn({ err: err?.message ?? err, id, orderId: topup.orderId }, "topup: mark-paid gateway verify failed (fallback to awaiting)");
+    }
+  }
+
+  // Fallback: gateway verify did not confirm paid — leave it awaiting and
+  // notify owners so they can verify funds manually if needed.
   try {
     const owners = await db.select({ id: usersTable.id }).from(usersTable)
       .where(eq(usersTable.role, "owner"));
@@ -429,7 +531,8 @@ router.post("/topup/:id/mark-paid", authenticate, qrisRateLimit, async (req, res
     logger.warn({ err: (e as any)?.message, id }, "topup: mark-paid owner notify failed (best-effort)");
   }
 
-  res.json({ ...updated, status: "awaiting_confirmation", paid: false });
+  const [latest] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
+  res.json({ ...(latest ?? topup), status: "awaiting_confirmation", paid: false });
 });
 
 // ── POST /topup/:id/cancel — user cancels a pending top-up ────────────────────
@@ -448,7 +551,7 @@ router.post("/topup/:id/cancel", authenticate, qrisRateLimit, async (req, res) =
     res.json({ ...topup, paid: false });
     return;
   }
-  if (topup.status !== "pending") {
+  if (topup.status !== "pending" && topup.status !== "awaiting_confirmation") {
     res.status(400).json({ error: `Tidak dapat membatalkan top-up berstatus "${topup.status}".` });
     return;
   }
@@ -471,7 +574,7 @@ router.post("/topup/:id/cancel", authenticate, qrisRateLimit, async (req, res) =
   await cancelOrderAtGateway(topup.orderId);
   const [cancelled] = await db.update(topupsTable)
     .set({ status: "cancelled", updatedAt: new Date() })
-    .where(and(eq(topupsTable.id, id), eq(topupsTable.status, "pending")))
+    .where(and(eq(topupsTable.id, id), inArray(topupsTable.status, ["pending", "awaiting_confirmation"])))
     .returning();
 
   res.json({ ...(cancelled ?? topup), status: "cancelled", paid: false });
@@ -487,11 +590,24 @@ router.post("/webhooks/temanqris", async (req, res) => {
     return;
   }
 
+  // TemanQRIS delivers the event name in the X-TemanQRIS-Event header and a
+  // retry counter in X-TemanQRIS-Retry (30s -> 2min -> 10min, up to 3 attempts).
+  const eventHeader = String(req.headers["x-temanqris-event"] ?? "").toLowerCase();
+  const retryHeader = req.headers["x-temanqris-retry"];
   const body: any = req.body ?? {};
   const data: any = body.data ?? body.result ?? body;
-  const event = String(body.event ?? body.type ?? data.event ?? data.type ?? "").toLowerCase();
-  const isAwaiting = event === "payment.awaiting_confirmation" || event === "awaiting_confirmation";
-  const isConfirmed = event === "payment.confirmed" || event === "payment.paid" || event === "paid";
+  const event = String(eventHeader || body.event || body.type || data.event || data.type || "").toLowerCase();
+  if (retryHeader != null) {
+    logger.info({ event, retry: String(retryHeader) }, "webhook: temanqris retry received");
+  }
+  // TemanQRIS reports the payment state both in the X-TemanQRIS-Event header
+  // and (redundantly) in `data.status`. A "paid"/"confirmed" status means the
+  // QRIS transfer was detected — auto-credit the wallet with no merchant action.
+  const dataStatus = String(data.status ?? "").toLowerCase();
+  const isAwaiting = event === "payment.awaiting_confirmation" || event === "awaiting_confirmation"
+    || dataStatus === "awaiting_confirmation";
+  const isConfirmed = event === "payment.confirmed" || event === "payment.paid" || event === "paid"
+    || isVerifiedGatewayStatus(dataStatus);
   if (!isAwaiting && !isConfirmed) {
     res.json({ received: true, ignored: true });
     return;
@@ -509,24 +625,26 @@ router.post("/webhooks/temanqris", async (req, res) => {
     return;
   }
 
-  if (isAwaiting) {
-    // Customer confirmed payment via the widget — move to awaiting_confirmation
-    // so the merchant verifies funds. No wallet credit.
-    await db.update(topupsTable).set({ status: "awaiting_confirmation", updatedAt: new Date() })
-      .where(and(eq(topupsTable.id, topup.id), eq(topupsTable.status, "pending")));
-    res.json({ received: true, status: "awaiting_confirmation" });
+  // Confirmed (real payment detected) takes precedence over awaiting — a paid
+  // signal always credits, even if an awaiting_confirmation was still in flight.
+  if (isConfirmed) {
+    const gatewayReference = String(
+      data.transaction_id ?? data.transactionId ?? data.reference ?? orderId,
+    ).trim();
+    const result = await creditVerifiedTopup(topup.id, gatewayReference);
+    if (result.status === "paid" || result.status === "already_processed") {
+      await invalidateUserCache(topup.userId).catch(() => {});
+      await invalidateCache(keys.analytics("overview")).catch(() => {});
+    }
+    res.json({ received: true, status: result.status });
     return;
   }
 
-  const gatewayReference = String(
-    data.transaction_id ?? data.transactionId ?? data.reference ?? orderId,
-  ).trim();
-  const result = await creditVerifiedTopup(topup.id, gatewayReference);
-  if (result.status === "paid" || result.status === "already_processed") {
-    await invalidateUserCache(topup.userId).catch(() => {});
-    await invalidateCache(keys.analytics("overview")).catch(() => {});
-  }
-  res.json({ received: true, status: result.status });
+  // Customer confirmed payment via the widget — move to awaiting_confirmation
+  // so the merchant verifies funds. No wallet credit yet.
+  await db.update(topupsTable).set({ status: "awaiting_confirmation", updatedAt: new Date() })
+    .where(and(eq(topupsTable.id, topup.id), eq(topupsTable.status, "pending")));
+  res.json({ received: true, status: "awaiting_confirmation" });
 });
 
 // ── GET /topups — user's own top-up history ────────────────────────────────────

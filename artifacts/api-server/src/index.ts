@@ -5,7 +5,7 @@ import {
   runBestEffortStartupMigration,
 } from "./lib/startup-migration";
 import { ensureStorageBuckets } from "./lib/storage/setup";
-import { sweepStalePendingTopups } from "./routes/topups";
+import { sweepStalePendingTopups, settlePaidTopups } from "./routes/topups";
 
 const rawPort = process.env["PORT"];
 
@@ -58,4 +58,15 @@ app.listen(port, (err) => {
   sweepStalePendingTopups().catch((e) =>
     logger.warn({ err: (e as any)?.message }, "topup: startup stale sweep failed"),
   );
+
+  // Full-automatic top-up: poll TemanQRIS for paid orders every 30s and credit
+  // the wallet with no merchant action. Best-effort — gateway errors are logged.
+  settlePaidTopups().catch((e) =>
+    logger.warn({ err: (e as any)?.message }, "topup: startup auto-settle failed"),
+  );
+  setInterval(() => {
+    settlePaidTopups().catch((e) =>
+      logger.warn({ err: (e as any)?.message }, "topup: auto-settle sweep failed"),
+    );
+  }, 30_000);
 });

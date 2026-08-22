@@ -369,6 +369,25 @@ export default function TopupPage() {
     if (shouldShowRules(sessionKey)) setShowRules(true);
   }, [sessionKey]);
 
+  // Callback handler: TemanQRIS redirects the customer back to /topup?order_id=
+  // after they interact with the payment page. Open the matching top-up so the
+  // status is visible (the server-side auto-settle sweep credits the wallet).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const orderId = params.get("order_id");
+    if (!orderId || !historyList.length) return;
+    const match = historyList.find((t) => t.orderId === orderId);
+    if (match && (match.status === "pending" || match.status === "awaiting_confirmation")) {
+      setActiveTopup(match as unknown as AutomaticTopup);
+      setQrisOpen(true);
+    }
+    // Clean the callback param from the URL.
+    const url = new URL(window.location.href);
+    url.searchParams.delete("order_id");
+    window.history.replaceState({}, "", url.toString());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyList.length]);
+
   const refreshAfterPaid = () => {
     queryClient.invalidateQueries({ queryKey: getListMyTopupsQueryKey({ limit: 5 }) });
     queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
@@ -642,11 +661,6 @@ export default function TopupPage() {
           canceling={canceling}
           onCheck={checkPayment}
           onCancel={cancelTopup}
-        />
-      </AppLayout>
-    </ProtectedRoute>
-  );
-}}
         />
       </AppLayout>
     </ProtectedRoute>

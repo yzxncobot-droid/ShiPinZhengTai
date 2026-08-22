@@ -278,7 +278,7 @@ export default function AdminPayments() {
                   <div>
                     <p className="text-muted-foreground text-xs">Nominal Transfer</p>
                     {viewPayment.transferAmount != null
-                      ? <p className={`font-bold ${viewPayment.amo             ? <p className={`font-bold ${viewPayment.amountMatchStatus === "mismatch" ? "text-red-600" : "text-green-600"}`}>
+                      ? <p className={`font-bold ${viewPayment.amountMatchStatus === "mismatch" ? "text-red-600" : "text-green-600"}`}>
                           {fmtRp(viewPayment.transferAmount)}
                         </p>
                       : <p className="text-muted-foreground">—</p>
@@ -356,7 +356,7 @@ export default function AdminPayments() {
                       <XCircle className="h-4 w-4" /> Tolak
                     </Button>
                   </div>
-                )}
+                ) : null}
               </div>
             )}
           </DialogContent>
@@ -389,13 +389,6 @@ export default function AdminPayments() {
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
-        </AlertDialog>
-
-      </AdminLayout>
-    </ProtectedRoute>
-  );
-}
-ogContent>
         </AlertDialog>
 
       </AdminLayout>
