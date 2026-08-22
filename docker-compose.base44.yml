@@ -9,6 +9,26 @@
 # provided via /run/base44/app.env; the app prefers NEON_DATABASE_URL when set.
 
 services:
+  # One-shot: generate self-signed SSL certs (owned by the postgres user) into
+  # a shared volume. The db service reads them read-only. We can't bind-mount
+  # certs from the host because git leaves them root-owned and Postgres rejects
+  # keys it can't exclusively read; generating them inside as uid 999 avoids
+  # that, and the db's normal entrypoint (command starts with `postgres`) still
+  # runs initdb.
+  pg-certs:
+    image: postgres:16
+    volumes:
+      - pgcerts:/certs
+    command: >
+      sh -c "
+      openssl req -new -x509 -days 3650 -nodes -text
+      -keyout /certs/server.key -out /certs/server.crt
+      -subj '/CN=localhost' >/dev/null 2>&1
+      && chmod 600 /certs/server.key
+      && chmod 644 /certs/server.crt
+      && chown 999:999 /certs/server.key /certs/server.crt
+      "
+
   db:
     image: postgres:16
     restart: unless-stopped
@@ -18,7 +38,7 @@ services:
       POSTGRES_DB: yzu
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./.base44/pg-certs:/certs:ro
+      - pgcerts:/certs:ro
     # Self-signed SSL so the app's hardcoded `ssl: { rejectUnauthorized: false }`
     # pool config connects without code changes.
     command: postgres -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/certs/server.key
@@ -27,6 +47,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    depends_on:
+      pg-certs:
+        condition: service_completed_successfully
 
   setup:
     build:
@@ -96,3 +119,4 @@ services:
 
 volumes:
   pgdata:
+  pgcerts:
