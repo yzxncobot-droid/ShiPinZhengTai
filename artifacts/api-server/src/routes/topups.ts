@@ -11,7 +11,7 @@ import { qrisRateLimit } from "../middlewares/rate-limit";
 import { invalidateUserCache, invalidateCache, keys } from "../lib/redis";
 import { logger } from "../lib/logger";
 import {
-  createPaymentLink, verifyOrder, gatewayErrorCode, getGatewayState, verifyWebhookSignature,
+  createPaymentLink, temanqrisCallbackUrl, getOrder, gatewayErrorCode, getGatewayState, verifyWebhookSignature,
 } from "../lib/temanqris";
 
 const router = Router();
@@ -181,9 +181,7 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
     const qris = await createPaymentLink({
       orderId,
       amount,
-      returnUrl: process.env.TEMANQRIS_PUBLIC_URL?.trim()
-        ? `${process.env.TEMANQRIS_PUBLIC_URL.trim().replace(/\/+$/, "")}/topup?topup_id=${encodeURIComponent(topup.id)}`
-        : undefined,
+      returnUrl: temanqrisCallbackUrl(topup.id) ?? undefined,
     });
     const [updated] = await db.update(topupsTable).set({
       qrCodeUrl: qris.qrImage,
@@ -238,9 +236,10 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
   }
 
   try {
-    // This asks TemanQRIS to verify the merchant order and emit its
-    // payment.confirmed webhook when the payment is genuinely settled.
-    const order = await verifyOrder(String(topup.orderId));
+    // This is a read-only status check. The merchant verify endpoint marks an
+    // order paid and must never be called just because the customer clicked
+    // "Saya Sudah Bayar".
+    const order = await getOrder(String(topup.orderId));
     const confirmed = ["paid", "success", "confirmed", "completed", "settled"].includes(order.status);
     if (confirmed) {
       if (order.orderId !== topup.orderId) {
@@ -252,6 +251,11 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
         return;
       }
       await creditVerifiedTopup(id, order.orderId);
+    } else if (order.status === "awaiting_confirmation") {
+      await db.update(topupsTable).set({
+        status: "awaiting_confirmation",
+        updatedAt: new Date(),
+      }).where(and(eq(topupsTable.id, id), eq(topupsTable.status, "pending")));
     }
     /*
     const createdAt = new Date(topup.createdAt).getTime();
@@ -306,6 +310,20 @@ router.post("/webhooks/temanqris", async (req, res) => {
   const data: any = body.data ?? body.result ?? body;
   const event = String(body.event ?? body.type ?? data.event ?? data.type ?? "").toLowerCase();
   if (event !== "payment.confirmed") {
+    if (event === "payment.awaiting_confirmation") {
+      const awaitingOrderId = String(
+        data.order_id ?? data.orderId ?? data.merchant_order_id ?? "",
+      ).trim();
+      if (awaitingOrderId) {
+        await db.update(topupsTable).set({
+          status: "awaiting_confirmation",
+          updatedAt: new Date(),
+        }).where(and(
+          eq(topupsTable.orderId, awaitingOrderId),
+          eq(topupsTable.status, "pending"),
+        ));
+      }
+    }
     res.json({ received: true, ignored: true });
     return;
   }

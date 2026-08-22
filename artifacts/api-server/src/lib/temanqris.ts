@@ -117,6 +117,13 @@ export function temanqrisWebhookUrl(): string | null {
   return base ? `${base}/api/webhooks/temanqris` : null;
 }
 
+export function temanqrisCallbackUrl(topupId: string): string | null {
+  const base = publicAppUrl();
+  return base
+    ? `${base}/topup?topup_id=${encodeURIComponent(topupId)}`
+    : null;
+}
+
 export function getGatewayState(): GatewayState {
   return apiKey() ? "CONNECTED" : "NOT_CONFIGURED";
 }
@@ -127,24 +134,40 @@ export async function createPaymentLink(input: {
   returnUrl?: string;
 }): Promise<TemanQrisPayment> {
   const webhookUrl = temanqrisWebhookUrl();
-  const callbackUrl = input.returnUrl ?? (
-    publicAppUrl()
-      ? `${publicAppUrl()}/topup?order_id=${encodeURIComponent(input.orderId)}`
-      : undefined
-  );
-  const body = await temanqrisRequest("/payment-link", "POST", {
+  const callbackUrl = input.returnUrl;
+  // `/generate` returns both the dynamic QR image and the hosted payment link.
+  // The link endpoint only returns the link metadata, which leaves the QR
+  // modal without anything to render.
+  const body = await temanqrisRequest("/generate", "POST", {
     order_id: input.orderId,
     amount: input.amount,
     ...(webhookUrl ? { webhook_url: webhookUrl } : {}),
     ...(callbackUrl ? { callback_url: callbackUrl } : {}),
   });
   const data = payloadOf(body);
-  const orderId = String(firstValue(data, ["order_id", "orderId"]) ?? input.orderId);
-  const amount = Number(firstValue(data, ["amount", "nominal"]) ?? input.amount);
+  const paymentLinkData = data?.payment_link ?? data?.paymentLink ?? {};
+  const orderId = String(
+    firstValue(paymentLinkData, ["order_id", "orderId"])
+      ?? firstValue(data, ["order_id", "orderId"])
+      ?? input.orderId,
+  );
+  const amount = Number(
+    firstValue(data, ["amount", "nominal"])
+      ?? firstValue(paymentLinkData, ["amount", "nominal"])
+      ?? input.amount,
+  );
   const qrImage = String(firstValue(data, ["qr_image", "qrImage", "qr_url"]) ?? "") || null;
-  const qrisString = String(firstValue(data, ["qris_string", "qr_string", "qr"]) ?? "") || null;
-  const paymentLink = String(firstValue(data, ["payment_link", "paymentLink", "url"]) ?? "") || null;
-  const expiresAt = asDate(firstValue(data, ["expires_at", "expired_at", "expiresAt"]));
+  const qrisString = String(firstValue(data, ["qris_string", "qr_string", "qris", "qr"]) ?? "") || null;
+  const rawPaymentLink = String(firstValue(paymentLinkData, ["url", "payment_url", "paymentLink"]) ?? "") || null;
+  const paymentLink = rawPaymentLink
+    ? rawPaymentLink.startsWith("http")
+      ? rawPaymentLink
+      : `https://temanqris.com${rawPaymentLink.startsWith("/") ? "" : "/"}${rawPaymentLink}`
+    : null;
+  const expiresAt = asDate(
+    firstValue(data, ["expires_at", "expired_at", "expiresAt"])
+      ?? firstValue(paymentLinkData, ["expires_at", "expired_at", "expiresAt"]),
+  );
 
   if (!paymentLink && !qrImage && !qrisString) {
     throw gatewayError("TemanQRIS returned no payment link or QRIS payload", "INVALID_RESPONSE");
@@ -158,7 +181,8 @@ export async function getOrder(orderId: string): Promise<TemanQrisOrder> {
     throw gatewayError("Invalid TemanQRIS order ID", "INVALID_ORDER_ID");
   }
   const body = await temanqrisRequest(`/orders/${encodeURIComponent(orderId)}`, "GET");
-  const data = payloadOf(body);
+  const payload = payloadOf(body);
+  const data = payload?.order ?? payload;
   return {
     orderId: String(firstValue(data, ["order_id", "orderId"]) ?? orderId),
     amount: Number(firstValue(data, ["amount", "nominal"]) ?? NaN) || null,
@@ -173,7 +197,8 @@ export async function verifyOrder(orderId: string): Promise<TemanQrisOrder> {
     throw gatewayError("Invalid TemanQRIS order ID", "INVALID_ORDER_ID");
   }
   const body = await temanqrisRequest(`/orders/${encodeURIComponent(orderId)}/verify`, "POST");
-  const data = payloadOf(body);
+  const payload = payloadOf(body);
+  const data = payload?.order ?? payload;
   return {
     orderId: String(firstValue(data, ["order_id", "orderId"]) ?? orderId),
     amount: Number(firstValue(data, ["amount", "nominal"]) ?? NaN) || null,

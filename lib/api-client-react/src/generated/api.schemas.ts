@@ -401,6 +401,7 @@ export type AutomaticTopupStatus = typeof AutomaticTopupStatus[keyof typeof Auto
 
 export const AutomaticTopupStatus = {
   pending: 'pending',
+  awaiting_confirmation: 'awaiting_confirmation',
   paid: 'paid',
   confirmed: 'confirmed',
   expired: 'expired',

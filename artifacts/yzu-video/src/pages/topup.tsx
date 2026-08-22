@@ -3,7 +3,6 @@ import { ProtectedRoute } from "@/lib/protected-route";
 import { useAuth } from "@/lib/auth";
 import {
   useCreateAutomaticTopup,
-  useGetAutomaticTopupStatus,
   useListMyTopups,
   getGetMeQueryKey,
   getListMyTopupsQueryKey,
@@ -123,6 +122,7 @@ function RulesModal({ open, onClose }: { open: boolean; onClose: () => void }) {
 function statusDetails(status: string) {
   return {
     pending: { label: "Menunggu", bg: "bg-amber-50", text: "text-amber-600", dot: "bg-amber-500" },
+    awaiting_confirmation: { label: "Menunggu verifikasi", bg: "bg-blue-50", text: "text-blue-600", dot: "bg-blue-500" },
     confirmed: { label: "Berhasil", bg: "bg-green-50", text: "text-green-600", dot: "bg-green-500" },
     paid: { label: "Berhasil", bg: "bg-green-50", text: "text-green-600", dot: "bg-green-500" },
     denied: { label: "Ditolak", bg: "bg-red-50", text: "text-red-600", dot: "bg-red-500" },
@@ -408,11 +408,34 @@ export default function TopupPage() {
   };
 
   useEffect(() => {
-    if (!qrisOpen || !activeTopup?.id || activeTopup.status !== "pending") return;
-    // Verification is user initiated. This prevents a wallet credit from
-    // being triggered by background polling before the customer confirms.
-    return;
-  }, [qrisOpen, activeTopup?.id, activeTopup?.status]);
+    if (!qrisOpen || !activeTopup?.id || !token) return;
+    if (!["pending", "awaiting_confirmation"].includes(activeTopup.status)) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/topup/${encodeURIComponent(activeTopup.id)}/status`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const result = await response.json();
+        if (cancelled || !response.ok) return;
+        setActiveTopup(result);
+        if (result.paid || result.status === "paid" || result.status === "confirmed") {
+          toast({ title: "Top up berhasil!", description: "Saldo kamu sudah bertambah otomatis." });
+          refreshAfterPaid();
+          setQrisOpen(false);
+        }
+      } catch {
+        // Retry on the next interval if the network is temporarily unavailable.
+      }
+    };
+
+    const timer = window.setInterval(() => void poll(), POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [qrisOpen, activeTopup?.id, activeTopup?.status, token]);
 
   const startTopup = (amount: number) => {
     if (activePending) {

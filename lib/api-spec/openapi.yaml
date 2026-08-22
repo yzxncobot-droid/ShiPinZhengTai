@@ -1893,7 +1893,7 @@ components:
           type: number
         status:
           type: string
-          enum: [pending, paid, confirmed, expired, failed, cancelled]
+          enum: [pending, awaiting_confirmation, paid, confirmed, expired, failed, cancelled]
         paid:
           type: boolean
         paymentMethod:
