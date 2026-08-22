@@ -1,0 +1,11 @@
+FROM node:20-bookworm-slim
+
+# Build tools in case any native dependency (e.g. bcrypt) needs compiling.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
+# pnpm — lockfileVersion 9.0 requires pnpm 9+.
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+
+WORKDIR /app

@@ -1,0 +1,98 @@
+# Base44 dev environment for the Yzu视频 monorepo.
+#
+# Single-origin wiring: the Vite dev server (port 3000) proxies /api to the
+# Express API server, matching the frontend's relative "/api" fetch calls and
+# Bearer-token auth. Source is bind-mounted into every app service so edits are
+# picked up without rebuilding the image.
+#
+# A local Postgres (with self-signed SSL) is used until NEON_DATABASE_URL is
+# provided via /run/base44/app.env; the app prefers NEON_DATABASE_URL when set.
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: yzu
+      POSTGRES_PASSWORD: yzu_pass
+      POSTGRES_DB: yzu
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./.base44/pg-certs:/certs:ro
+    # Self-signed SSL so the app's hardcoded `ssl: { rejectUnauthorized: false }`
+    # pool config connects without code changes.
+    command: postgres -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/certs/server.key
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yzu -d yzu"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  setup:
+    build:
+      context: .
+      dockerfile: .base44/Dockerfile.node
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: pnpm install --no-frozen-lockfile
+
+  migrate:
+    build:
+      context: .
+      dockerfile: .base44/Dockerfile.node
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      DATABASE_URL: postgresql://yzu:yzu_pass@db:5432/yzu
+      # drizzle.config.ts hardcodes `ssl: true`; accept the self-signed cert.
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+    command: pnpm --filter @workspace/db run push-force
+    depends_on:
+      db:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+
+  api:
+    build:
+      context: .
+      dockerfile: .base44/Dockerfile.node
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      PORT: "8080"
+      DATABASE_URL: postgresql://yzu:yzu_pass@db:5432/yzu
+      NODE_ENV: development
+    env_file:
+      - ./.env.base44-defaults
+      - /run/base44/app.env
+    command: pnpm --filter @workspace/api-server run dev
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: .base44/Dockerfile.node
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      PORT: "3000"
+      BASE_PATH: "/"
+      NODE_ENV: development
+    command: pnpm --filter @workspace/yzu-video run dev
+    ports:
+      - "3000:3000"
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  pgdata:
