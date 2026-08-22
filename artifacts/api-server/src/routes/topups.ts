@@ -516,7 +516,7 @@ router.post("/topup/:id/cancel", authenticate, qrisRateLimit, async (req, res) =
     res.json({ ...topup, paid: false });
     return;
   }
-  if (topup.status !== "pending") {
+  if (topup.status !== "pending" && topup.status !== "awaiting_confirmation") {
     res.status(400).json({ error: `Tidak dapat membatalkan top-up berstatus "${topup.status}".` });
     return;
   }
@@ -539,7 +539,7 @@ router.post("/topup/:id/cancel", authenticate, qrisRateLimit, async (req, res) =
   await cancelOrderAtGateway(topup.orderId);
   const [cancelled] = await db.update(topupsTable)
     .set({ status: "cancelled", updatedAt: new Date() })
-    .where(and(eq(topupsTable.id, id), eq(topupsTable.status, "pending")))
+    .where(and(eq(topupsTable.id, id), inArray(topupsTable.status, ["pending", "awaiting_confirmation"])))
     .returning();
 
   res.json({ ...(cancelled ?? topup), status: "cancelled", paid: false });
