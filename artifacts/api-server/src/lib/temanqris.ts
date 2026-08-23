@@ -213,6 +213,10 @@ export async function verifyOrder(orderId: string): Promise<TemanQrisOrder> {
   };
 }
 
+export function isWebhookConfigured(): boolean {
+  return !!webhookSecret();
+}
+
 export function verifyWebhookSignature(rawBody: Buffer, signature: string | undefined): boolean {
   const secret = webhookSecret();
   if (!secret || !signature) return false;
