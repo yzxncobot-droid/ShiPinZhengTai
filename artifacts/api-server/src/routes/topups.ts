@@ -11,8 +11,15 @@ import { qrisRateLimit } from "../middlewares/rate-limit";
 import { invalidateUserCache, invalidateCache, keys } from "../lib/redis";
 import { logger } from "../lib/logger";
 import {
-  createPaymentLink, temanqrisCallbackUrl, getOrder, gatewayErrorCode, getGatewayState, verifyWebhookSignature,
+  createPaymentLink, temanqrisCallbackUrl, getOrder, gatewayErrorCode, getGatewayState, verifyWebhookSignature, isWebhookConfigured,
 } from "../lib/temanqris";
+import {
+  creditVerifiedTopup,
+  processAwaitingConfirmation,
+  finalizeVerifiedTopup,
+  linkPendingWidgetTopup,
+  extractUserIdFromDescription,
+} from "../lib/topup-verification";
 
 const router = Router();
 
@@ -28,106 +35,6 @@ function parseTopupAmount(value: unknown): number | null {
 
 function isPaidStatus(status: string): boolean {
   return status === "paid" || status === "confirmed";
-}
-
-/**
- * Credit a verified gateway mutation exactly once. The topup row and user row
- * are locked inside one DB transaction so repeated polling cannot double-credit.
- */
-async function creditVerifiedTopup(
-  topupId: string,
-  gatewayReference: string,
-): Promise<{ status: string; newBalance?: number }> {
-  return db.transaction(async (tx: any) => {
-    // Serialize all callbacks/polls for the same gateway mutation, even when
-    // they point at different local rows. This closes the race where two
-    // pending rows could both pass the duplicate-reference check.
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${gatewayReference}))`);
-    const lockedResult = await tx.execute(sql`
-      SELECT id, user_id, amount, status
-      FROM topups
-      WHERE id = ${topupId}::uuid
-      FOR UPDATE
-    `);
-    const topup = lockedResult.rows[0] as any;
-    if (!topup) return { status: "not_found" };
-    if (isPaidStatus(String(topup.status))) return { status: "paid" };
-    if (String(topup.status) !== "pending") return { status: String(topup.status) };
-
-    const duplicate = await tx.select({ id: walletTransactionsTable.id })
-      .from(walletTransactionsTable)
-      .where(and(
-        eq(walletTransactionsTable.referenceType, "topup"),
-        eq(walletTransactionsTable.referenceId, gatewayReference),
-      ))
-      .limit(1);
-    if (duplicate.length > 0) {
-      // The mutation was already assigned to another top-up. Never mark a
-      // second pending transaction paid just because it has the same amount.
-      return { status: "already_processed" };
-    }
-
-    const userResult = await tx.execute(sql`
-      SELECT id, wallet_balance, total_topup
-      FROM users
-      WHERE id = ${topup.user_id}::uuid
-      FOR UPDATE
-    `);
-    const user = userResult.rows[0] as any;
-    if (!user) return { status: "user_not_found" };
-
-    const before = Number(user.wallet_balance ?? 0);
-    const amount = Number(topup.amount);
-    const after = before + amount;
-
-    await tx.update(usersTable).set({
-      walletBalance: after,
-      totalTopup: sql`${usersTable.totalTopup} + ${amount}`,
-      updatedAt: new Date(),
-    }).where(eq(usersTable.id, topup.user_id));
-
-    await tx.update(walletsTable).set({
-      balance: after,
-      totalEarned: sql`${walletsTable.totalEarned} + ${amount}`,
-      updatedAt: new Date(),
-      lastTransactionAt: new Date(),
-    }).where(eq(walletsTable.userId, topup.user_id));
-
-    await tx.update(topupsTable).set({
-      status: "paid",
-      gatewayReference,
-      paidAt: new Date(),
-      updatedAt: new Date(),
-    }).where(eq(topupsTable.id, topupId));
-
-    await tx.insert(transactionsTable).values({
-      userId: topup.user_id,
-      type: "topup",
-      amount,
-      description: `QRIS top up paid: Rp ${amount.toLocaleString("id-ID")}`,
-      referenceId: topupId,
-    });
-    await tx.insert(walletTransactionsTable).values({
-      userId: topup.user_id,
-      type: "topup",
-      amount,
-      balanceAfter: after,
-      description: `QRIS top up paid: Rp ${amount.toLocaleString("id-ID")}`,
-      referenceType: "topup",
-      referenceId: gatewayReference,
-    });
-    await tx.insert(notificationsTable).values({
-      userId: topup.user_id,
-      title: "Top Up Berhasil",
-      message: `Top up QRIS sebesar Rp ${amount.toLocaleString("id-ID")} berhasil. Saldo kamu sekarang Rp ${after.toLocaleString("id-ID")}.`,
-      type: "success",
-      category: "payment",
-      referenceType: "topup",
-      referenceId: topupId,
-    });
-
-    return { status: "paid", newBalance: after };
-  });
 }
 
 // ── POST /topup/prepare — create a local pending topup before widget payment ──
@@ -282,14 +189,16 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
   }
 
   // If the TemanQRIS API key is configured AND the topup has been linked
-  // with an order_id AND has a non-zero amount, poll the gateway for the
-  // latest status. Otherwise, rely solely on the webhook (the authoritative
-  // source of truth) and return the local database status.
+  // with an order_id AND has a non-zero amount, run the central verification
+  // service. This calls verifyOrder() to trigger TemanQRIS server-side
+  // verification, evaluates the real response, and credits only if paid.
+  // Otherwise, rely solely on the webhook and return the local database status.
   if (getGatewayState() === "CONNECTED" && topup.orderId && Number(topup.amount) > 0) {
     try {
       const order = await getOrder(String(topup.orderId));
       const confirmed = ["paid", "success", "confirmed", "completed", "settled"].includes(order.status);
       if (confirmed) {
+        // getOrder already shows paid — finalize directly.
         if (order.orderId !== topup.orderId) {
           logger.warn({ topupId: id, orderId: topup.orderId, gatewayOrderId: order.orderId }, "Status check: order mismatch");
           res.json({ ...topup, paid: false, gatewayStatus: "ORDER_MISMATCH" });
@@ -300,12 +209,12 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
           res.json({ ...topup, paid: false, gatewayStatus: "AMOUNT_MISMATCH" });
           return;
         }
-        await creditVerifiedTopup(id, order.orderId);
+        await finalizeVerifiedTopup(String(topup.orderId), order.amount ?? undefined);
       } else if (order.status === "awaiting_confirmation") {
-        await db.update(topupsTable).set({
-          status: "awaiting_confirmation",
-          updatedAt: new Date(),
-        }).where(and(eq(topupsTable.id, id), eq(topupsTable.status, "pending")));
+        // ROOT-CAUSE FIX: don't just store awaiting_confirmation and stop.
+        // Call verifyOrder() via the central service to trigger TemanQRIS
+        // verification, then finalize if it reports paid.
+        await processAwaitingConfirmation(String(topup.orderId));
       }
     } catch (err) {
       const code = gatewayErrorCode(err);
@@ -371,6 +280,15 @@ router.post("/topup/:id/link", authenticate, qrisRateLimit, async (req, res) => 
 
   logger.info({ topupId: id, orderId, amount }, "Topup linked with TemanQRIS order");
 
+  // Kick off server-side verification immediately (background, non-blocking)
+  // so the user doesn't have to wait for the first status poll. The status
+  // endpoint also calls this, so it's safe if this background task is lost.
+  if (getGatewayState() === "CONNECTED") {
+    processAwaitingConfirmation(orderId).catch((err) => {
+      logger.error({ orderId, message: (err as any)?.message }, "[TQ] post-link background verification failed");
+    });
+  }
+
   // Re-read in case the webhook already updated the status.
   const [latest] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
   res.json({
@@ -386,6 +304,11 @@ router.post("/topup/:id/link", authenticate, qrisRateLimit, async (req, res) => 
 router.post("/webhooks/temanqris", async (req, res) => {
   const rawBody = (req as any).rawBody as Buffer | undefined;
   const signature = String(req.headers["x-temanqris-signature"] ?? req.headers["x-signature"] ?? "");
+  if (!isWebhookConfigured()) {
+    logger.error("Webhook: TEMANQRIS_WEBHOOK_SECRET is not configured — rejecting webhook (not bypassing security)");
+    res.status(503).json({ error: "Webhook secret is not configured. Set TEMANQRIS_WEBHOOK_SECRET." });
+    return;
+  }
   if (!rawBody || !verifyWebhookSignature(rawBody, signature)) {
     logger.warn({ orderId: String((req.body as any)?.data?.order_id ?? "") }, "Webhook: invalid signature rejected");
     res.status(401).json({ error: "Invalid webhook signature" });
@@ -402,6 +325,9 @@ router.post("/webhooks/temanqris", async (req, res) => {
         data.order_id ?? data.orderId ?? data.merchant_order_id ?? "",
       ).trim();
       if (awaitingOrderId) {
+        logger.info({ orderId: awaitingOrderId }, "[TQ] awaiting_confirmation received");
+
+        // Set status on an already-linked topup (if the /link call beat us).
         await db.update(topupsTable).set({
           status: "awaiting_confirmation",
           updatedAt: new Date(),
@@ -409,6 +335,28 @@ router.post("/webhooks/temanqris", async (req, res) => {
           eq(topupsTable.orderId, awaitingOrderId),
           eq(topupsTable.status, "pending"),
         ));
+
+        // Race condition: the webhook arrived before /topup/:id/link. Try
+        // to find a pending widget top-up via the description user ID and
+        // link it with this order_id + amount so verification can proceed.
+        const [existing] = await db.select().from(topupsTable)
+          .where(eq(topupsTable.orderId, awaitingOrderId)).limit(1);
+        if (!existing) {
+          const description = String(data.description ?? "");
+          const widgetAmount = Number(data.amount ?? data.nominal ?? NaN);
+          await linkPendingWidgetTopup(awaitingOrderId, description, widgetAmount);
+        }
+
+        // ROOT-CAUSE FIX: trigger server-side verification via verifyOrder().
+        // Run in the background so we respond to the webhook immediately
+        // (TemanQRIS has a webhook timeout). The status polling endpoint
+        // also calls this, so it is safe if the background task is lost.
+        processAwaitingConfirmation(awaitingOrderId).catch((err) => {
+          logger.error(
+            { orderId: awaitingOrderId, message: (err as any)?.message },
+            "[TQ] background verification failed",
+          );
+        });
       }
     }
     res.json({ received: true, ignored: true });
@@ -420,6 +368,7 @@ router.post("/webhooks/temanqris", async (req, res) => {
     res.status(400).json({ error: "Missing order_id" });
     return;
   }
+  logger.info({ orderId }, "[TQ] payment confirmed received");
   const [topup] = await db.select().from(topupsTable)
     .where(eq(topupsTable.orderId, orderId)).limit(1);
   const gatewayReference = String(
@@ -434,15 +383,11 @@ router.post("/webhooks/temanqris", async (req, res) => {
     // associate the payment with a user, create a topup record, and credit
     // the wallet. The webhook signature is already verified above, so the
     // payload is authentic.
-    const description = String(data.description ?? "");
-    const userMatch = description.match(
-      /user:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/,
-    );
-    if (!userMatch) {
+    const widgetUserId = extractUserIdFromDescription(String(data.description ?? ""));
+    if (!widgetUserId) {
       res.json({ received: true, ignored: true });
       return;
     }
-    const widgetUserId = userMatch[1];
     const [widgetUser] = await db
       .select({ id: usersTable.id })
       .from(usersTable)
@@ -547,10 +492,13 @@ router.post("/webhooks/temanqris", async (req, res) => {
   }
   const webhookAmount = Number(data.amount ?? data.nominal ?? NaN);
   if (Number.isFinite(webhookAmount) && webhookAmount !== Number(topup.amount)) {
+    logger.error({ orderId, topupId: topup.id, localAmount: topup.amount, webhookAmount }, "[TQ] Amount mismatch (webhook) — NOT crediting");
     res.status(400).json({ error: "Webhook amount does not match top-up amount" });
     return;
   }
+  logger.info({ orderId, topupId: topup.id }, "[TQ] credit started (webhook confirmed)");
   const result = await creditVerifiedTopup(topup.id, gatewayReference);
+  logger.info({ orderId, topupId: topup.id, creditStatus: result.status }, "[TQ] credit completed (webhook confirmed)");
   if (result.status === "paid" || result.status === "already_processed") {
     await invalidateUserCache(topup.userId).catch(() => {});
     await invalidateCache(keys.analytics("overview")).catch(() => {});
