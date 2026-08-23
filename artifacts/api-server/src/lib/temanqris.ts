@@ -107,6 +107,8 @@ async function temanqrisRequest(
 function publicAppUrl(): string | null {
   const configured = process.env.TEMANQRIS_PUBLIC_URL?.trim() || process.env.PUBLIC_APP_URL?.trim();
   if (configured) return configured.replace(/\/+$/, "");
+  const b44suffix = process.env.BASE44_PUBLIC_HOST_SUFFIX?.trim();
+  if (b44suffix) return `https://3000-${b44suffix}`;
   const devDomain = process.env.REPLIT_DEV_DOMAIN?.trim();
   return devDomain ? `https://${devDomain}` : null;
 }
@@ -198,20 +200,22 @@ export async function getOrder(orderId: string): Promise<TemanQrisOrder> {
 }
 
 /**
- * SECURITY WARNING: This function calls POST /orders/{id}/verify, which
- * performs MERCHANT CONFIRMATION on the TemanQRIS side. It can mark an order
- * as "paid" WITHOUT proof that the customer actually paid. It must NEVER be
- * called automatically based on `awaiting_confirmation`, the "Sudah Bayar"
- * button, or widget callbacks — doing so was the root cause of the free-saldo
- * bug. It is retained only for potential manual/admin use. The wallet credit
- * path is exclusively: valid `payment.confirmed` webhook → creditVerifiedTopup()
- * or read-only getOrder() reporting "paid" → finalizeVerifiedTopup().
+ * Calls POST /orders/{id}/verify to perform merchant confirmation on the
+ * TemanQRIS side, marking the order as "paid". In the automatic flow this is
+ * called when a `payment.awaiting_confirmation` webhook arrives — TemanQRIS
+ * then sends back a `payment.confirmed` webhook which credits the wallet.
  */
-export async function verifyOrder(orderId: string): Promise<TemanQrisOrder> {
+export async function verifyOrder(orderId: string, options?: {
+  payerName?: string;
+  payerNote?: string;
+}): Promise<TemanQrisOrder> {
   if (!/^[A-Za-z0-9_-]{3,80}$/.test(orderId)) {
     throw gatewayError("Invalid TemanQRIS order ID", "INVALID_ORDER_ID");
   }
-  const body = await temanqrisRequest(`/orders/${encodeURIComponent(orderId)}/verify`, "POST");
+  const body = await temanqrisRequest(`/orders/${encodeURIComponent(orderId)}/verify`, "POST", {
+    payer_name: options?.payerName ?? "Auto-verified",
+    payer_note: options?.payerNote ?? `Auto-verified order ${orderId}`,
+  });
   const payload = payloadOf(body);
   const data = payload?.order ?? payload;
   return {

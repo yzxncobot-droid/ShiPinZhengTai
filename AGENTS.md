@@ -27,6 +27,7 @@ External credentials (Neon DB, Supabase ×3, TemanQRIS, Upstash Redis) are **opt
 - `NEON_DATABASE_URL` — when provided, the app prefers it over the local `DATABASE_URL` (`lib/db/src/index.ts`: `NEON_DATABASE_URL ?? DATABASE_URL`).
 - `SESSION_SECRET` — JWT signing secret; a dev placeholder is used until provided.
 - Supabase / TemanQRIS / Upstash — see `replit.md` for the full list. Without them, uploads/payments/sessions-cache are disabled but the UI renders.
+- `TEMANQRIS_API_KEY` / `TEMANQRIS_WEBHOOK_SECRET` — required for the automatic QRIS top-up flow. The webhook URL is auto-constructed from `BASE44_PUBLIC_HOST_SUFFIX` (passed to the `api` service via compose) as `https://3000-${BASE44_PUBLIC_HOST_SUFFIX}/api/webhooks/temanqris`.
 
 ## Notes / quirks
 
@@ -34,3 +35,4 @@ External credentials (Neon DB, Supabase ×3, TemanQRIS, Upstash Redis) are **opt
 - `artifacts/yzu-video/vite.config.ts` requires `PORT` and `BASE_PATH` env vars or it throws.
 - The Replit-only Vite plugins (cartographer, dev-banner) are skipped because `REPL_ID` is unset.
 - Frontend auth uses a Bearer token from `localStorage` (not cookies), so the single-origin proxy is sufficient.
+- The `BASE44_PUBLIC_HOST_SUFFIX` env var is passed to the `api` service so it can construct the public webhook/callback URLs for TemanQRIS. After compose env changes, use `up -d` (not `restart`) to apply new env vars.

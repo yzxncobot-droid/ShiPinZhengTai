@@ -89,6 +89,7 @@ services:
       PORT: "8080"
       DATABASE_URL: postgresql://yzu:yzu_pass@db:5432/yzu
       NODE_ENV: development
+      BASE44_PUBLIC_HOST_SUFFIX: "${BASE44_PUBLIC_HOST_SUFFIX}"
     env_file:
       - ./.env.base44-defaults
       - /run/base44/app.env

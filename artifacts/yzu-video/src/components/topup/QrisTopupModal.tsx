@@ -1,38 +1,46 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, UploadCloud, Check, ShieldCheck, Loader2, ImageIcon } from "lucide-react";
+import { X, Loader2, ImageIcon, ExternalLink, CheckCircle2, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useCreateTopup } from "@workspace/api-client-react";
-import { getGetMeQueryKey } from "@workspace/api-client-react";
+import { useCreateAutomaticTopup } from "@workspace/api-client-react";
+import { getGetMeQueryKey, getListMyTopupsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getToken } from "@/lib/admin-api";
 
-type ModalState = "qr" | "uploading" | "submitting" | "waiting";
+type ModalState = "creating" | "qr" | "processing" | "paid" | "error";
 
 export function QrisTopupModal({
   open,
   amount,
-  qrisImage,
   onClose,
 }: {
   open: boolean;
   amount: number;
-  qrisImage?: string | null;
   onClose: () => void;
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const createTopup = useCreateTopup();
+  const createTopup = useCreateAutomaticTopup();
 
-  const [state, setState] = useState<ModalState>("qr");
-  const [proofUrl, setProofUrl] = useState<string | null>(null);
-  const [proofName, setProofName] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [state, setState] = useState<ModalState>("creating");
+  const [topupId, setTopupId] = useState<string | null>(null);
+  const [qrImage, setQrImage] = useState<string | null>(null);
+  const [paymentLink, setPaymentLink] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fmtRp = (n: number) => `Rp ${n.toLocaleString("id-ID")}`;
 
   const reset = useCallback(() => {
-    setState("qr");
-    setProofUrl(null);
-    setProofName(null);
+    setState("creating");
+    setTopupId(null);
+    setQrImage(null);
+    setPaymentLink(null);
+    setErrorMsg(null);
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
   }, []);
 
   const handleClose = () => {
@@ -40,56 +48,74 @@ export function QrisTopupModal({
     onClose();
   };
 
-  const fmtRp = (n: number) => `Rp ${n.toLocaleString("id-ID")}`;
+  // ── Create QRIS payment when modal opens with an amount ─────────────────
+  useEffect(() => {
+    if (!open || !amount) return;
+    let cancelled = false;
+    setState("creating");
+    setErrorMsg(null);
 
-  // ── Upload proof screenshot ──────────────────────────────────────────────
-  const handleUpload = async (file: File) => {
-    setState("uploading");
-    try {
-      const token = getToken();
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch("/api/upload/payment-proof", {
-        method: "POST",
-        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: form,
+    createTopup.mutateAsync({ data: { amount } })
+      .then((res: any) => {
+        if (cancelled) return;
+        setTopupId(res.id);
+        setQrImage(res.qrCodeUrl ?? null);
+        setPaymentLink(res.paymentLink ?? null);
+        setState("qr");
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setErrorMsg(err?.message ?? "Gagal membuat QRIS.");
+        setState("error");
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.url) throw new Error(data?.message ?? "Upload gagal.");
-      setProofUrl(data.url);
-      setProofName(file.name);
-      setState("qr");
-      toast({ title: "Bukti transfer terunggah" });
-    } catch (err: any) {
-      setState("qr");
-      toast({
-        title: "Upload gagal",
-        description: err?.message ?? "Silakan coba lagi.",
-        variant: "destructive",
-      });
-    }
-  };
 
-  // ── Confirm: create the pending top-up ───────────────────────────────────
-  const handleConfirm = async () => {
-    if (!proofUrl) return;
-    setState("submitting");
-    try {
-      await createTopup.mutateAsync({
-        data: { amount, paymentProof: proofUrl, transferAmount: amount },
-      });
-      queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
-      setState("waiting");
-      toast({ title: "Top up dikirim", description: "Menunggu persetujuan owner." });
-    } catch (err: any) {
-      setState("qr");
-      toast({
-        title: "Gagal mengirim top up",
-        description: err?.message ?? "Silakan coba lagi.",
-        variant: "destructive",
-      });
-    }
-  };
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, amount]);
+
+  // ── Poll for payment status ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!topupId || state !== "qr") return;
+    let active = true;
+
+    const poll = async () => {
+      try {
+        const token = getToken();
+        const res = await fetch(`/api/topup/${topupId}/status`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const data = await res.json();
+        if (!active) return;
+        if (data.paid || data.status === "paid" || data.status === "confirmed") {
+          setState("paid");
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+          }
+          queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getListMyTopupsQueryKey() });
+          toast({
+            title: "Top Up Berhasil!",
+            description: `Saldo bertambah ${fmtRp(amount)}.`,
+          });
+        }
+      } catch {
+        /* keep polling */
+      }
+    };
+
+    // Initial check after a short delay, then every 3s
+    pollingRef.current = setInterval(poll, 3000);
+
+    return () => {
+      active = false;
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topupId, state]);
 
   return (
     <AnimatePresence>
@@ -132,22 +158,53 @@ export function QrisTopupModal({
                 </div>
                 <div>
                   <h2 className="text-lg font-extrabold leading-tight">Bayar QRIS</h2>
-                  <p className="text-xs font-medium text-white/80">QRIS hanya berlaku sekali</p>
+                  <p className="text-xs font-medium text-white/80">Otomatis · saldo langsung masuk</p>
                 </div>
               </div>
             </div>
 
             {/* ── Body ────────────────────────────────────────────────────── */}
-            {state === "waiting" ? (
-              <div className="px-6 py-10 text-center">
-                <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[#F5F2FF]">
-                  <ShieldCheck className="h-8 w-8" style={{ color: "#4F2DAA" }} />
+            {state === "creating" && (
+              <div className="flex min-h-[300px] flex-col items-center justify-center px-6 py-8">
+                <Loader2 className="h-10 w-10 animate-spin" style={{ color: "#7B4DFF" }} />
+                <p className="mt-4 text-sm font-bold text-slate-500">Membuat QRIS…</p>
+              </div>
+            )}
+
+            {state === "error" && (
+              <div className="flex min-h-[300px] flex-col items-center justify-center px-6 py-8 text-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-50">
+                  <X className="h-8 w-8 text-red-500" />
                 </div>
-                <h3 className="text-lg font-extrabold" style={{ color: "#4F2DAA" }}>
-                  Menunggu persetujuan owner
+                <h3 className="mt-4 text-lg font-extrabold text-slate-700">Gagal membuat QRIS</h3>
+                <p className="mt-2 max-w-xs text-sm font-medium text-slate-400">
+                  {errorMsg ?? "Gateway QRIS belum dikonfigurasi. Hubungi admin."}
+                </p>
+                <button
+                  onClick={handleClose}
+                  className="mt-6 h-12 w-full rounded-2xl text-sm font-extrabold text-white transition hover:opacity-90"
+                  style={{ background: "linear-gradient(135deg, #7B4DFF 0%, #6D3DFF 100%)" }}
+                >
+                  Tutup
+                </button>
+              </div>
+            )}
+
+            {state === "paid" && (
+              <div className="px-6 py-10 text-center">
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 260, damping: 20 }}
+                  className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-green-50"
+                >
+                  <CheckCircle2 className="h-10 w-10 text-green-500" />
+                </motion.div>
+                <h3 className="text-xl font-extrabold" style={{ color: "#4F2DAA" }}>
+                  Top Up Berhasil!
                 </h3>
                 <p className="mx-auto mt-2 max-w-xs text-sm font-medium text-slate-500">
-                  Setelah pembayaran dikonfirmasi owner, saldo akan otomatis masuk ke akun Anda.
+                  Saldo sebesar {fmtRp(amount)} berhasil masuk ke akun Anda.
                 </p>
                 <button
                   onClick={handleClose}
@@ -157,7 +214,9 @@ export function QrisTopupModal({
                   Selesai
                 </button>
               </div>
-            ) : (
+            )}
+
+            {(state === "qr" || state === "processing") && (
               <div className="px-6 py-6">
                 {/* Total */}
                 <p className="text-center text-xs font-bold uppercase tracking-wider text-slate-400">
@@ -170,9 +229,9 @@ export function QrisTopupModal({
                 {/* QR code */}
                 <div className="mt-5 flex justify-center">
                   <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-                    {qrisImage ? (
+                    {qrImage ? (
                       <img
-                        src={qrisImage}
+                        src={qrImage}
                         alt="QRIS"
                         className="h-48 w-48 object-contain"
                       />
@@ -180,79 +239,40 @@ export function QrisTopupModal({
                       <div className="flex h-48 w-48 flex-col items-center justify-center gap-2 text-center">
                         <ImageIcon className="h-10 w-10 text-slate-300" />
                         <p className="px-4 text-xs font-medium text-slate-400">
-                          QRIS belum dikonfigurasi. Owner dapat mengunggahnya di Pengaturan.
+                          QR sedang dimuat…
                         </p>
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* Upload section */}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) void handleUpload(f);
-                    e.target.value = "";
-                  }}
-                />
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="mt-5 flex w-full items-center gap-3 rounded-2xl border-2 border-dashed p-4 text-left transition hover:bg-[#F5F2FF]"
-                  style={{ borderColor: "#7B4DFF" }}
-                  disabled={state === "uploading"}
-                >
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#F5F2FF]">
-                    {state === "uploading" ? (
-                      <Loader2 className="h-5 w-5 animate-spin" style={{ color: "#7B4DFF" }} />
-                    ) : (
-                      <UploadCloud className="h-5 w-5" style={{ color: "#7B4DFF" }} />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-bold" style={{ color: "#4F2DAA" }}>
-                      Upload Bukti Transfer
-                    </p>
-                    <p className="truncate text-xs font-medium text-slate-400">
-                      {proofName
-                        ? state === "uploading"
-                          ? "Mengunggah..."
-                          : proofName
-                        : "Upload screenshot bukti transfer Anda"}
-                    </p>
-                  </div>
-                  {proofUrl && state !== "uploading" && (
-                    <Check className="h-5 w-5 shrink-0 text-green-500" />
-                  )}
-                </button>
+                {/* Bayar Sekarang button (opens hosted payment page) */}
+                {paymentLink && (
+                  <a
+                    href={paymentLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-extrabold text-white transition hover:opacity-90"
+                    style={{ background: "linear-gradient(135deg, #7B4DFF 0%, #6D3DFF 100%)" }}
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    Bayar Sekarang
+                  </a>
+                )}
 
-                {/* Confirm button */}
-                <button
-                  onClick={handleConfirm}
-                  disabled={!proofUrl || state === "submitting"}
-                  className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-extrabold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                  style={{ background: "linear-gradient(135deg, #7B4DFF 0%, #6D3DFF 100%)" }}
-                >
-                  {state === "submitting" ? (
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                  ) : (
-                    <>
-                      <Check className="h-5 w-5" />
-                      Confirm
-                    </>
-                  )}
-                </button>
+                {/* Status indicator */}
+                <div className="mt-4 flex items-center justify-center gap-2 text-xs font-medium text-slate-400">
+                  <Clock className="h-3.5 w-3.5 animate-pulse" />
+                  Menunggu pembayaran — saldo otomatis masuk setelah bayar
+                </div>
 
                 {/* Footer info */}
                 <div className="mt-4 flex items-start gap-2.5 rounded-2xl bg-[#F5F2FF] px-4 py-3">
-                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "#4F2DAA" }} />
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
                   <p className="text-xs font-medium leading-snug" style={{ color: "#4F2DAA" }}>
-                    <span className="font-bold">Menunggu persetujuan owner.</span>{" "}
+                    <span className="font-bold">Pembayaran otomatis.</span>{" "}
                     <span className="text-slate-500">
-                      Setelah pembayaran dikonfirmasi owner, saldo akan otomatis masuk ke akun Anda.
+                      Scan QRIS dengan e-wallet/bank apa pun. Saldo akan masuk otomatis — tanpa perlu upload bukti.
                     </span>
                   </p>
                 </div>
