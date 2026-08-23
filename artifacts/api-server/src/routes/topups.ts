@@ -15,7 +15,6 @@ import {
 } from "../lib/temanqris";
 import {
   creditVerifiedTopup,
-  processAwaitingConfirmation,
   finalizeVerifiedTopup,
   linkPendingWidgetTopup,
   extractUserIdFromDescription,
@@ -188,11 +187,11 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
     return;
   }
 
-  // If the TemanQRIS API key is configured AND the topup has been linked
-  // with an order_id AND has a non-zero amount, run the central verification
-  // service. This calls verifyOrder() to trigger TemanQRIS server-side
-  // verification, evaluates the real response, and credits only if paid.
-  // Otherwise, rely solely on the webhook and return the local database status.
+  // Read-only status check: poll getOrder() (GET — never verifyOrder/POST)
+  // to see if TemanQRIS itself reports the order as paid. If so, finalize via
+  // the single credit path. awaiting_confirmation is NEVER treated as paid
+  // and NEVER triggers verifyOrder() — it stays pending until a valid
+  // payment.confirmed webhook arrives (or getOrder() reports paid).
   if (getGatewayState() === "CONNECTED" && topup.orderId && Number(topup.amount) > 0) {
     try {
       const order = await getOrder(String(topup.orderId));
@@ -210,12 +209,9 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
           return;
         }
         await finalizeVerifiedTopup(String(topup.orderId), order.amount ?? undefined);
-      } else if (order.status === "awaiting_confirmation") {
-        // ROOT-CAUSE FIX: don't just store awaiting_confirmation and stop.
-        // Call verifyOrder() via the central service to trigger TemanQRIS
-        // verification, then finalize if it reports paid.
-        await processAwaitingConfirmation(String(topup.orderId));
       }
+      // awaiting_confirmation and all other non-paid statuses: stay pending,
+      // do NOT call verifyOrder(), do NOT credit.
     } catch (err) {
       const code = gatewayErrorCode(err);
       logger.warn({ topupId: id, code }, "Gateway status check failed, returning local status");
@@ -280,15 +276,6 @@ router.post("/topup/:id/link", authenticate, qrisRateLimit, async (req, res) => 
 
   logger.info({ topupId: id, orderId, amount }, "Topup linked with TemanQRIS order");
 
-  // Kick off server-side verification immediately (background, non-blocking)
-  // so the user doesn't have to wait for the first status poll. The status
-  // endpoint also calls this, so it's safe if this background task is lost.
-  if (getGatewayState() === "CONNECTED") {
-    processAwaitingConfirmation(orderId).catch((err) => {
-      logger.error({ orderId, message: (err as any)?.message }, "[TQ] post-link background verification failed");
-    });
-  }
-
   // Re-read in case the webhook already updated the status.
   const [latest] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
   res.json({
@@ -338,7 +325,8 @@ router.post("/webhooks/temanqris", async (req, res) => {
 
         // Race condition: the webhook arrived before /topup/:id/link. Try
         // to find a pending widget top-up via the description user ID and
-        // link it with this order_id + amount so verification can proceed.
+        // link it with this order_id + amount so the webhook can find it
+        // when payment.confirmed arrives.
         const [existing] = await db.select().from(topupsTable)
           .where(eq(topupsTable.orderId, awaitingOrderId)).limit(1);
         if (!existing) {
@@ -347,16 +335,11 @@ router.post("/webhooks/temanqris", async (req, res) => {
           await linkPendingWidgetTopup(awaitingOrderId, description, widgetAmount);
         }
 
-        // ROOT-CAUSE FIX: trigger server-side verification via verifyOrder().
-        // Run in the background so we respond to the webhook immediately
-        // (TemanQRIS has a webhook timeout). The status polling endpoint
-        // also calls this, so it is safe if the background task is lost.
-        processAwaitingConfirmation(awaitingOrderId).catch((err) => {
-          logger.error(
-            { orderId: awaitingOrderId, message: (err as any)?.message },
-            "[TQ] background verification failed",
-          );
-        });
+        // SECURITY: awaiting_confirmation is NOT proof of payment. Do NOT
+        // call verifyOrder() here — that endpoint performs merchant
+        // confirmation which can mark an order as paid without the customer
+        // actually paying. Stay pending until a valid payment.confirmed
+        // webhook arrives.
       }
     }
     res.json({ received: true, ignored: true });
