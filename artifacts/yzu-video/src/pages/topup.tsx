@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { useAuth } from "@/lib/auth";
-import { useGetSettings, useListMyTopups } from "@workspace/api-client-react";
+import { useListMyTopups } from "@workspace/api-client-react";
 import { Sparkles, Pencil, Star, Heart, ChevronRight, Wallet } from "lucide-react";
 import { QrisTopupModal } from "@/components/topup/QrisTopupModal";
 
@@ -36,7 +36,6 @@ const fmtRp = (n: number) => `Rp ${n.toLocaleString("id-ID")}`;
 
 export default function TopupPage() {
   const { user } = useAuth();
-  const { data: settings } = useGetSettings();
   const { data: topupsData } = useListMyTopups({ limit: "5" });
 
   const [selected, setSelected] = useState<number | null>(null);
@@ -46,7 +45,6 @@ export default function TopupPage() {
 
   const balance = user?.walletBalance ?? 0;
   const recentCount = topupsData?.total ?? 0;
-  const qrisImage = (settings as any)?.qrisImage ?? null;
 
   const openModal = (amount: number) => {
     setModalAmount(amount);
@@ -201,7 +199,6 @@ export default function TopupPage() {
         <QrisTopupModal
           open={modalOpen}
           amount={modalAmount}
-          qrisImage={qrisImage}
           onClose={() => setModalOpen(false)}
         />
       </AppLayout>

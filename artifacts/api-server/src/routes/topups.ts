@@ -11,7 +11,7 @@ import { qrisRateLimit } from "../middlewares/rate-limit";
 import { invalidateUserCache, invalidateCache, keys } from "../lib/redis";
 import { logger } from "../lib/logger";
 import {
-  createPaymentLink, temanqrisCallbackUrl, getOrder, gatewayErrorCode, getGatewayState, verifyWebhookSignature, isWebhookConfigured,
+  temanqrisCallbackUrl, temanqrisWebhookUrl, getOrder, gatewayErrorCode, getGatewayState, verifyWebhookSignature, isWebhookConfigured, verifyOrder, generateQris,
 } from "../lib/temanqris";
 import {
   creditVerifiedTopup,
@@ -129,17 +129,26 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
   }).returning();
 
   try {
-    const qris = await createPaymentLink({
-      orderId,
+    // Generate a dynamic QRIS with webhook + callback so TemanQRIS notifies our
+    // server automatically when the customer pays. /generate returns both the
+    // QR image (Base64) and a hosted payment link, giving the frontend the best
+    // UX: an inline QR code plus a "Bayar Sekarang" button to the hosted page.
+    const webhookUrl = temanqrisWebhookUrl();
+    const callbackUrl = temanqrisCallbackUrl(topup.id) ?? undefined;
+    const qris = await generateQris({
       amount,
-      returnUrl: temanqrisCallbackUrl(topup.id) ?? undefined,
+      orderId,
+      webhookUrl: webhookUrl ?? undefined,
+      callbackUrl: callbackUrl ?? undefined,
     });
+    const paymentLinkUrl = qris.paymentLink.url
+      ?? (qris.paymentLink.linkCode ? `https://temanqris.com/p/${qris.paymentLink.linkCode}` : null);
     const [updated] = await db.update(topupsTable).set({
       qrCodeUrl: qris.qrImage,
       qrisString: qris.qrisString,
-      paymentLink: qris.paymentLink,
-      gatewayReference: qris.orderId,
-      expiredAt: qris.expiresAt ?? new Date(Date.now() + 15 * 60 * 1000),
+      paymentLink: paymentLinkUrl,
+      gatewayReference: qris.paymentLink.orderId ?? orderId,
+      expiredAt: qris.expiresAt ?? qris.paymentLink.expiresAt ?? new Date(Date.now() + 15 * 60 * 1000),
       updatedAt: new Date(),
     }).where(eq(topupsTable.id, topup.id)).returning();
     res.status(201).json({
@@ -150,10 +159,10 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
       status: "pending",
       paymentMethod: "qris",
       gateway: "temanqris",
-      linkCode: qris.linkCode,
+      linkCode: qris.paymentLink.linkCode,
       qrCodeUrl: updated.qrCodeUrl,
       qrisString: updated.qrisString,
-      paymentLink: qris.paymentLink,
+      paymentLink: paymentLinkUrl,
       expiredAt: updated.expiredAt,
     });
   } catch (err) {
@@ -311,36 +320,70 @@ router.post("/webhooks/temanqris", async (req, res) => {
       const awaitingOrderId = String(
         data.order_id ?? data.orderId ?? data.merchant_order_id ?? "",
       ).trim();
-      if (awaitingOrderId) {
-        logger.info({ orderId: awaitingOrderId }, "[TQ] awaiting_confirmation received");
-
-        // Set status on an already-linked topup (if the /link call beat us).
-        await db.update(topupsTable).set({
-          status: "awaiting_confirmation",
-          updatedAt: new Date(),
-        }).where(and(
-          eq(topupsTable.orderId, awaitingOrderId),
-          eq(topupsTable.status, "pending"),
-        ));
-
-        // Race condition: the webhook arrived before /topup/:id/link. Try
-        // to find a pending widget top-up via the description user ID and
-        // link it with this order_id + amount so the webhook can find it
-        // when payment.confirmed arrives.
-        const [existing] = await db.select().from(topupsTable)
-          .where(eq(topupsTable.orderId, awaitingOrderId)).limit(1);
-        if (!existing) {
-          const description = String(data.description ?? "");
-          const widgetAmount = Number(data.amount ?? data.nominal ?? NaN);
-          await linkPendingWidgetTopup(awaitingOrderId, description, widgetAmount);
-        }
-
-        // SECURITY: awaiting_confirmation is NOT proof of payment. Do NOT
-        // call verifyOrder() here — that endpoint performs merchant
-        // confirmation which can mark an order as paid without the customer
-        // actually paying. Stay pending until a valid payment.confirmed
-        // webhook arrives.
+      if (!awaitingOrderId) {
+        res.json({ received: true, ignored: true });
+        return;
       }
+      logger.info({ orderId: awaitingOrderId }, "[TQ] awaiting_confirmation received");
+
+      // Set status on the linked topup.
+      await db.update(topupsTable).set({
+        status: "awaiting_confirmation",
+        updatedAt: new Date(),
+      }).where(and(
+        eq(topupsTable.orderId, awaitingOrderId),
+        eq(topupsTable.status, "pending"),
+      ));
+
+      // Race condition: the webhook arrived before /topup/:id/link. Try
+      // to find a pending widget top-up via the description user ID.
+      const [existing] = await db.select().from(topupsTable)
+        .where(eq(topupsTable.orderId, awaitingOrderId)).limit(1);
+      if (!existing) {
+        const description = String(data.description ?? "");
+        const widgetAmount = Number(data.amount ?? data.nominal ?? NaN);
+        await linkPendingWidgetTopup(awaitingOrderId, description, widgetAmount);
+      }
+
+      // ── FULL AUTOMATIC: auto-verify the payment ──
+      // Per the TemanQRIS flow, after the customer clicks "Sudah Bayar",
+      // TemanQRIS sends this webhook. Our backend then calls POST /orders/:id/verify
+      // to mark the order as "paid", which triggers TemanQRIS to send back a
+      // payment.confirmed webhook → the wallet is credited automatically.
+      // As a fallback, we also check the order status directly and finalize.
+      try {
+        const order = await getOrder(awaitingOrderId);
+        if (order.status === "awaiting_confirmation" || order.status === "pending") {
+          logger.info({ orderId: awaitingOrderId }, "[TQ] auto-verifying payment");
+          await verifyOrder(awaitingOrderId, {
+            payerName: "QRIS Customer",
+            payerNote: `Auto-verified topup ${awaitingOrderId}`,
+          });
+          logger.info({ orderId: awaitingOrderId }, "[TQ] auto-verify completed");
+
+          // Fallback: if payment.confirmed webhook doesn't arrive quickly,
+          // check the order status and credit directly.
+          const verified = await getOrder(awaitingOrderId);
+          if (["paid", "confirmed"].includes(verified.status)) {
+            logger.info({ orderId: awaitingOrderId }, "[TQ] order confirmed via verify, finalizing");
+            await finalizeVerifiedTopup(awaitingOrderId, verified.amount ?? undefined);
+            const [finalized] = await db.select().from(topupsTable)
+              .where(eq(topupsTable.orderId, awaitingOrderId)).limit(1);
+            if (finalized && isPaidStatus(finalized.status)) {
+              await invalidateUserCache(finalized.userId).catch(() => {});
+              await invalidateCache(keys.analytics("overview")).catch(() => {});
+            }
+          }
+        } else if (["paid", "confirmed"].includes(order.status)) {
+          // Already paid (e.g., verify was called manually) — finalize.
+          await finalizeVerifiedTopup(awaitingOrderId, order.amount ?? undefined);
+        }
+      } catch (err) {
+        logger.warn({ orderId: awaitingOrderId, err: (err as any)?.message }, "[TQ] auto-verify failed");
+      }
+
+      res.json({ received: true, verified: true });
+      return;
     }
     res.json({ received: true, ignored: true });
     return;
