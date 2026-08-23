@@ -11,13 +11,14 @@ import { qrisRateLimit } from "../middlewares/rate-limit";
 import { invalidateUserCache, invalidateCache, keys } from "../lib/redis";
 import { logger } from "../lib/logger";
 import {
-  temanqrisCallbackUrl, temanqrisWebhookUrl, getOrder, gatewayErrorCode, getGatewayState, verifyWebhookSignature, isWebhookConfigured, verifyOrder, generateQris,
+  temanqrisCallbackUrl, temanqrisWebhookUrl, getOrder, gatewayErrorCode, getGatewayState, verifyWebhookSignature, isWebhookConfigured, generateQris,
 } from "../lib/temanqris";
 import {
   creditVerifiedTopup,
   finalizeVerifiedTopup,
   linkPendingWidgetTopup,
   extractUserIdFromDescription,
+  verifyAndCreditTopup,
 } from "../lib/topup-verification";
 
 const router = Router();
@@ -231,6 +232,30 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
   res.json({ ...(latest ?? topup), status: isPaidStatus(latest?.status ?? "pending") ? "paid" : latest?.status ?? "pending", paid: isPaidStatus(latest?.status ?? "pending") });
 });
 
+// ── POST /topup/:id/confirm-paid — user pressed "Sudah Bayar" ────────────────
+// Authenticated endpoint triggered by the frontend "Sudah Bayar" button.
+// Accepts ONLY { topupId } — amount/userId/orderId are read from the DB,
+// never from the request body. Sets status to awaiting_confirmation, then
+// immediately checks TemanQRIS for actual payment. Only credits if getOrder()
+// reports paid AND order_id + amount + user all match. awaiting_confirmation
+// is NEVER treated as payment success.
+router.post("/topup/:id/confirm-paid", authenticate, qrisRateLimit, async (req, res) => {
+  const topupId = String(req.params.id);
+  const userId = req.user!.userId;
+
+  logger.info({ topupId, userId }, "[TQ] confirm-paid request received");
+
+  const result = await verifyAndCreditTopup(topupId, userId);
+
+  if (result.success) {
+    res.json(result);
+  } else if (result.status === "awaiting_payment") {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
 // ── POST /topup/:id/link — link a local topup with a TemanQRIS order ─────────
 // Called by the frontend after the widget callback redirect provides the
 // TemanQRIS order_id and the amount the user entered. This sets the order_id
@@ -345,44 +370,17 @@ router.post("/webhooks/temanqris", async (req, res) => {
         await linkPendingWidgetTopup(awaitingOrderId, description, widgetAmount);
       }
 
-      // ── FULL AUTOMATIC: auto-verify the payment ──
-      // Per the TemanQRIS flow, after the customer clicks "Sudah Bayar",
-      // TemanQRIS sends this webhook. Our backend then calls POST /orders/:id/verify
-      // to mark the order as "paid", which triggers TemanQRIS to send back a
-      // payment.confirmed webhook → the wallet is credited automatically.
-      // As a fallback, we also check the order status directly and finalize.
-      try {
-        const order = await getOrder(awaitingOrderId);
-        if (order.status === "awaiting_confirmation" || order.status === "pending") {
-          logger.info({ orderId: awaitingOrderId }, "[TQ] auto-verifying payment");
-          await verifyOrder(awaitingOrderId, {
-            payerName: "QRIS Customer",
-            payerNote: `Auto-verified topup ${awaitingOrderId}`,
-          });
-          logger.info({ orderId: awaitingOrderId }, "[TQ] auto-verify completed");
-
-          // Fallback: if payment.confirmed webhook doesn't arrive quickly,
-          // check the order status and credit directly.
-          const verified = await getOrder(awaitingOrderId);
-          if (["paid", "confirmed"].includes(verified.status)) {
-            logger.info({ orderId: awaitingOrderId }, "[TQ] order confirmed via verify, finalizing");
-            await finalizeVerifiedTopup(awaitingOrderId, verified.amount ?? undefined);
-            const [finalized] = await db.select().from(topupsTable)
-              .where(eq(topupsTable.orderId, awaitingOrderId)).limit(1);
-            if (finalized && isPaidStatus(finalized.status)) {
-              await invalidateUserCache(finalized.userId).catch(() => {});
-              await invalidateCache(keys.analytics("overview")).catch(() => {});
-            }
-          }
-        } else if (["paid", "confirmed"].includes(order.status)) {
-          // Already paid (e.g., verify was called manually) — finalize.
-          await finalizeVerifiedTopup(awaitingOrderId, order.amount ?? undefined);
-        }
-      } catch (err) {
-        logger.warn({ orderId: awaitingOrderId, err: (err as any)?.message }, "[TQ] auto-verify failed");
-      }
-
-      res.json({ received: true, verified: true });
+      // ── SECURITY: awaiting_confirmation is NOT proof of payment ──
+      // We deliberately do NOT call verifyOrder() (POST /orders/:id/verify)
+      // here. That endpoint performs merchant confirmation which can mark
+      // an order as "paid" without the customer actually paying — the root
+      // cause of the free-saldo bug. The wallet is only credited via
+      // creditVerifiedTopup() when:
+      //   - the user presses "Sudah Bayar" (POST /topup/:id/confirm-paid) and
+      //     getOrder() reports a confirmed status, OR
+      //   - a valid payment.confirmed webhook arrives (below).
+      // Do NOT credit, do NOT auto-verify, do NOT finalize.
+      res.json({ received: true });
       return;
     }
     res.json({ received: true, ignored: true });

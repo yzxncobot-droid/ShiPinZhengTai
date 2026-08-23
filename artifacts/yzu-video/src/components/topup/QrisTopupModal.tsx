@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Loader2, ImageIcon, ExternalLink, CheckCircle2, Clock } from "lucide-react";
+import { X, Loader2, ImageIcon, ExternalLink, CheckCircle2, Clock, AlertCircle, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCreateAutomaticTopup } from "@workspace/api-client-react";
 import { getGetMeQueryKey, getListMyTopupsQueryKey } from "@workspace/api-client-react";
@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getToken } from "@/lib/admin-api";
 
 type ModalState = "creating" | "qr" | "processing" | "paid" | "error";
+type ConfirmState = "idle" | "checking" | "paid" | "awaiting_payment" | "verification_failed";
 
 export function QrisTopupModal({
   open,
@@ -27,6 +28,7 @@ export function QrisTopupModal({
   const [qrImage, setQrImage] = useState<string | null>(null);
   const [paymentLink, setPaymentLink] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [confirmState, setConfirmState] = useState<ConfirmState>("idle");
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fmtRp = (n: number) => `Rp ${n.toLocaleString("id-ID")}`;
@@ -37,6 +39,7 @@ export function QrisTopupModal({
     setQrImage(null);
     setPaymentLink(null);
     setErrorMsg(null);
+    setConfirmState("idle");
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
@@ -116,6 +119,56 @@ export function QrisTopupModal({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topupId, state]);
+
+  // ── "Sudah Bayar" — user confirms they've paid; backend verifies ────────
+  const handleConfirmPaid = useCallback(async () => {
+    if (!topupId || confirmState === "checking") return;
+    setConfirmState("checking");
+    try {
+      const token = getToken();
+      const res = await fetch(`/api/topup/${topupId}/confirm-paid`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (data.success && data.status === "paid") {
+        setConfirmState("paid");
+        setState("paid");
+        queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListMyTopupsQueryKey() });
+        toast({
+          title: "Pembayaran Berhasil!",
+          description: `Saldo Rp ${fmtRp(data.amount ?? amount)} telah ditambahkan.`,
+        });
+      } else if (data.status === "awaiting_payment") {
+        setConfirmState("awaiting_payment");
+        toast({
+          title: "Pembayaran belum terdeteksi",
+          description: "Pastikan pembayaran QRIS sudah berhasil. Saldo belum ditambahkan.",
+          variant: "destructive",
+        });
+      } else {
+        setConfirmState("verification_failed");
+        toast({
+          title: "Pembayaran gagal diverifikasi",
+          description: "Saldo tidak bertambah.",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      setConfirmState("awaiting_payment");
+      toast({
+        title: "Pembayaran belum terdeteksi",
+        description: "Pastikan pembayaran QRIS sudah berhasil. Saldo belum ditambahkan.",
+        variant: "destructive",
+      });
+    }
+  }, [topupId, confirmState, amount, queryClient, toast]);
 
   return (
     <AnimatePresence>
@@ -258,6 +311,50 @@ export function QrisTopupModal({
                     <ExternalLink className="h-4 w-4" />
                     Bayar Sekarang
                   </a>
+                )}
+
+                {/* Sudah Bayar button — triggers backend verification */}
+                <button
+                  onClick={handleConfirmPaid}
+                  disabled={confirmState === "checking"}
+                  className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border-2 text-sm font-extrabold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{
+                    borderColor: "#7B4DFF",
+                    color: "#7B4DFF",
+                    background: "#F5F2FF",
+                  }}
+                >
+                  {confirmState === "checking" ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Memeriksa Pembayaran...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-4 w-4" />
+                      Sudah Bayar
+                    </>
+                  )}
+                </button>
+
+                {/* Inline result notification for "Sudah Bayar" */}
+                {confirmState === "awaiting_payment" && (
+                  <div className="mt-3 flex items-start gap-2.5 rounded-2xl bg-amber-50 px-4 py-3">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                    <div className="text-xs font-medium leading-snug">
+                      <p className="font-bold text-amber-700">Pembayaran Belum Terdeteksi</p>
+                      <p className="text-amber-600">Pastikan pembayaran QRIS sudah berhasil. Saldo tidak bertambah.</p>
+                    </div>
+                  </div>
+                )}
+                {confirmState === "verification_failed" && (
+                  <div className="mt-3 flex items-start gap-2.5 rounded-2xl bg-red-50 px-4 py-3">
+                    <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                    <div className="text-xs font-medium leading-snug">
+                      <p className="font-bold text-red-600">Pembayaran Gagal Diverifikasi</p>
+                      <p className="text-red-500">Saldo tidak bertambah.</p>
+                    </div>
+                  </div>
                 )}
 
                 {/* Status indicator */}
