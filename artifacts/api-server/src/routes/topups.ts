@@ -22,9 +22,9 @@ import {
 
 const router = Router();
 
-const MIN_TOPUP = 100;
+const MIN_TOPUP = 1_000;
 const MAX_TOPUP = 1_000_000;
-const PRESET_TOPUPS = new Set([1_000, 5_000, 10_000, 15_000, 25_000, 50_000]);
+const PRESET_TOPUPS = new Set([1_000, 3_000, 5_000, 10_000, 20_000, 50_000]);
 
 function parseTopupAmount(value: unknown): number | null {
   const amount = Number(value);
@@ -507,14 +507,51 @@ router.get("/topups", authenticate, async (req, res) => {
   res.json({ data, total: Number(total), page: pageNum, limit: limitNum });
 });
 
-// ── POST /topups — DISABLED (legacy manual top-up with payment proof) ─────────
-// The old manual proof-based top-up system is retired in favour of the
-// automatic TemanQRIS widget flow (POST /topup/create). Historical rows are
-// preserved; only new manual submissions are blocked.
-router.post("/topups", authenticate, async (_req, res) => {
-  res.status(410).json({
-    error: "Top up manual sudah dinonaktifkan. Silakan gunakan tombol Top Up QRIS otomatis.",
-  });
+// ── POST /topups — manual top-up with payment proof ─────────────────────────
+// Creates a pending top-up with an uploaded payment-proof screenshot. The
+// owner/admin reviews it and confirms/denies via PATCH /topups/:id/confirm.
+router.post("/topups", authenticate, async (req, res) => {
+  const userId = req.user!.userId;
+  const amount = parseTopupAmount(req.body?.amount);
+  if (amount == null) {
+    res.status(400).json({
+      error: `Nominal harus bulat antara Rp ${MIN_TOPUP.toLocaleString("id-ID")} dan Rp ${MAX_TOPUP.toLocaleString("id-ID")}.`,
+    });
+    return;
+  }
+  const paymentProof = String(req.body?.paymentProof ?? "").trim();
+  if (!paymentProof) {
+    res.status(400).json({ error: "Bukti transfer wajib diunggah." });
+    return;
+  }
+
+  const parsedTransfer = req.body?.transferAmount != null ? Number(req.body.transferAmount) : null;
+  const amountMatchStatus =
+    parsedTransfer != null && parsedTransfer !== amount ? "mismatch" : "match";
+
+  // Store the proof screenshot in a dedicated payment_proofs record so the
+  // admin can review it during approval.
+  const [proof] = await db.insert(paymentProofsTable).values({
+    userId,
+    imageUrl: paymentProof,
+    claimedAmount: String(amount),
+    status: "pending",
+  }).returning();
+
+  const [topup] = await db.insert(topupsTable).values({
+    userId,
+    amount,
+    paymentMethod: "qris",
+    paymentProof,
+    paymentProofId: proof.id,
+    transferAmount: parsedTransfer ?? amount,
+    amountMatchStatus,
+    status: "pending",
+  }).returning();
+
+  logger.info({ topupId: topup.id, userId, amount }, "Manual topup created (pending owner approval)");
+
+  res.status(201).json(topup);
 });
 
 // ── GET /topups/all — list all top-ups (admin/owner) ─────────────────────────
