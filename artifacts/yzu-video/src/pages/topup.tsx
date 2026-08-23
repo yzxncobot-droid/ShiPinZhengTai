@@ -7,7 +7,7 @@ import { useGetSettings, useListMyTopups } from "@workspace/api-client-react";
 import { Sparkles, Pencil, Star, Heart, ChevronRight, Wallet } from "lucide-react";
 import { QrisTopupModal } from "@/components/topup/QrisTopupModal";
 
-const MIN_TOPUP = 1_000;
+const MIN_TOPUP = 100;
 
 const PRESETS = [
   { amount: 1_000, emoji: "⭐", bg: "bg-amber-100" },

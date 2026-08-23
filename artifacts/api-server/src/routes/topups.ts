@@ -22,7 +22,7 @@ import {
 
 const router = Router();
 
-const MIN_TOPUP = 1_000;
+const MIN_TOPUP = 100;
 const MAX_TOPUP = 1_000_000;
 const PRESET_TOPUPS = new Set([1_000, 3_000, 5_000, 10_000, 20_000, 50_000]);
 
