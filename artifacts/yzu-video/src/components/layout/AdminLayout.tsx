@@ -18,7 +18,7 @@ import {
   ArrowUpFromLine, TrendingUp, Star, BarChart3, FileBarChart, Bell,
   Settings, ShieldCheck, Server, Upload, LogOut, Home, ChevronLeft,
   ChevronRight, Menu, PlaySquare, Search, User as UserIcon, X, Gift,
-  CheckCircle2, Wrench, Award,
+  CheckCircle2, Wrench, Award, QrCode,
 } from "lucide-react";
 
 // ── Navigation Config ──────────────────────────────────────────────────────────
@@ -96,6 +96,7 @@ const useNavGroups = (pendingPayments: number = 0, unreadNotifs: number = 0): Na
     ownerOnly: true,
     items: [
       { label: "Pengaturan", href: "/admin/settings", icon: Settings },
+      { label: "TemanQRIS", href: "/admin/temanqris", icon: QrCode },
       { label: "Maintenance", href: "/admin/maintenance", icon: Wrench },
       { label: "Audit Log", href: "/admin/audit-logs", icon: ShieldCheck },
       { label: "Sistem", href: "/admin/system", icon: Server },
@@ -125,6 +126,7 @@ const PATH_LABELS: Record<string, string> = {
   "/admin/redeem": "Code Redeem",
   "/admin/verifications": "Verifikasi Creator",
   "/admin/settings": "Pengaturan",
+  "/admin/temanqris": "TemanQRIS",
   "/admin/maintenance": "Maintenance Mode",
   "/admin/audit-logs": "Audit Log",
   "/admin/system": "Sistem",
