@@ -223,6 +223,185 @@ export async function verifyOrder(orderId: string): Promise<TemanQrisOrder> {
   };
 }
 
+// ── Generate Dynamic QRIS — POST /generate ─────────────────────────────────
+export interface GeneratedQris {
+  qrisString: string | null;
+  qrImage: string | null;
+  amount: number;
+  fee: { type: string | null; value: number | null };
+  expiresAt: Date | null;
+  paymentLink: {
+    id: number | null;
+    linkCode: string | null;
+    orderId: string | null;
+    url: string | null;
+    amount: number | null;
+    merchantName: string | null;
+    expiresAt: Date | null;
+  };
+  raw: unknown;
+}
+
+export async function generateQris(input: {
+  amount: number;
+  feeType?: string;
+  feeValue?: number;
+  qrisId?: number;
+  orderId?: string;
+  webhookUrl?: string;
+  callbackUrl?: string;
+}): Promise<GeneratedQris> {
+  const body = await temanqrisRequest("/generate", "POST", {
+    amount: input.amount,
+    ...(input.feeType ? { fee_type: input.feeType } : {}),
+    ...(input.feeValue != null ? { fee_value: input.feeValue } : {}),
+    ...(input.qrisId != null ? { qris_id: input.qrisId } : {}),
+    ...(input.orderId ? { order_id: input.orderId } : {}),
+    ...(input.webhookUrl ? { webhook_url: input.webhookUrl } : {}),
+    ...(input.callbackUrl ? { callback_url: input.callbackUrl } : {}),
+  });
+  const data = payloadOf(body);
+  const pl = data?.payment_link ?? {};
+  return {
+    qrisString: String(firstValue(data, ["qris", "qris_string", "qr_string"]) ?? "") || null,
+    qrImage: String(firstValue(data, ["qr_image", "qrImage"]) ?? "") || null,
+    amount: Number(firstValue(data, ["amount", "nominal"]) ?? input.amount),
+    fee: {
+      type: String(firstValue(data?.fee, ["type", "fee_type"]) ?? input.feeType ?? "") || null,
+      value: Number(firstValue(data?.fee, ["value", "fee_value"]) ?? input.feeValue ?? NaN) || null,
+    },
+    expiresAt: asDate(firstValue(data, ["expires_at", "expired_at", "expiresAt"])),
+    paymentLink: {
+      id: Number(firstValue(pl, ["id"]) ?? NaN) || null,
+      linkCode: String(firstValue(pl, ["link_code", "linkCode"]) ?? "") || null,
+      orderId: String(firstValue(pl, ["order_id", "orderId"]) ?? "") || null,
+      url: String(firstValue(pl, ["url", "payment_url"]) ?? "") || null,
+      amount: Number(firstValue(pl, ["amount", "nominal"]) ?? NaN) || null,
+      merchantName: String(firstValue(pl, ["merchant_name", "merchantName"]) ?? "") || null,
+      expiresAt: asDate(firstValue(pl, ["expires_at", "expired_at", "expiresAt"])),
+    },
+    raw: body,
+  };
+}
+
+// ── Render QR Image — POST /render ──────────────────────────────────────────
+export async function renderQr(input: {
+  qrisString?: string;
+  qrisDataId?: number;
+}): Promise<{ qrImage: string | null; raw: unknown }> {
+  const body = await temanqrisRequest("/render", "POST", {
+    ...(input.qrisString ? { qris_string: input.qrisString } : {}),
+    ...(input.qrisDataId != null ? { qris_data_id: input.qrisDataId } : {}),
+  });
+  const data = payloadOf(body);
+  return {
+    qrImage: String(firstValue(data, ["qr_image", "qrImage"]) ?? "") || null,
+    raw: body,
+  };
+}
+
+// ── List Payment Links — GET /payment-links ─────────────────────────────────
+export async function listPaymentLinks(): Promise<{ paymentLinks: any[]; raw: unknown }> {
+  const body = await temanqrisRequest("/payment-links", "GET");
+  const data = payloadOf(body);
+  const links = Array.isArray(data?.payment_links)
+    ? data.payment_links
+    : Array.isArray(data?.paymentLinks)
+      ? data.paymentLinks
+      : Array.isArray(data)
+        ? data
+        : [];
+  return { paymentLinks: links, raw: body };
+}
+
+// ── List Orders — GET /orders?status=&limit=&offset= ────────────────────────
+export async function listOrders(
+  query: { status?: string; limit?: number; offset?: number } = {},
+): Promise<{ orders: any[]; pagination: any; raw: unknown }> {
+  const params = new URLSearchParams();
+  if (query.status) params.set("status", query.status);
+  if (query.limit != null) params.set("limit", String(query.limit));
+  if (query.offset != null) params.set("offset", String(query.offset));
+  const qs = params.toString();
+  const body = await temanqrisRequest(`/orders${qs ? `?${qs}` : ""}`, "GET");
+  const data = payloadOf(body);
+  const orders = Array.isArray(data?.orders) ? data.orders : Array.isArray(data) ? data : [];
+  const pagination = data?.pagination ?? null;
+  return { orders, pagination, raw: body };
+}
+
+// ── API Usage — GET /usage ──────────────────────────────────────────────────
+export async function getUsage(): Promise<{ usage: any; raw: unknown }> {
+  const body = await temanqrisRequest("/usage", "GET");
+  const data = payloadOf(body);
+  return { usage: data?.usage ?? data, raw: body };
+}
+
+// ── My QRIS — GET /my-qris ──────────────────────────────────────────────────
+export async function getMyQris(): Promise<{ qris: any[]; raw: unknown }> {
+  const body = await temanqrisRequest("/my-qris", "GET");
+  const data = payloadOf(body);
+  const qris = Array.isArray(data?.qris)
+    ? data.qris
+    : Array.isArray(data?.qris_data)
+      ? data.qris_data
+      : Array.isArray(data)
+        ? data
+        : [];
+  return { qris, raw: body };
+}
+
+// ── Upload static QRIS — POST /upload ───────────────────────────────────────
+export async function uploadQris(input: {
+  qrisString: string;
+  name?: string;
+}): Promise<{ qris: any; raw: unknown }> {
+  const body = await temanqrisRequest("/upload", "POST", {
+    qris_string: input.qrisString,
+    ...(input.name ? { name: input.name } : {}),
+  });
+  const data = payloadOf(body);
+  return { qris: data?.qris ?? data?.qris_data ?? data, raw: body };
+}
+
+// ── Customer "Sudah Bayar" (public, no API key) — POST /api/pay/:link_code/confirm
+// This is a TemanQRIS-hosted public endpoint (different base path /api/pay, not
+// /api/qris). It marks an order as `awaiting_confirmation` — it is NOT proof of
+// payment. We proxy it server-side so the API key never reaches the browser
+// and to avoid cross-origin calls from the frontend.
+export async function confirmCustomerPayment(linkCode: string): Promise<{
+  success: boolean;
+  orderId: string | null;
+  status: string | null;
+  raw: unknown;
+}> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(
+      `https://temanqris.com/api/pay/${encodeURIComponent(linkCode)}/confirm`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal },
+    );
+    let responseBody: any = null;
+    try { responseBody = await response.json(); } catch { responseBody = null; }
+    if (!response.ok) {
+      throw gatewayError(
+        `TemanQRIS confirm failed (${response.status})`,
+        errorCodeForStatus(response.status),
+      );
+    }
+    const data = payloadOf(responseBody);
+    return {
+      success: Boolean(firstValue(responseBody, ["success"]) ?? firstValue(data, ["success"]) ?? true),
+      orderId: String(firstValue(data, ["order_id", "orderId"]) ?? "") || null,
+      status: String(firstValue(data, ["status", "state"]) ?? "awaiting_confirmation") || null,
+      raw: responseBody,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export function isWebhookConfigured(): boolean {
   return !!webhookSecret();
 }
