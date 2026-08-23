@@ -197,6 +197,16 @@ export async function getOrder(orderId: string): Promise<TemanQrisOrder> {
   };
 }
 
+/**
+ * SECURITY WARNING: This function calls POST /orders/{id}/verify, which
+ * performs MERCHANT CONFIRMATION on the TemanQRIS side. It can mark an order
+ * as "paid" WITHOUT proof that the customer actually paid. It must NEVER be
+ * called automatically based on `awaiting_confirmation`, the "Sudah Bayar"
+ * button, or widget callbacks — doing so was the root cause of the free-saldo
+ * bug. It is retained only for potential manual/admin use. The wallet credit
+ * path is exclusively: valid `payment.confirmed` webhook → creditVerifiedTopup()
+ * or read-only getOrder() reporting "paid" → finalizeVerifiedTopup().
+ */
 export async function verifyOrder(orderId: string): Promise<TemanQrisOrder> {
   if (!/^[A-Za-z0-9_-]{3,80}$/.test(orderId)) {
     throw gatewayError("Invalid TemanQRIS order ID", "INVALID_ORDER_ID");
