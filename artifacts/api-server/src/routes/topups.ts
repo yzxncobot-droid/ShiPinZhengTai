@@ -2,10 +2,10 @@ import { Router } from "express";
 import crypto from "node:crypto";
 import { db } from "@workspace/db";
 import {
-  topupsTable, usersTable, walletsTable, walletTransactionsTable,
-  transactionsTable, notificationsTable, paymentProofsTable,
+  topupsTable, usersTable,
+  notificationsTable, paymentProofsTable,
 } from "@workspace/db";
-import { eq, and, desc, sql, count } from "drizzle-orm";
+import { eq, and, desc, count } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
 import { qrisRateLimit } from "../middlewares/rate-limit";
 import { invalidateUserCache, invalidateCache, keys } from "../lib/redis";
@@ -243,7 +243,7 @@ router.post("/topup/:id/confirm-paid", authenticate, qrisRateLimit, async (req, 
   const topupId = String(req.params.id);
   const userId = req.user!.userId;
 
-  logger.info({ topupId, userId }, "[TQ] confirm-paid request received");
+  logger.info({ topupId, userId }, "[TQ-AUTO] confirm-paid request received");
 
   const result = await verifyAndCreditTopup(topupId, userId);
 
@@ -339,7 +339,7 @@ router.post("/webhooks/temanqris", async (req, res) => {
   const body: any = req.body ?? {};
   const data: any = body.data ?? body.result ?? body;
   const event = String(body.event ?? body.type ?? data.event ?? data.type ?? "").toLowerCase();
-  logger.info({ event, orderId: String(data.order_id ?? data.orderId ?? "") }, "Webhook received");
+  logger.info({ event, orderId: String(data.order_id ?? data.orderId ?? "") }, "[TQ-AUTO] webhook received");
   if (event !== "payment.confirmed") {
     if (event === "payment.awaiting_confirmation") {
       const awaitingOrderId = String(
@@ -349,7 +349,7 @@ router.post("/webhooks/temanqris", async (req, res) => {
         res.json({ received: true, ignored: true });
         return;
       }
-      logger.info({ orderId: awaitingOrderId }, "[TQ] awaiting_confirmation received");
+      logger.info({ orderId: awaitingOrderId }, "[TQ-AUTO] awaiting_confirmation received");
 
       // Set status on the linked topup.
       await db.update(topupsTable).set({
@@ -392,7 +392,7 @@ router.post("/webhooks/temanqris", async (req, res) => {
     res.status(400).json({ error: "Missing order_id" });
     return;
   }
-  logger.info({ orderId }, "[TQ] payment confirmed received");
+  logger.info({ orderId }, "[TQ-AUTO] payment.confirmed received");
   const [topup] = await db.select().from(topupsTable)
     .where(eq(topupsTable.orderId, orderId)).limit(1);
   const gatewayReference = String(
@@ -445,7 +445,7 @@ router.post("/webhooks/temanqris", async (req, res) => {
         updatedAt: new Date(),
       }).where(eq(topupsTable.id, pendingTopup.id));
 
-      logger.info({ topupId: pendingTopup.id, orderId, userId: widgetUserId, amount: widgetAmount }, "Webhook linked pending topup with order_id");
+      logger.info({ topupId: pendingTopup.id, orderId, userId: widgetUserId, amount: widgetAmount }, "[TQ-AUTO] webhook linked pending topup with order_id");
 
       const widgetResult = await creditVerifiedTopup(pendingTopup.id, gatewayReference);
       if (widgetResult.status === "paid" || widgetResult.status === "already_processed") {
@@ -470,7 +470,7 @@ router.post("/webhooks/temanqris", async (req, res) => {
         })
         .returning();
 
-      logger.info({ topupId: newTopup.id, orderId, userId: widgetUserId, amount: widgetAmount }, "Webhook created new topup for widget payment");
+      logger.info({ topupId: newTopup.id, orderId, userId: widgetUserId, amount: widgetAmount }, "[TQ-AUTO] webhook created new topup for widget payment");
 
       const widgetResult = await creditVerifiedTopup(
         newTopup.id,
@@ -516,13 +516,13 @@ router.post("/webhooks/temanqris", async (req, res) => {
   }
   const webhookAmount = Number(data.amount ?? data.nominal ?? NaN);
   if (Number.isFinite(webhookAmount) && webhookAmount !== Number(topup.amount)) {
-    logger.error({ orderId, topupId: topup.id, localAmount: topup.amount, webhookAmount }, "[TQ] Amount mismatch (webhook) — NOT crediting");
+    logger.error({ orderId, topupId: topup.id, localAmount: topup.amount, webhookAmount }, "[TQ-AUTO] amount mismatch (webhook) — NOT crediting");
     res.status(400).json({ error: "Webhook amount does not match top-up amount" });
     return;
   }
-  logger.info({ orderId, topupId: topup.id }, "[TQ] credit started (webhook confirmed)");
+  logger.info({ orderId, topupId: topup.id }, "[TQ-AUTO] creditVerifiedTopup — webhook confirmed");
   const result = await creditVerifiedTopup(topup.id, gatewayReference);
-  logger.info({ orderId, topupId: topup.id, creditStatus: result.status }, "[TQ] credit completed (webhook confirmed)");
+  logger.info({ orderId, topupId: topup.id, creditStatus: result.status }, "[TQ-AUTO] credit completed (webhook confirmed)");
   if (result.status === "paid" || result.status === "already_processed") {
     await invalidateUserCache(topup.userId).catch(() => {});
     await invalidateCache(keys.analytics("overview")).catch(() => {});
@@ -622,6 +622,9 @@ router.get("/topups/all", authenticate, requireRole("admin", "owner"), async (re
 });
 
 // ── PATCH /topups/:id/confirm — approve top-up (admin/owner) ─────────────────
+// Credits via the SINGLE credit path (creditVerifiedTopup) so all wallet
+// balance increases for top-ups go through one audited, idempotent function
+// with advisory-lock + duplicate-reference protection.
 router.patch("/topups/:id/confirm", authenticate, requireRole("admin", "owner"), async (req, res) => {
   const id = req.params.id as string;
   const reviewerId = req.user!.userId;
@@ -637,90 +640,39 @@ router.patch("/topups/:id/confirm", authenticate, requireRole("admin", "owner"),
       return;
     }
 
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, topup.userId)).limit(1);
-    if (!user) { res.status(404).json({ error: "User not found" }); return; }
+    logger.info({ topupId: id, userId: topup.userId, amount: topup.amount, by: reviewerId }, "[TQ-AUTO] admin confirm: crediting via creditVerifiedTopup");
 
-    const newBalance = user.walletBalance + topup.amount;
-    const amountFormatted = topup.amount.toLocaleString("id-ID");
+    // Credit through the single credit path. Use a unique admin reference
+    // so the duplicate-reference guard in creditVerifiedTopup prevents
+    // double-crediting if confirm is called twice.
+    const gatewayReference = `admin-${id}`;
+    const result = await creditVerifiedTopup(id, gatewayReference);
 
-    logger.info({ topupId: id, userId: topup.userId, amount: topup.amount, by: reviewerId }, "Topup confirm: starting transaction");
+    if (result.status !== "paid" && result.status !== "already_processed") {
+      res.status(400).json({ error: `Failed to confirm top-up: credit status ${result.status}` });
+      return;
+    }
 
-    await db.transaction(async (tx: any) => {
-      // Step 1: update user balance cache
-      await tx.update(usersTable).set({
-        walletBalance: newBalance,
-        totalTopup: sql`${usersTable.totalTopup} + ${topup.amount}`,
-        updatedAt: new Date(),
-      }).where(eq(usersTable.id, topup.userId));
-      logger.info({ topupId: id }, "Topup confirm: user balance updated");
+    // Record reviewer metadata + approve the payment proof (outside the
+    // credit transaction — the balance is already updated safely).
+    await db.update(topupsTable).set({
+      reviewedBy: reviewerId,
+      reviewedAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(topupsTable.id, id));
 
-      // Step 2: update wallet ledger
-      await tx.update(walletsTable).set({
-        balance: newBalance,
-        totalEarned: sql`${walletsTable.totalEarned} + ${topup.amount}`,
-        updatedAt: new Date(),
-        lastTransactionAt: new Date(),
-      }).where(eq(walletsTable.userId, topup.userId));
-      logger.info({ topupId: id }, "Topup confirm: wallet updated");
-
-      // Step 3: mark topup confirmed
-      await tx.update(topupsTable).set({
-        status: "confirmed",
-        reviewedBy: reviewerId,
-        reviewedAt: new Date(),
-        updatedAt: new Date(),
-      }).where(eq(topupsTable.id, id));
-      logger.info({ topupId: id }, "Topup confirm: topup status set to confirmed");
-
-      // Step 4: append to transactions history
-      await tx.insert(transactionsTable).values({
-        userId: topup.userId,
-        type: "topup",
-        amount: topup.amount,
-        description: `Top up confirmed: Rp ${amountFormatted}`,
-        referenceId: topup.id,
-      });
-      logger.info({ topupId: id }, "Topup confirm: transaction record inserted");
-
-      // Step 5: append to wallet transactions ledger
-      await tx.insert(walletTransactionsTable).values({
-        userId: topup.userId,
-        type: "topup",
-        amount: topup.amount,
-        balanceAfter: newBalance,
-        description: `Top up confirmed: Rp ${amountFormatted}`,
-        referenceType: "topup",
-        referenceId: topup.id,
-        createdBy: reviewerId,
-      });
-      logger.info({ topupId: id }, "Topup confirm: wallet transaction record inserted");
-
-      // Step 6: send notification to user
-      await tx.insert(notificationsTable).values({
-        userId: topup.userId,
-        title: "Top Up Berhasil",
-        message: `Top up sebesar Rp ${amountFormatted} berhasil dikonfirmasi. Saldo kamu sekarang Rp ${newBalance.toLocaleString("id-ID")}.`,
-        type: "success",
-        category: "payment",
-        referenceType: "topup",
-        referenceId: topup.id,
-      });
-      logger.info({ topupId: id }, "Topup confirm: notification sent");
-
-      // Step 7: update payment proof status if present
-      if (topup.paymentProofId) {
-        await tx.update(paymentProofsTable).set({
-          status: "approved", reviewedBy: reviewerId, reviewedAt: new Date(), updatedAt: new Date(),
-        }).where(eq(paymentProofsTable.id, topup.paymentProofId));
-        logger.info({ topupId: id, proofId: topup.paymentProofId }, "Topup confirm: payment proof approved");
-      }
-    });
+    if (topup.paymentProofId) {
+      await db.update(paymentProofsTable).set({
+        status: "approved", reviewedBy: reviewerId, reviewedAt: new Date(), updatedAt: new Date(),
+      }).where(eq(paymentProofsTable.id, topup.paymentProofId));
+      logger.info({ topupId: id, proofId: topup.paymentProofId }, "[TQ-AUTO] admin confirm: payment proof approved");
+    }
 
     await invalidateUserCache(topup.userId);
     await invalidateCache(keys.analytics("overview")).catch(() => {});
 
     const [updated] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
-    logger.info({ topupId: id, userId: topup.userId, amount: topup.amount, by: reviewerId }, "Topup confirmed successfully");
+    logger.info({ topupId: id, userId: topup.userId, amount: topup.amount, by: reviewerId }, "[TQ-AUTO] admin confirm: success");
     res.json(updated);
   } catch (err: any) {
     logger.error({ err: err?.message, stack: err?.stack, id }, "Topup confirm failed");
