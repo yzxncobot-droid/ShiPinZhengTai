@@ -32,6 +32,7 @@ import {
 import { eq, and, sql, desc } from "drizzle-orm";
 import { logger } from "./logger";
 import { invalidateUserCache, invalidateCache, keys } from "./redis";
+import { getOrder, getGatewayState } from "./temanqris";
 
 function isPaidStatus(status: string): boolean {
   return status === "paid" || status === "confirmed";
@@ -183,6 +184,123 @@ export async function finalizeVerifiedTopup(
   }
 
   return creditVerifiedTopup(topup.id, orderId);
+}
+
+/**
+ * Full "Sudah Bayar" verification flow for an authenticated user.
+ *
+ * This is the ONLY entry point triggered by the user pressing "Sudah Bayar".
+ * It:
+ *  1. Validates the topup belongs to the authenticated user (never trusts
+ *     a user_id from the frontend).
+ *  2. Confirms the topup is not already paid / in a terminal state.
+ *  3. Sets the local status to `awaiting_confirmation` — this is NOT proof of
+ *     payment; it only records that the user pressed the button.
+ *  4. Queries TemanQRIS via the read-only `getOrder()` to check whether the
+ *     payment has ACTUALLY been received.
+ *  5. Only if getOrder() reports a paid/confirmed status AND order_id matches
+ *     AND amount matches, calls `creditVerifiedTopup()` — the single credit
+ *     function.
+ *  6. Returns a structured response the frontend maps to one of three states:
+ *     paid / awaiting_payment / verification_failed.
+ *
+ * `awaiting_confirmation` is NEVER treated as payment success. If getOrder()
+ * does not report a confirmed status, no credit happens.
+ */
+export async function verifyAndCreditTopup(
+  topupId: string,
+  authenticatedUserId: string,
+): Promise<{
+  success: boolean;
+  status: "paid" | "awaiting_payment" | "verification_failed";
+  message: string;
+  amount?: number;
+  newBalance?: number;
+}> {
+  // ── 1. Find the topup ──────────────────────────────────────────────────
+  const [topup] = await db.select().from(topupsTable)
+    .where(eq(topupsTable.id, topupId)).limit(1);
+  if (!topup) {
+    return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
+  }
+
+  // ── 2. Validate ownership — never trust a frontend user_id ────────────
+  if (topup.userId !== authenticatedUserId) {
+    logger.warn(
+      { topupId, topupUserId: topup.userId, requesterId: authenticatedUserId },
+      "[TQ] confirm-paid: user mismatch — NOT crediting",
+    );
+    return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
+  }
+
+  // ── 3. Already paid — return success without re-crediting (idempotent) ─
+  if (isPaidStatus(topup.status)) {
+    return { success: true, status: "paid", message: "Pembayaran berhasil diverifikasi.", amount: Number(topup.amount) };
+  }
+
+  // ── 4. Terminal non-pending states — cannot verify ─────────────────────
+  if (["expired", "failed", "cancelled", "denied"].includes(topup.status)) {
+    return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
+  }
+
+  // ── 5. Set status to awaiting_confirmation (NOT proof of payment) ──────
+  if (topup.status === "pending") {
+    await db.update(topupsTable).set({
+      status: "awaiting_confirmation",
+      updatedAt: new Date(),
+    }).where(eq(topupsTable.id, topupId));
+  }
+
+  // ── 6. Check actual payment status from TemanQRIS ──────────────────────
+  if (!topup.orderId || getGatewayState() !== "CONNECTED") {
+    return { success: false, status: "awaiting_payment", message: "Pembayaran belum terdeteksi. Pastikan pembayaran sudah berhasil." };
+  }
+
+  try {
+    const order = await getOrder(String(topup.orderId));
+    const confirmed = ["paid", "success", "confirmed", "completed", "settled"].includes(order.status);
+
+    // ── 7. Not paid yet — do NOT credit ──────────────────────────────────
+    if (!confirmed) {
+      return { success: false, status: "awaiting_payment", message: "Pembayaran belum terdeteksi. Pastikan pembayaran sudah berhasil." };
+    }
+
+    // ── 8. Validate order_id match ──────────────────────────────────────
+    if (order.orderId !== topup.orderId) {
+      logger.error(
+        { topupId, localOrderId: topup.orderId, gatewayOrderId: order.orderId },
+        "[TQ] confirm-paid: order_id mismatch — NOT crediting",
+      );
+      return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
+    }
+
+    // ── 9. Validate amount match ─────────────────────────────────────────
+    if (order.amount != null && Number.isFinite(order.amount) && order.amount !== Number(topup.amount)) {
+      logger.error(
+        { topupId, localAmount: topup.amount, gatewayAmount: order.amount },
+        "[TQ] confirm-paid: amount mismatch — NOT crediting",
+      );
+      return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
+    }
+
+    // ── 10. All validations passed — credit via the single credit path ───
+    const result = await creditVerifiedTopup(topupId, String(topup.orderId));
+
+    if (result.status === "paid") {
+      await invalidateUserCache(topup.userId).catch(() => {});
+      await invalidateCache(keys.analytics("overview")).catch(() => {});
+      return { success: true, status: "paid", message: "Pembayaran berhasil diverifikasi.", amount: Number(topup.amount), newBalance: result.newBalance };
+    }
+    if (result.status === "already_processed") {
+      return { success: true, status: "paid", message: "Pembayaran berhasil diverifikasi.", amount: Number(topup.amount) };
+    }
+
+    // creditVerifiedTopup returned a non-credit state — don't claim success
+    return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
+  } catch (err) {
+    logger.warn({ topupId, err: (err as any)?.message }, "[TQ] confirm-paid: getOrder failed");
+    return { success: false, status: "awaiting_payment", message: "Pembayaran belum terdeteksi. Pastikan pembayaran sudah berhasil." };
+  }
 }
 
 /**
