@@ -60,6 +60,7 @@ import AdminDropsPage from "@/pages/admin/drops";
 import RedeemPage from "@/pages/redeem";
 import AdminRedeemPage from "@/pages/admin/redeem";
 import AdminBuatQris from "@/pages/admin/buatqris";
+import AdminHomeFeed from "@/pages/admin/home-feed";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -140,6 +141,7 @@ function AppRouter() {
       <Route path="/redeem" component={RedeemPage} />
       <Route path="/admin/badge-roles" component={AdminBadgeRolesPage} />
       <Route path="/admin/buatqris" component={AdminBuatQris} />
+      <Route path="/admin/home-feed" component={AdminHomeFeed} />
       <Route path="/admin/maintenance" component={AdminMaintenancePage} />
 
       {/* Maintenance page — always accessible */}

@@ -64,16 +64,20 @@ export type MediaAssetType =
   | "bundle-thumbnail"
   | "bundle-banner"
   | "logo"
-  | "images";
+  | "images"
+  | "home-feed-video"
+  | "home-feed-thumbnail";
 
 const ASSET_FOLDER: Record<MediaAssetType, string> = {
-  "avatar":           "media/avatars",
-  "qris":             "media/qris",
-  "banner":           "media/banners",
-  "bundle-thumbnail": "media/bundle-thumbnails",
-  "bundle-banner":    "media/bundle-banners",
-  "logo":             "media/logos",
-  "images":           "media/images",
+  "avatar":              "media/avatars",
+  "qris":                "media/qris",
+  "banner":              "media/banners",
+  "bundle-thumbnail":    "media/bundle-thumbnails",
+  "bundle-banner":       "media/bundle-banners",
+  "logo":                "media/logos",
+  "images":              "media/images",
+  "home-feed-video":     "media/home-feed/videos",
+  "home-feed-thumbnail": "media/home-feed/thumbnails",
 };
 
 /**

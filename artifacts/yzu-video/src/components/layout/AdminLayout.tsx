@@ -107,6 +107,7 @@ const useNavGroups = (pendingPayments: number = 0, unreadNotifs: number = 0): Na
 const PATH_LABELS: Record<string, string> = {
   "/admin": "Dashboard",
   "/admin/videos": "Videos",
+  "/admin/home-feed": "Home Feed",
   "/admin/categories": "Kategori",
   "/admin/upload": "Upload Video",
   "/admin/bundles": "Bundles",

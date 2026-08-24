@@ -169,6 +169,14 @@
     display: none;
   }
 
+  .feed-scroll {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .feed-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
   .glass {
     @apply bg-white/20 backdrop-blur-md border border-white/30;
   }
