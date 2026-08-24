@@ -65,6 +65,6 @@ router.use(socialRouter);
 router.use(redeemRouter);
 router.use(revenueRouter);
 router.use(badgeRolesRouter);
-router.use(temanqrisRouter);
+
 
 export default router;

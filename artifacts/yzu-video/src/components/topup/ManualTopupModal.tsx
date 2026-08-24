@@ -1,15 +1,23 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  X, Loader2, ImageIcon, CheckCircle2, Clock, AlertCircle, ShieldCheck,
+  X, Loader2, ImageIcon, CheckCircle2, Clock, ShieldCheck, Upload, Camera,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey, getListMyTopupsQueryKey } from "@workspace/api-client-react";
 import { getToken } from "@/lib/admin-api";
 
-type ManualState = "creating" | "qr" | "submitting" | "awaiting_review" | "error";
+type ManualState = "creating" | "qr" | "uploading" | "submitting" | "awaiting_review" | "error";
 
+/**
+ * Manual top-up modal — static QRIS + proof upload + admin approval.
+ *
+ * The user scans a static QRIS image (from settings), pays, uploads a proof
+ * screenshot, and submits. The payment stays "pending" until an admin
+ * confirms it via the dashboard. The wallet is only credited by
+ * creditVerifiedTopup() on the backend — never by this modal.
+ */
 export function ManualTopupModal({
   open,
   amount,
@@ -26,6 +34,9 @@ export function ManualTopupModal({
   const [topupId, setTopupId] = useState<string | null>(null);
   const [qrisImage, setQrisImage] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [proofPreview, setProofPreview] = useState<string | null>(null);
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fmtRp = (n: number) => `Rp ${n.toLocaleString("id-ID")}`;
 
@@ -34,6 +45,8 @@ export function ManualTopupModal({
     setTopupId(null);
     setQrisImage(null);
     setErrorMsg(null);
+    setProofPreview(null);
+    setProofFile(null);
   }, []);
 
   const handleClose = () => {
@@ -69,14 +82,7 @@ export function ManualTopupModal({
           return;
         }
         setTopupId(createData.id);
-
-        // Fetch the static QRIS image from settings
-        const settingsRes = await fetch("/api/settings", {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        const settingsData = await settingsRes.json();
-        if (cancelled) return;
-        setQrisImage(settingsData?.qrisImage ?? null);
+        setQrisImage(createData.manualQrisImageUrl ?? null);
         setState("qr");
       } catch (err: any) {
         if (cancelled) return;
@@ -89,43 +95,83 @@ export function ManualTopupModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, amount]);
 
-  // ── "Saya Sudah Bayar" — marks topup as awaiting_manual_review ───────────
-  // This does NOT credit the wallet. It only sets the status so the admin
-  // knows to review the payment. creditVerifiedTopup() is called only when
-  // the admin confirms.
-  const handleMarkPaid = useCallback(async () => {
-    if (!topupId || state === "submitting") return;
+  // ── Handle proof file selection ──────────────────────────────────────────
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate image type
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "File harus berupa gambar", variant: "destructive" });
+      return;
+    }
+    // Validate size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: "Ukuran file maksimal 10MB", variant: "destructive" });
+      return;
+    }
+
+    setProofFile(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setProofPreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  // ── Upload proof + submit ─────────────────────────────────────────────────
+  const handleSubmitProof = useCallback(async () => {
+    if (!topupId || !proofFile || state === "submitting") return;
     setState("submitting");
     try {
       const token = getToken();
-      const res = await fetch(`/api/topup/${topupId}/mark-paid`, {
+
+      // Step 1: upload the proof image via the payment-proof endpoint
+      setState("uploading");
+      const formData = new FormData();
+      formData.append("file", proofFile);
+      const uploadRes = await fetch("/api/upload/payment-proof", {
+        method: "POST",
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: formData,
+      });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok || !uploadData.url) {
+        setErrorMsg(uploadData?.message ?? "Gagal mengupload bukti pembayaran.");
+        setState("error");
+        return;
+      }
+
+      // Step 2: attach the proof URL to the topup
+      setState("submitting");
+      const linkRes = await fetch(`/api/topup/${topupId}/upload-proof`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ proofImageUrl: uploadData.url }),
       });
-      const data = await res.json().catch(() => ({}));
-
-      if (res.ok) {
-        setState("awaiting_review");
-        queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getListMyTopupsQueryKey() });
-        toast({
-          title: "Konfirmasi Terkirim",
-          description: "Pembayaran Anda sedang menunggu verifikasi admin.",
-        });
-      } else {
-        setErrorMsg(data?.error ?? "Gagal mengirim konfirmasi.");
+      const linkData = await linkRes.json();
+      if (!linkRes.ok) {
+        setErrorMsg(linkData?.error ?? "Gagal mengirim bukti pembayaran.");
         setState("error");
+        return;
       }
+
+      setState("awaiting_review");
+      queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getListMyTopupsQueryKey() });
+      toast({
+        title: "Bukti Pembayaran Terkirim",
+        description: "Pembayaran sedang diperiksa oleh admin.",
+      });
     } catch (err: any) {
       setErrorMsg(err?.message ?? "Terjadi kesalahan sistem.");
       setState("error");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topupId, state, queryClient, toast]);
+  }, [topupId, proofFile, state, queryClient, toast]);
 
   return (
     <AnimatePresence>
@@ -206,10 +252,10 @@ export function ManualTopupModal({
                   <Clock className="h-10 w-10 text-blue-500" />
                 </motion.div>
                 <h3 className="text-xl font-extrabold" style={{ color: "#1E40AF" }}>
-                  Menunggu Verifikasi Admin
+                  Pembayaran Sedang Diperiksa
                 </h3>
                 <p className="mx-auto mt-2 max-w-xs text-sm font-medium text-slate-500">
-                  Konfirmasi pembayaran Anda telah terkirim. Saldo sebesar{" "}
+                  Bukti pembayaran Anda telah terkirim. Saldo sebesar{" "}
                   {fmtRp(amount)} akan ditambahkan setelah admin memverifikasi
                   pembayaran Anda.
                 </p>
@@ -223,8 +269,8 @@ export function ManualTopupModal({
               </div>
             )}
 
-            {(state === "qr" || state === "submitting") && (
-              <div className="px-6 py-6">
+            {(state === "qr" || state === "uploading" || state === "submitting") && (
+              <div className="max-h-[80vh] overflow-y-auto px-6 py-6">
                 {/* Total */}
                 <p className="text-center text-xs font-bold uppercase tracking-wider text-slate-400">
                   TOTAL BAYAR
@@ -232,24 +278,6 @@ export function ManualTopupModal({
                 <p className="mt-1 text-center text-3xl font-extrabold" style={{ color: "#059669" }}>
                   {fmtRp(amount)}
                 </p>
-
-                {/* Fee breakdown */}
-                <div className="mt-3 rounded-xl bg-slate-50 p-3">
-                  <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-                    <span>Top Up</span>
-                    <span className="font-bold text-slate-700">{fmtRp(amount)}</span>
-                  </div>
-                  <div className="mt-1 flex items-center justify-between text-xs font-medium text-slate-500">
-                    <span>Biaya layanan</span>
-                    <span className="font-bold text-emerald-600">{fmtRp(0)}</span>
-                  </div>
-                  <div className="mt-2 border-t border-slate-200 pt-2">
-                    <div className="flex items-center justify-between text-xs font-bold">
-                      <span style={{ color: "#263238" }}>Total pembayaran</span>
-                      <span style={{ color: "#059669" }}>{fmtRp(amount)}</span>
-                    </div>
-                  </div>
-                </div>
 
                 {/* QR code (static from settings) */}
                 <div className="mt-5 flex justify-center">
@@ -264,7 +292,7 @@ export function ManualTopupModal({
                       <div className="flex h-48 w-48 flex-col items-center justify-center gap-2 text-center">
                         <ImageIcon className="h-10 w-10 text-slate-300" />
                         <p className="px-4 text-xs font-medium text-slate-400">
-                          QRIS belum diatur oleh admin. Hubungi admin.
+                          QRIS manual belum tersedia.
                         </p>
                       </div>
                     )}
@@ -277,29 +305,76 @@ export function ManualTopupModal({
                   <p className="text-xs font-medium leading-snug text-emerald-700">
                     <span className="font-bold">Pembayaran manual.</span>{" "}
                     <span className="text-emerald-600">
-                      Scan QRIS di atas, bayar sesuai nominal, lalu tekan "Saya
-                      Sudah Bayar". Saldo akan ditambahkan setelah admin
+                      Scan QRIS di atas, bayar sesuai nominal, lalu upload bukti
+                      pembayaran. Saldo akan ditambahkan setelah admin
                       memverifikasi pembayaran Anda.
                     </span>
                   </p>
                 </div>
 
-                {/* Saya Sudah Bayar button */}
+                {/* ── Upload proof ─────────────────────────────────────────── */}
+                <div className="mt-5">
+                  <p className="text-sm font-extrabold" style={{ color: "#263238" }}>
+                    Upload Bukti Pembayaran
+                  </p>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+
+                  {proofPreview ? (
+                    <div className="mt-3 relative">
+                      <img
+                        src={proofPreview}
+                        alt="Bukti pembayaran"
+                        className="w-full max-h-48 object-contain rounded-2xl border border-slate-200"
+                      />
+                      <button
+                        onClick={() => { setProofFile(null); setProofPreview(null); }}
+                        className="absolute top-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="mt-3 flex h-32 w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 transition hover:border-emerald-300 hover:bg-emerald-50/50"
+                    >
+                      <Camera className="h-8 w-8 text-slate-400" />
+                      <p className="text-xs font-medium text-slate-500">
+                        Pilih foto bukti pembayaran
+                      </p>
+                      <p className="text-[10px] text-slate-400">JPG, PNG, WEBP · maks 10MB</p>
+                    </button>
+                  )}
+                </div>
+
+                {/* Submit button */}
                 <button
-                  onClick={handleMarkPaid}
-                  disabled={state === "submitting"}
+                  onClick={handleSubmitProof}
+                  disabled={!proofFile || state === "submitting" || state === "uploading"}
                   className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-extrabold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                   style={{ background: "linear-gradient(135deg, #10B981 0%, #059669 100%)" }}
                 >
-                  {state === "submitting" ? (
+                  {state === "uploading" ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      Mengirim Konfirmasi...
+                      Mengupload Bukti...
+                    </>
+                  ) : state === "submitting" ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Mengirim Pembayaran...
                     </>
                   ) : (
                     <>
-                      <CheckCircle2 className="h-4 w-4" />
-                      Saya Sudah Bayar
+                      <Upload className="h-4 w-4" />
+                      Kirim Pembayaran
                     </>
                   )}
                 </button>

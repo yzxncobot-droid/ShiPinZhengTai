@@ -5,14 +5,16 @@
   "secrets": [
     { "name": "NEON_DATABASE_URL", "description": "External Neon PostgreSQL connection string (with existing data). Optional — a local Postgres with an empty schema is used until this is provided.", "requiredAtBoot": false },
     { "name": "SESSION_SECRET", "description": "JWT signing secret. Optional — a dev placeholder is used until provided.", "requiredAtBoot": false },
+    { "name": "BUATQRIS_ACCOUNT_ID", "description": "BuatQris Account ID for automatic QRIS payments. Required for the automatic payment flow.", "requiredAtBoot": false },
+    { "name": "BUATQRIS_SECRET_TOKEN", "description": "BuatQris Secret Token (server-only, never sent to frontend). Required for the automatic payment flow.", "requiredAtBoot": false },
+    { "name": "BUATQRIS_WEBHOOK_SECRET", "description": "BuatQris Webhook Secret for verifying X-BuatQris-Signature on webhook callbacks (server-only).", "requiredAtBoot": false },
+    { "name": "PUBLIC_BASE_URL", "description": "Public base URL of the site (e.g. https://your-domain.com) used to construct the BuatQris webhook callback URL. Optional — falls back to BASE44_PUBLIC_HOST_SUFFIX.", "requiredAtBoot": false },
     { "name": "PUBLIC_SUPABASE_URL", "description": "Supabase PUBLIC project URL for creator/verified-creator video storage.", "requiredAtBoot": false },
     { "name": "PUBLIC_SUPABASE_SERVICE_KEY", "description": "Supabase PUBLIC project service_role key.", "requiredAtBoot": false },
     { "name": "OWNER_SUPABASE_URL", "description": "Supabase OWNER project URL for owner/admin video storage.", "requiredAtBoot": false },
     { "name": "OWNER_SUPABASE_SERVICE_KEY", "description": "Supabase OWNER project service_role key.", "requiredAtBoot": false },
-    { "name": "MEDIA_SUPABASE_URL", "description": "Supabase MEDIA project URL for avatars/banners/images.", "requiredAtBoot": false },
+    { "name": "MEDIA_SUPABASE_URL", "description": "Supabase MEDIA project URL for avatars/banners/images/manual QRIS.", "requiredAtBoot": false },
     { "name": "MEDIA_SUPABASE_SERVICE_KEY", "description": "Supabase MEDIA project service_role key.", "requiredAtBoot": false },
-    { "name": "TEMANQRIS_API_KEY", "description": "TemanQRIS API key for QRIS payment links.", "requiredAtBoot": false },
-    { "name": "TEMANQRIS_WEBHOOK_SECRET", "description": "TemanQRIS webhook signing secret.", "requiredAtBoot": false },
     { "name": "UPSTASH_REDIS_REST_URL", "description": "Upstash Redis REST URL (sessions/caching). Optional.", "requiredAtBoot": false },
     { "name": "UPSTASH_REDIS_REST_TOKEN", "description": "Upstash Redis REST token. Optional.", "requiredAtBoot": false }
   ]

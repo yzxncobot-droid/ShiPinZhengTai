@@ -1,16 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Loader2, ImageIcon, ExternalLink, CheckCircle2, Clock, AlertCircle, XCircle, RefreshCw } from "lucide-react";
+import { X, Loader2, ImageIcon, ExternalLink, CheckCircle2, Clock, AlertCircle, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useCreateAutomaticTopup } from "@workspace/api-client-react";
 import { getGetMeQueryKey, getListMyTopupsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getToken } from "@/lib/admin-api";
 
-type ModalState = "creating" | "qr" | "processing" | "paid" | "error";
-type ConfirmState = "idle" | "checking" | "paid" | "awaiting_payment" | "verification_failed" | "system_error" | "verifying";
+type ModalState = "creating" | "qr" | "paid" | "error";
 
-export function QrisTopupModal({
+/**
+ * Automatic top-up modal — BuatQris dynamic QRIS.
+ *
+ * The QR is generated server-side via BuatQris (the secret token never
+ * reaches the browser). The frontend polls GET /topup/:id/status to
+ * reflect the DB status — the ACTUAL crediting is done by the BuatQris
+ * webhook on the backend, never by this modal.
+ */
+export function AutomaticTopupModal({
   open,
   amount,
   onClose,
@@ -21,16 +27,15 @@ export function QrisTopupModal({
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const createTopup = useCreateAutomaticTopup();
 
   const [state, setState] = useState<ModalState>("creating");
   const [topupId, setTopupId] = useState<string | null>(null);
+  const [orderId, setOrderId] = useState<string | null>(null);
   const [qrImage, setQrImage] = useState<string | null>(null);
   const [paymentLink, setPaymentLink] = useState<string | null>(null);
   const [serviceFee, setServiceFee] = useState<number>(0);
   const [totalAmount, setTotalAmount] = useState<number>(amount);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [confirmState, setConfirmState] = useState<ConfirmState>("idle");
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fmtRp = (n: number) => `Rp ${n.toLocaleString("id-ID")}`;
@@ -38,51 +43,67 @@ export function QrisTopupModal({
   const reset = useCallback(() => {
     setState("creating");
     setTopupId(null);
+    setOrderId(null);
     setQrImage(null);
     setPaymentLink(null);
     setServiceFee(0);
     setTotalAmount(amount);
     setErrorMsg(null);
-    setConfirmState("idle");
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
-  }, []);
+  }, [amount]);
 
   const handleClose = () => {
     reset();
     onClose();
   };
 
-  // ── Create QRIS payment when modal opens with an amount ─────────────────
+  // ── Create QRIS payment when modal opens ────────────────────────────────
   useEffect(() => {
     if (!open || !amount) return;
     let cancelled = false;
     setState("creating");
     setErrorMsg(null);
 
-    createTopup.mutateAsync({ data: { amount } })
-      .then((res: any) => {
+    (async () => {
+      try {
+        const token = getToken();
+        const res = await fetch("/api/topup/create", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ amount }),
+        });
+        const data = await res.json();
         if (cancelled) return;
-        setTopupId(res.id);
-        setQrImage(res.qrCodeUrl ?? null);
-        setPaymentLink(res.paymentLink ?? null);
-        setServiceFee(res.serviceFee ?? 0);
-        setTotalAmount(res.totalAmount ?? amount);
+        if (!res.ok) {
+          setErrorMsg(data?.error ?? "Gagal membuat QRIS.");
+          setState("error");
+          return;
+        }
+        setTopupId(data.id);
+        setOrderId(data.orderId ?? null);
+        setQrImage(data.qrCodeUrl ?? null);
+        setPaymentLink(data.paymentLink ?? null);
+        setServiceFee(data.serviceFee ?? 0);
+        setTotalAmount(data.totalAmount ?? amount);
         setState("qr");
-      })
-      .catch((err: any) => {
+      } catch (err: any) {
         if (cancelled) return;
         setErrorMsg(err?.message ?? "Gagal membuat QRIS.");
         setState("error");
-      });
+      }
+    })();
 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, amount]);
 
-  // ── Poll for payment status ──────────────────────────────────────────────
+  // ── Poll for payment status (read-only — reflects webhook result) ────────
   useEffect(() => {
     if (!topupId || state !== "qr") return;
     let active = true;
@@ -107,13 +128,26 @@ export function QrisTopupModal({
             title: "Top Up Berhasil!",
             description: `Saldo bertambah ${fmtRp(amount)}.`,
           });
+        } else if (data.status === "expired") {
+          setErrorMsg("QRIS telah kedaluwarsa. Silakan buat pembayaran baru.");
+          setState("error");
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+          }
+        } else if (data.status === "failed") {
+          setErrorMsg("Pembayaran gagal. Silakan coba lagi.");
+          setState("error");
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+          }
         }
       } catch {
         /* keep polling */
       }
     };
 
-    // Initial check after a short delay, then every 3s
     pollingRef.current = setInterval(poll, 3000);
 
     return () => {
@@ -125,124 +159,6 @@ export function QrisTopupModal({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topupId, state]);
-
-  // ── "Sudah Bayar" — user confirms they've paid; backend verifies ────────
-  // The backend polls TemanQRIS getOrder() for up to ~12s. Error responses
-  // are differentiated so the frontend shows the correct message instead of
-  // always saying "belum terdeteksi".
-  const handleConfirmPaid = useCallback(async () => {
-    if (!topupId || confirmState === "checking") return;
-    setConfirmState("checking");
-    try {
-      const token = getToken();
-      const res = await fetch(`/api/topup/${topupId}/confirm-paid`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (data.success && data.status === "paid") {
-        setConfirmState("paid");
-        setState("paid");
-        queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getListMyTopupsQueryKey() });
-        toast({
-          title: "Pembayaran Berhasil!",
-          description: `Saldo Rp ${fmtRp(data.amount ?? amount)} telah ditambahkan.`,
-        });
-      } else if (data.status === "awaiting_payment") {
-        // Distinguish "payment still pending" from "system/gateway error"
-        if (data.errorType === "system_error") {
-          setConfirmState("system_error");
-          toast({
-            title: "Terjadi kesalahan sistem",
-            description: "Silakan coba lagi.",
-            variant: "destructive",
-          });
-        } else {
-          // Payment not yet detected — the background job will keep checking.
-          setConfirmState("verifying");
-          toast({
-            title: "Pembayaran sedang diverifikasi",
-            description: "Jika kamu sudah membayar, sistem akan terus memproses pembayaran setelah transaksi terkonfirmasi.",
-          });
-        }
-      } else {
-        // verification_failed (400) or unexpected non-2xx
-        if (res.status === 401 || res.status === 403 || res.status === 404 || res.status >= 500) {
-          setConfirmState("system_error");
-          toast({
-            title: "Terjadi kesalahan sistem",
-            description: "Silakan coba lagi.",
-            variant: "destructive",
-          });
-        } else {
-          setConfirmState("verification_failed");
-          toast({
-            title: "Pembayaran gagal diverifikasi",
-            description: "Pastikan pembayaran dilakukan menggunakan QRIS yang ditampilkan. Saldo belum ditambahkan.",
-            variant: "destructive",
-          });
-        }
-      }
-    } catch {
-      // Network error — don't say "belum dibayar"
-      setConfirmState("system_error");
-      toast({
-        title: "Terjadi kesalahan sistem",
-        description: "Silakan coba lagi.",
-        variant: "destructive",
-      });
-    }
-  }, [topupId, confirmState, amount, queryClient, toast]);
-
-  // ── "Cek Lagi" — re-check payment status after "belum terdeteksi" ──────
-  const handleCheckAgain = useCallback(async () => {
-    if (!topupId || confirmState === "checking") return;
-    setConfirmState("checking");
-    try {
-      const token = getToken();
-      const res = await fetch(`/api/topup/${topupId}/status`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (data.paid || data.status === "paid" || data.status === "confirmed") {
-        setConfirmState("paid");
-        setState("paid");
-        queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getListMyTopupsQueryKey() });
-        toast({
-          title: "Pembayaran Berhasil!",
-          description: `Saldo Rp ${fmtRp(amount)} telah ditambahkan.`,
-        });
-      } else if (res.status >= 500 || res.status === 404) {
-        setConfirmState("system_error");
-        toast({
-          title: "Terjadi kesalahan sistem",
-          description: "Silakan coba lagi.",
-          variant: "destructive",
-        });
-      } else {
-        setConfirmState("verifying");
-        toast({
-          title: "Pembayaran sedang diverifikasi",
-          description: "Jika kamu sudah membayar, sistem akan terus memproses pembayaran setelah transaksi terkonfirmasi.",
-        });
-      }
-    } catch {
-      setConfirmState("system_error");
-      toast({
-        title: "Terjadi kesalahan sistem",
-        description: "Silakan coba lagi.",
-        variant: "destructive",
-      });
-    }
-  }, [topupId, confirmState, amount, queryClient, toast]);
 
   return (
     <AnimatePresence>
@@ -262,7 +178,7 @@ export function QrisTopupModal({
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-md overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl"
           >
-            {/* ── Header (purple) ─────────────────────────────────────────── */}
+            {/* ── Header ─────────────────────────────────────────────────── */}
             <div
               className="relative px-5 py-5 text-white"
               style={{ background: "linear-gradient(135deg, #7B4DFF 0%, #6D3DFF 100%)" }}
@@ -285,7 +201,7 @@ export function QrisTopupModal({
                 </div>
                 <div>
                   <h2 className="text-lg font-extrabold leading-tight">Bayar QRIS</h2>
-                  <p className="text-xs font-medium text-white/80">QRIS · konfirmasi otomatis</p>
+                  <p className="text-xs font-medium text-white/80">QRIS Otomatis · BuatQris</p>
                 </div>
               </div>
             </div>
@@ -343,7 +259,7 @@ export function QrisTopupModal({
               </div>
             )}
 
-            {(state === "qr" || state === "processing") && (
+            {state === "qr" && (
               <div className="px-6 py-6">
                 {/* Total */}
                 <p className="text-center text-xs font-bold uppercase tracking-wider text-slate-400">
@@ -373,6 +289,13 @@ export function QrisTopupModal({
                   </div>
                 )}
 
+                {/* Order ID */}
+                {orderId && (
+                  <p className="mt-3 text-center text-xs font-medium text-slate-400">
+                    Order ID: <span className="font-mono font-bold text-slate-600">{orderId}</span>
+                  </p>
+                )}
+
                 {/* QR code */}
                 <div className="mt-5 flex justify-center">
                   <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -393,7 +316,7 @@ export function QrisTopupModal({
                   </div>
                 </div>
 
-                {/* Bayar Sekarang button (opens hosted payment page) */}
+                {/* Bayar Sekarang button (opens payment page) */}
                 {paymentLink && (
                   <a
                     href={paymentLink}
@@ -407,93 +330,10 @@ export function QrisTopupModal({
                   </a>
                 )}
 
-                {/* Sudah Bayar button — triggers backend verification */}
-                <button
-                  onClick={handleConfirmPaid}
-                  disabled={confirmState === "checking"}
-                  className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border-2 text-sm font-extrabold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                  style={{
-                    borderColor: "#7B4DFF",
-                    color: "#7B4DFF",
-                    background: "#F5F2FF",
-                  }}
-                >
-                  {confirmState === "checking" ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Memeriksa Pembayaran...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="h-4 w-4" />
-                      Sudah Bayar
-                    </>
-                  )}
-                </button>
-
-                {/* Inline result notification for "Sudah Bayar" */}
-                {confirmState === "verifying" && (
-                  <div className="mt-3 flex items-start gap-2.5 rounded-2xl bg-amber-50 px-4 py-3">
-                    <Clock className="mt-0.5 h-4 w-4 shrink-0 animate-pulse text-amber-500" />
-                    <div className="text-xs font-medium leading-snug">
-                      <p className="font-bold text-amber-700">Pembayaran Sedang Diverifikasi</p>
-                      <p className="text-amber-600">Jika kamu sudah membayar, sistem akan terus memproses pembayaran setelah transaksi terkonfirmasi.</p>
-                    </div>
-                  </div>
-                )}
-                {confirmState === "system_error" && (
-                  <div className="mt-3 flex items-start gap-2.5 rounded-2xl bg-red-50 px-4 py-3">
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
-                    <div className="text-xs font-medium leading-snug">
-                      <p className="font-bold text-red-600">Terjadi Kesalahan Sistem</p>
-                      <p className="text-red-500">Silakan coba lagi. Saldo belum ditambahkan.</p>
-                    </div>
-                  </div>
-                )}
-                {confirmState === "verification_failed" && (
-                  <div className="mt-3 flex items-start gap-2.5 rounded-2xl bg-red-50 px-4 py-3">
-                    <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
-                    <div className="text-xs font-medium leading-snug">
-                      <p className="font-bold text-red-600">Pembayaran Gagal Diverifikasi</p>
-                      <p className="text-red-500">Pastikan pembayaran dilakukan menggunakan QRIS yang ditampilkan. Saldo belum ditambahkan.</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* "Cek Lagi" button — re-check payment after "belum terdeteksi" */}
-                {confirmState === "verifying" && (
-                  <button
-                    onClick={handleCheckAgain}
-                    className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-2xl border-2 text-sm font-bold transition active:scale-[0.98]"
-                    style={{
-                      borderColor: "#7B4DFF",
-                      color: "#7B4DFF",
-                      background: "#F5F2FF",
-                    }}
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    Cek Lagi
-                  </button>
-                )}
-                {confirmState === "system_error" && (
-                  <button
-                    onClick={handleConfirmPaid}
-                    className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-2xl border-2 text-sm font-bold transition active:scale-[0.98]"
-                    style={{
-                      borderColor: "#7B4DFF",
-                      color: "#7B4DFF",
-                      background: "#F5F2FF",
-                    }}
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    Coba Lagi
-                  </button>
-                )}
-
                 {/* Status indicator */}
                 <div className="mt-4 flex items-center justify-center gap-2 text-xs font-medium text-slate-400">
                   <Clock className="h-3.5 w-3.5 animate-pulse" />
-                  Menunggu pembayaran — konfirmasi otomatis setelah bayar
+                  Menunggu pembayaran QRIS — saldo masuk otomatis setelah bayar
                 </div>
 
                 {/* Footer info */}
@@ -502,7 +342,7 @@ export function QrisTopupModal({
                   <p className="text-xs font-medium leading-snug" style={{ color: "#4F2DAA" }}>
                     <span className="font-bold">Pembayaran otomatis.</span>{" "}
                     <span className="text-slate-500">
-                      Setelah pembayaran berhasil dikonfirmasi, saldo akan masuk otomatis. Tidak perlu upload bukti pembayaran.
+                      Setelah pembayaran berhasil dikonfirmasi via webhook, saldo akan masuk otomatis. Tidak perlu upload bukti pembayaran.
                     </span>
                   </p>
                 </div>

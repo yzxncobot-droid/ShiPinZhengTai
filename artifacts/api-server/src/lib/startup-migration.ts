@@ -183,7 +183,7 @@ export async function runBestEffortStartupMigration(): Promise<void> {
     // Keep this in the boot migration as well as lib/db/src/migrate.ts so an
     // imported project can start safely even when the standalone migration has
     // not been run yet.
-    await runStep(client, "topups automatic QRIS columns", `
+    await runStep(client, "topups payment columns", `
       ALTER TABLE topups ADD COLUMN IF NOT EXISTS transfer_amount double precision;
       ALTER TABLE topups ADD COLUMN IF NOT EXISTS amount_match_status text DEFAULT 'match';
       ALTER TABLE topups ADD COLUMN IF NOT EXISTS order_id text;
@@ -192,19 +192,26 @@ export async function runBestEffortStartupMigration(): Promise<void> {
       ALTER TABLE topups ADD COLUMN IF NOT EXISTS gateway_reference text;
       ALTER TABLE topups ADD COLUMN IF NOT EXISTS qr_code_url text;
       ALTER TABLE topups ADD COLUMN IF NOT EXISTS qris_string text;
-       ALTER TABLE topups ADD COLUMN IF NOT EXISTS payment_link text;
+      ALTER TABLE topups ADD COLUMN IF NOT EXISTS payment_link text;
       ALTER TABLE topups ADD COLUMN IF NOT EXISTS expired_at timestamptz;
       ALTER TABLE topups ADD COLUMN IF NOT EXISTS paid_at timestamptz;
+      ALTER TABLE topups ADD COLUMN IF NOT EXISTS provider text;
+      ALTER TABLE topups ADD COLUMN IF NOT EXISTS provider_transaction_id text;
+      ALTER TABLE topups ADD COLUMN IF NOT EXISTS provider_payload jsonb;
+      ALTER TABLE topups ADD COLUMN IF NOT EXISTS callback_received_at timestamptz;
+      ALTER TABLE topups ADD COLUMN IF NOT EXISTS description text;
     `);
-    await runStep(client, "topups automatic QRIS status/indexes", `
+    await runStep(client, "topups status/indexes", `
       DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'paid'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-       DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'awaiting_confirmation'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+      DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'awaiting_confirmation'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
       DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'expired'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
       DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'failed'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
       DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'cancelled'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+      DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'rejected'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
       CREATE UNIQUE INDEX IF NOT EXISTS topups_order_id_unique ON topups(order_id) WHERE order_id IS NOT NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS topups_gateway_reference_unique ON topups(gateway_reference) WHERE gateway_reference IS NOT NULL;
       CREATE INDEX IF NOT EXISTS topups_user_pending_idx ON topups(user_id, created_at DESC) WHERE status = 'pending';
+      CREATE INDEX IF NOT EXISTS topups_provider_tx_id_idx ON topups(provider_transaction_id) WHERE provider_transaction_id IS NOT NULL;
     `);
 
     // ── 4. notifications table columns ──────────────────────────────────────

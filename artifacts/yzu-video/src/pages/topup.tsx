@@ -5,7 +5,7 @@ import { ProtectedRoute } from "@/lib/protected-route";
 import { useAuth } from "@/lib/auth";
 import { useListMyTopups } from "@workspace/api-client-react";
 import { Sparkles, Pencil, Star, Heart, ChevronRight, Wallet } from "lucide-react";
-import { QrisTopupModal } from "@/components/topup/QrisTopupModal";
+import { AutomaticTopupModal } from "@/components/topup/AutomaticTopupModal";
 import { TopupMethodModal, type TopupMethod } from "@/components/topup/TopupMethodModal";
 import { ManualTopupModal } from "@/components/topup/ManualTopupModal";
 
@@ -217,7 +217,7 @@ export default function TopupPage() {
         />
 
         {/* ── Automatic QRIS payment modal ──────────────────────────────── */}
-        <QrisTopupModal
+        <AutomaticTopupModal
           open={qrisModalOpen}
           amount={methodAmount}
           onClose={() => setQrisModalOpen(false)}
