@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Loader2, ImageIcon, ExternalLink, CheckCircle2, Clock, AlertCircle, XCircle } from "lucide-react";
+import { X, Loader2, ImageIcon, ExternalLink, CheckCircle2, Clock, AlertCircle, XCircle, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCreateAutomaticTopup } from "@workspace/api-client-react";
 import { getGetMeQueryKey, getListMyTopupsQueryKey } from "@workspace/api-client-react";
@@ -8,7 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getToken } from "@/lib/admin-api";
 
 type ModalState = "creating" | "qr" | "processing" | "paid" | "error";
-type ConfirmState = "idle" | "checking" | "paid" | "awaiting_payment" | "verification_failed" | "system_error";
+type ConfirmState = "idle" | "checking" | "paid" | "awaiting_payment" | "verification_failed" | "system_error" | "verifying";
 
 export function QrisTopupModal({
   open,
@@ -158,11 +158,11 @@ export function QrisTopupModal({
             variant: "destructive",
           });
         } else {
-          setConfirmState("awaiting_payment");
+          // Payment not yet detected — the background job will keep checking.
+          setConfirmState("verifying");
           toast({
-            title: "Pembayaran belum terdeteksi",
-            description: "Pastikan pembayaran QRIS sudah berhasil. Saldo belum ditambahkan.",
-            variant: "destructive",
+            title: "Pembayaran sedang diverifikasi",
+            description: "Jika kamu sudah membayar, sistem akan terus memproses pembayaran setelah transaksi terkonfirmasi.",
           });
         }
       } else {
@@ -222,11 +222,10 @@ export function QrisTopupModal({
           variant: "destructive",
         });
       } else {
-        setConfirmState("awaiting_payment");
+        setConfirmState("verifying");
         toast({
-          title: "Pembayaran belum terdeteksi",
-          description: "Pastikan pembayaran QRIS sudah berhasil. Saldo belum ditambahkan.",
-          variant: "destructive",
+          title: "Pembayaran sedang diverifikasi",
+          description: "Jika kamu sudah membayar, sistem akan terus memproses pembayaran setelah transaksi terkonfirmasi.",
         });
       }
     } catch {
@@ -407,12 +406,12 @@ export function QrisTopupModal({
                 </button>
 
                 {/* Inline result notification for "Sudah Bayar" */}
-                {confirmState === "awaiting_payment" && (
+                {confirmState === "verifying" && (
                   <div className="mt-3 flex items-start gap-2.5 rounded-2xl bg-amber-50 px-4 py-3">
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                    <Clock className="mt-0.5 h-4 w-4 shrink-0 animate-pulse text-amber-500" />
                     <div className="text-xs font-medium leading-snug">
-                      <p className="font-bold text-amber-700">Pembayaran Belum Terdeteksi</p>
-                      <p className="text-amber-600">Pastikan pembayaran QRIS sudah berhasil. Saldo belum ditambahkan.</p>
+                      <p className="font-bold text-amber-700">Pembayaran Sedang Diverifikasi</p>
+                      <p className="text-amber-600">Jika kamu sudah membayar, sistem akan terus memproses pembayaran setelah transaksi terkonfirmasi.</p>
                     </div>
                   </div>
                 )}
@@ -436,7 +435,7 @@ export function QrisTopupModal({
                 )}
 
                 {/* "Cek Lagi" button — re-check payment after "belum terdeteksi" */}
-                {confirmState === "awaiting_payment" && (
+                {confirmState === "verifying" && (
                   <button
                     onClick={handleCheckAgain}
                     className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-2xl border-2 text-sm font-bold transition active:scale-[0.98]"

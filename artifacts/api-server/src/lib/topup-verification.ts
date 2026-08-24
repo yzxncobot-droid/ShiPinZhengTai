@@ -38,12 +38,18 @@ function isPaidStatus(status: string): boolean {
   return status === "paid" || status === "confirmed";
 }
 
-/** Polling configuration for the "Sudah Bayar" verification flow. */
+/**
+ * Polling schedule for the "Sudah Bayar" verification flow.
+ * Absolute seconds from the start of verification — matches the spec:
+ * 0, 2, 4, 6, 8, 10, 15, 20, 30, 60.
+ * Stops after the last attempt; never polls forever.
+ */
+export const POLL_SCHEDULE_SECONDS = [0, 2, 4, 6, 8, 10, 15, 20, 30, 60];
+
+/** Backward-compatible alias for tests that reference POLL_CONFIG. */
 export const POLL_CONFIG = {
-  /** Delay between polling attempts (ms). */
   intervalMs: 2000,
-  /** Number of getOrder() attempts before giving up. */
-  attempts: 6,
+  attempts: POLL_SCHEDULE_SECONDS.length,
 };
 
 const CONFIRMED_STATUSES = ["paid", "success", "confirmed", "completed", "settled"];
@@ -173,6 +179,10 @@ export async function creditVerifiedTopup(
       referenceId: topupId,
     });
 
+    logger.info(
+      { topupId, userId: topup.user_id, amount, gatewayReference, newBalance: after },
+      "[TQ-AUTO] creditVerifiedTopup — credit success",
+    );
     return { status: "paid", newBalance: after };
   });
 }
@@ -199,12 +209,136 @@ export async function finalizeVerifiedTopup(
   ) {
     logger.error(
       { orderId, topupId: topup.id, localAmount: topup.amount, gatewayAmount },
-      "[TQ] Amount mismatch (finalize) — NOT crediting",
+      "[TQ-AUTO] amount mismatch (finalize) — NOT crediting",
     );
     return { status: "amount_mismatch" };
   }
 
   return creditVerifiedTopup(topup.id, orderId);
+}
+
+/**
+ * verifyIncomingPayment(topupId) — the core payment-verification service.
+ *
+ * Reads EVERYTHING from the database (order_id, expected amount, userId,
+ * gateway/merchant) — never trusts frontend data. Queries TemanQRIS via the
+ * read-only `getOrder()` to check whether the payment has actually been
+ * received. Returns a structured result describing whether proof of payment
+ * was found.
+ *
+ * API CAPABILITY NOTE (point 18 of the spec):
+ * TemanQRIS does NOT expose a separate incoming-transaction / mutation /
+ * settlement API. The only available proof of payment is:
+ *   1. `getOrder()` reporting a paid/confirmed status, AND
+ *   2. The signed `payment.confirmed` webhook.
+ * No endpoint is fabricated. `verifyOrder()` (POST /orders/:id/verify) is
+ * NOT called here because `awaiting_confirmation` is NOT proof of payment —
+ * it only means the customer pressed "Sudah Bayar". Calling `verifyOrder()`
+ * on that basis was the root cause of the free-saldo bug.
+ *
+ * When `getOrder()` reports "paid", that IS the proof — the QRIS settlement
+ * was detected by TemanQRIS. The caller credits via `creditVerifiedTopup()`.
+ */
+export async function verifyIncomingPayment(
+  topupId: string,
+): Promise<{
+  /** true only when TemanQRIS reports a confirmed payment that matches. */
+  found: boolean;
+  status: "paid" | "awaiting_confirmation" | "not_found" | "gateway_error" | "expired";
+  /** The gateway order_id that was verified (matches the DB order_id). */
+  orderId?: string;
+  /** The gateway-reported amount (matches the DB amount). */
+  amount?: number;
+  message?: string;
+}> {
+  // ── 1. Ambil topup dari database ──────────────────────────────────────
+  const [topup] = await db.select().from(topupsTable)
+    .where(eq(topupsTable.id, topupId)).limit(1);
+  if (!topup) {
+    logger.warn({ topupId }, "[TQ-AUTO] verifyIncomingPayment: topup not found");
+    return { found: false, status: "not_found", message: "Topup not found" };
+  }
+
+  // ── 2. Ambil order_id dari database ───────────────────────────────────
+  if (!topup.orderId) {
+    logger.warn({ topupId }, "[TQ-AUTO] verifyIncomingPayment: no order_id");
+    return { found: false, status: "not_found", message: "No order_id" };
+  }
+
+  // ── 3. Ambil expected amount dari database ─────────────────────────────
+  const expectedAmount = Number(topup.amount);
+  if (!Number.isFinite(expectedAmount) || expectedAmount <= 0) {
+    logger.warn({ topupId, amount: topup.amount }, "[TQ-AUTO] verifyIncomingPayment: invalid amount");
+    return { found: false, status: "not_found", message: "Invalid amount" };
+  }
+
+  // ── 4. Check expiry ────────────────────────────────────────────────────
+  if (topup.expiredAt && new Date(topup.expiredAt).getTime() <= Date.now()) {
+    logger.info({ topupId, orderId: topup.orderId }, "[TQ-AUTO] verifyIncomingPayment: topup expired");
+    return { found: false, status: "expired", message: "Topup expired" };
+  }
+
+  // ── 5. Already paid — idempotent success ──────────────────────────────
+  if (isPaidStatus(String(topup.status))) {
+    return { found: true, status: "paid", orderId: topup.orderId, amount: expectedAmount };
+  }
+
+  // ── 6. Terminal non-pending states — cannot verify ─────────────────────
+  if (["expired", "failed", "cancelled", "denied"].includes(String(topup.status))) {
+    return { found: false, status: "expired", message: `Topup is ${topup.status}` };
+  }
+
+  // ── 7. Gateway not configured — cannot verify ─────────────────────────
+  if (getGatewayState() !== "CONNECTED") {
+    logger.warn({ topupId }, "[TQ-AUTO] verifyIncomingPayment: gateway not configured");
+    return { found: false, status: "gateway_error", message: "Gateway not configured" };
+  }
+
+  // ── 8. Cari transaksi pembayaran masuk via getOrder() ──────────────────
+  logger.info({ topupId, orderId: topup.orderId, expectedAmount }, "[TQ-AUTO] checking incoming payment");
+  try {
+    const order = await getOrder(String(topup.orderId));
+
+    // ── 8a. Cocokkan order_id ───────────────────────────────────────────
+    if (order.orderId !== topup.orderId) {
+      logger.warn(
+        { topupId, localOrderId: topup.orderId, gatewayOrderId: order.orderId },
+        "[TQ-AUTO] order mismatch — rejecting",
+      );
+      return { found: false, status: "not_found", message: "Order ID mismatch" };
+    }
+
+    // ── 8b. Cocokkan amount ─────────────────────────────────────────────
+    if (order.amount != null && Number.isFinite(order.amount) && order.amount !== expectedAmount) {
+      logger.warn(
+        { topupId, localAmount: expectedAmount, gatewayAmount: order.amount },
+        "[TQ-AUTO] amount mismatch — rejecting",
+      );
+      return { found: false, status: "not_found", message: "Amount mismatch" };
+    }
+
+    // ── 8c. Check payment status ─────────────────────────────────────────
+    if (CONFIRMED_STATUSES.includes(order.status)) {
+      logger.info(
+        { topupId, orderId: order.orderId, amount: order.amount },
+        "[TQ-AUTO] transaction found — payment confirmed",
+      );
+      return { found: true, status: "paid", orderId: order.orderId, amount: order.amount ?? expectedAmount };
+    }
+
+    // awaiting_confirmation or pending — payment not yet confirmed
+    logger.info(
+      { topupId, orderId: topup.orderId, gatewayStatus: order.status },
+      "[TQ-AUTO] transaction not yet confirmed (status: {status})",
+    );
+    return { found: false, status: "awaiting_confirmation", orderId: topup.orderId, message: `Gateway status: ${order.status}` };
+  } catch (err) {
+    logger.warn(
+      { topupId, orderId: topup.orderId, err: (err as any)?.message },
+      "[TQ-AUTO] getOrder failed during incoming payment check",
+    );
+    return { found: false, status: "gateway_error", message: (err as any)?.message ?? "Gateway error" };
+  }
 }
 
 /**
@@ -253,7 +387,7 @@ export async function verifyAndCreditTopup(
   if (topup.userId !== authenticatedUserId) {
     logger.warn(
       { topupId, topupUserId: topup.userId, requesterId: authenticatedUserId },
-      "[TQ] confirm-paid: user mismatch — NOT crediting",
+      "[TQ-AUTO] user mismatch — NOT crediting",
     );
     return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
   }
@@ -289,70 +423,67 @@ export async function verifyAndCreditTopup(
   // ── 7. Trigger customer confirmation on TemanQRIS ──────────────────────
   // Tell TemanQRIS the customer pressed "Sudah Bayar". This marks the order
   // as awaiting_confirmation on their side — it is NOT proof of payment.
+  logger.info({ topupId, userId: authenticatedUserId }, "[TQ-AUTO] customer confirmation");
   const linkCode = extractLinkCode(topup.paymentLink);
   if (linkCode) {
     try {
       await confirmCustomerPayment(linkCode);
-      logger.info({ topupId, linkCode }, "[TQ] confirmCustomerPayment triggered");
+      logger.info({ topupId, linkCode }, "[TQ-AUTO] confirmCustomerPayment triggered");
     } catch (err) {
-      logger.warn({ topupId, err: (err as any)?.message }, "[TQ] confirmCustomerPayment failed — continuing to poll");
+      logger.warn({ topupId, err: (err as any)?.message }, "[TQ-AUTO] confirmCustomerPayment failed — continuing to poll");
     }
   }
 
-  // ── 8. Poll getOrder() for actual payment confirmation ─────────────────
-  // Check every POLL_CONFIG.intervalMs for up to POLL_CONFIG.attempts times.
-  // This gives TemanQRIS time to detect and confirm the QRIS payment. Only
-  // a paid/confirmed status with matching order_id + amount triggers credit.
+  // ── 8. Poll verifyIncomingPayment() on the spec schedule ──────────────
+  // Schedule (absolute seconds): 0, 2, 4, 6, 8, 10, 15, 20, 30, 60.
+  // Stops after the last attempt — never polls forever. Only a confirmed
+  // payment with matching order_id + amount triggers credit.
   // awaiting_confirmation is NEVER treated as paid.
   let hadGatewayError = false;
+  let prevSecond = 0;
 
-  for (let attempt = 0; attempt < POLL_CONFIG.attempts; attempt++) {
-    if (attempt > 0) await sleep(POLL_CONFIG.intervalMs);
-    try {
-      const order = await getOrder(String(topup.orderId));
-      const confirmed = CONFIRMED_STATUSES.includes(order.status);
+  for (let attempt = 0; attempt < POLL_SCHEDULE_SECONDS.length; attempt++) {
+    const delayMs = Math.max(0, (POLL_SCHEDULE_SECONDS[attempt] - prevSecond) * 1000);
+    if (attempt > 0) await sleep(delayMs);
+    prevSecond = POLL_SCHEDULE_SECONDS[attempt];
 
-      if (!confirmed) continue; // still pending/awaiting — keep polling
+    const result = await verifyIncomingPayment(topupId);
 
-      // ── 8a. Validate order_id match ──────────────────────────────────
-      if (order.orderId !== topup.orderId) {
-        logger.error(
-          { topupId, localOrderId: topup.orderId, gatewayOrderId: order.orderId },
-          "[TQ] confirm-paid: order_id mismatch — NOT crediting",
-        );
-        return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
-      }
-
-      // ── 8b. Validate amount match ─────────────────────────────────────
-      if (order.amount != null && Number.isFinite(order.amount) && order.amount !== Number(topup.amount)) {
-        logger.error(
-          { topupId, localAmount: topup.amount, gatewayAmount: order.amount },
-          "[TQ] confirm-paid: amount mismatch — NOT crediting",
-        );
-        return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
-      }
-
-      // ── 8c. All validations passed — credit via the single credit path
-      const result = await creditVerifiedTopup(topupId, String(topup.orderId));
-
-      if (result.status === "paid") {
-        await invalidateUserCache(topup.userId).catch(() => {});
-        await invalidateCache(keys.analytics("overview")).catch(() => {});
-        return { success: true, status: "paid", message: "Pembayaran berhasil diverifikasi.", amount: Number(topup.amount), newBalance: result.newBalance };
-      }
-      if (result.status === "already_processed") {
-        return { success: true, status: "paid", message: "Pembayaran berhasil diverifikasi.", amount: Number(topup.amount) };
-      }
-
-      // creditVerifiedTopup returned a non-credit state — don't claim success
-      return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
-    } catch (err) {
+    if (result.status === "gateway_error") {
       hadGatewayError = true;
-      logger.warn({ topupId, attempt, err: (err as any)?.message }, "[TQ] confirm-paid: getOrder failed during poll");
+      continue;
     }
+    if (result.status === "expired" || result.status === "not_found") {
+      // expired = topup expired/terminal; not_found = order_id or amount
+      // mismatch — both are permanent failures, not "keep polling".
+      return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
+    }
+    if (!result.found || result.status !== "paid") {
+      continue; // still awaiting_confirmation — keep polling
+    }
+
+    // ── 8a. Payment proven — credit via the single credit path ─────────
+    logger.info({ topupId, orderId: result.orderId }, "[TQ-AUTO] TemanQRIS verification started");
+    const creditResult = await creditVerifiedTopup(topupId, String(result.orderId));
+
+    if (creditResult.status === "paid") {
+      logger.info({ topupId, orderId: result.orderId }, "[TQ-AUTO] credit success");
+      await invalidateUserCache(topup.userId).catch(() => {});
+      await invalidateCache(keys.analytics("overview")).catch(() => {});
+      return { success: true, status: "paid", message: "Pembayaran berhasil diverifikasi.", amount: Number(topup.amount), newBalance: creditResult.newBalance };
+    }
+    if (creditResult.status === "already_processed") {
+      logger.info({ topupId, orderId: result.orderId }, "[TQ-AUTO] credit success (already processed)");
+      return { success: true, status: "paid", message: "Pembayaran berhasil diverifikasi.", amount: Number(topup.amount) };
+    }
+
+    // creditVerifiedTopup returned a non-credit state — don't claim success
+    return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
   }
 
   // ── 9. Still not confirmed after all polling attempts ───────────────────
+  // The background job will continue checking after this request ends, so
+  // the process is NOT lost when the user closes the browser.
   if (hadGatewayError) {
     return {
       success: false,
@@ -364,7 +495,7 @@ export async function verifyAndCreditTopup(
   return {
     success: false,
     status: "awaiting_payment",
-    message: "Pembayaran belum terdeteksi. Pastikan pembayaran QRIS sudah berhasil.",
+    message: "Pembayaran belum terdeteksi. Jika kamu sudah membayar, sistem akan terus memproses pembayaran setelah transaksi terkonfirmasi.",
     errorType: "pending",
   };
 }
@@ -398,7 +529,7 @@ export async function linkPendingWidgetTopup(
 
   logger.info(
     { topupId: pendingTopup.id, orderId, userId, amount },
-    "[TQ] webhook linked pending topup with order_id",
+    "[TQ-AUTO] webhook linked pending topup with order_id",
   );
   return pendingTopup.id;
 }

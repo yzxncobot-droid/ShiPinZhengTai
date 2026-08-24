@@ -5,6 +5,7 @@ import {
   runBestEffortStartupMigration,
 } from "./lib/startup-migration";
 import { ensureStorageBuckets } from "./lib/storage/setup";
+import { startTopupBackgroundVerification } from "./lib/topup-background";
 
 const rawPort = process.env["PORT"];
 

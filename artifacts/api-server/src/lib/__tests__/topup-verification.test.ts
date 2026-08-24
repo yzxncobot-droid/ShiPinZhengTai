@@ -84,7 +84,7 @@ vi.mock("../temanqris", () => ({
 }));
 
 /* ── Import AFTER mocks are registered ──────────────────────────────────── */
-import { verifyAndCreditTopup, creditVerifiedTopup, POLL_CONFIG } from "../topup-verification";
+import { verifyAndCreditTopup, creditVerifiedTopup, POLL_CONFIG, POLL_SCHEDULE_SECONDS } from "../topup-verification";
 import { db } from "@workspace/db";
 import { getOrder, confirmCustomerPayment } from "../temanqris";
 
@@ -130,6 +130,8 @@ beforeEach(() => {
 
   // Speed up tests: no real delays between poll attempts
   POLL_CONFIG.intervalMs = 0;
+  // Zero out the polling schedule so tests don't wait 60s
+  for (let i = 0; i < POLL_SCHEDULE_SECONDS.length; i++) POLL_SCHEDULE_SECONDS[i] = 0;
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
