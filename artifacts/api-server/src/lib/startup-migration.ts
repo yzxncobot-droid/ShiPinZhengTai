@@ -272,6 +272,17 @@ export async function runBestEffortStartupMigration(): Promise<void> {
     await runStep(client, "users.custom_role_id index", `
       CREATE INDEX IF NOT EXISTS users_custom_role_id_idx ON users(custom_role_id);
     `);
+
+    // ── 6. Automatic top-up fee config columns on settings ───────────────────
+    await runStep(client, "settings automatic fee columns", `
+      ALTER TABLE settings ADD COLUMN IF NOT EXISTS automatic_fee_type text DEFAULT 'percentage';
+      ALTER TABLE settings ADD COLUMN IF NOT EXISTS automatic_fee_rate double precision DEFAULT 0;
+    `);
+
+    // ── 7. awaiting_manual_review status for manual top-ups ──────────────────
+    await runStep(client, "topup_status: add 'awaiting_manual_review'", `
+      DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'awaiting_manual_review'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    `);
   } finally {
     client.release();
   }

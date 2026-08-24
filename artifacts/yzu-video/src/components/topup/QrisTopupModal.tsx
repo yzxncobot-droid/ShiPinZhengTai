@@ -27,6 +27,8 @@ export function QrisTopupModal({
   const [topupId, setTopupId] = useState<string | null>(null);
   const [qrImage, setQrImage] = useState<string | null>(null);
   const [paymentLink, setPaymentLink] = useState<string | null>(null);
+  const [serviceFee, setServiceFee] = useState<number>(0);
+  const [totalAmount, setTotalAmount] = useState<number>(amount);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [confirmState, setConfirmState] = useState<ConfirmState>("idle");
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -38,6 +40,8 @@ export function QrisTopupModal({
     setTopupId(null);
     setQrImage(null);
     setPaymentLink(null);
+    setServiceFee(0);
+    setTotalAmount(amount);
     setErrorMsg(null);
     setConfirmState("idle");
     if (pollingRef.current) {
@@ -64,6 +68,8 @@ export function QrisTopupModal({
         setTopupId(res.id);
         setQrImage(res.qrCodeUrl ?? null);
         setPaymentLink(res.paymentLink ?? null);
+        setServiceFee(res.serviceFee ?? 0);
+        setTotalAmount(res.totalAmount ?? amount);
         setState("qr");
       })
       .catch((err: any) => {
@@ -344,8 +350,28 @@ export function QrisTopupModal({
                   TOTAL BAYAR
                 </p>
                 <p className="mt-1 text-center text-3xl font-extrabold" style={{ color: "#4F2DAA" }}>
-                  {fmtRp(amount)}
+                  {fmtRp(totalAmount)}
                 </p>
+
+                {/* Fee breakdown */}
+                {serviceFee > 0 && (
+                  <div className="mt-3 rounded-xl bg-slate-50 p-3">
+                    <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+                      <span>Top Up</span>
+                      <span className="font-bold text-slate-700">{fmtRp(amount)}</span>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between text-xs font-medium text-slate-500">
+                      <span>Biaya layanan</span>
+                      <span className="font-bold text-amber-600">{fmtRp(serviceFee)}</span>
+                    </div>
+                    <div className="mt-2 border-t border-slate-200 pt-2">
+                      <div className="flex items-center justify-between text-xs font-bold">
+                        <span style={{ color: "#263238" }}>Total pembayaran</span>
+                        <span style={{ color: "#4F2DAA" }}>{fmtRp(totalAmount)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* QR code */}
                 <div className="mt-5 flex justify-center">

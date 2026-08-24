@@ -106,7 +106,7 @@ export async function creditVerifiedTopup(
     // been credited yet, so a valid payment.confirmed webhook (or getOrder()
     // reporting paid) can still credit it. All other non-pending states
     // (expired, cancelled, failed, denied) are terminal and must NOT credit.
-    if (String(topup.status) !== "pending" && String(topup.status) !== "awaiting_confirmation") return { status: String(topup.status) };
+    if (String(topup.status) !== "pending" && String(topup.status) !== "awaiting_confirmation" && String(topup.status) !== "awaiting_manual_review") return { status: String(topup.status) };
 
     const duplicate = await tx.select({ id: walletTransactionsTable.id })
       .from(walletTransactionsTable)

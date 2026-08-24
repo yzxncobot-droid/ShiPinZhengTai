@@ -22,6 +22,7 @@ const SETTINGS_FIELDS = [
   "whatsappLink", "telegramLink", "discordLink", "instagramLink", "facebookLink",
   "youtubeLink", "tiktokLink", "chatLogo", "faq", "footerText",
   "metaTitle", "googleAnalyticsId", "googleSearchConsoleId",
+  "automaticFeeType", "automaticFeeRate",
 ] as const;
 
 router.patch("/settings", authenticate, requireRole("admin", "owner"), async (req, res) => {

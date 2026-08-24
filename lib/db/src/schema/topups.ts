@@ -7,7 +7,7 @@ import { usersTable } from "./users";
 import { paymentProofsTable } from "./payment-proofs";
 
 export const topupStatusEnum = pgEnum("topup_status", [
-  "pending", "awaiting_confirmation", "confirmed", "paid", "denied", "expired", "failed", "cancelled",
+  "pending", "awaiting_confirmation", "awaiting_manual_review", "confirmed", "paid", "denied", "expired", "failed", "cancelled",
 ]);
 
 /**
