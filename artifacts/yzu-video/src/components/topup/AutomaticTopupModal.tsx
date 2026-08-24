@@ -70,7 +70,7 @@ export function AutomaticTopupModal({
     (async () => {
       try {
         const token = getToken();
-        const res = await fetch("/api/topup/create", {
+        const res = await fetch("/api/payments/buatqris/create", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -81,7 +81,13 @@ export function AutomaticTopupModal({
         const data = await res.json();
         if (cancelled) return;
         if (!res.ok) {
-          setErrorMsg(data?.error ?? "Gagal membuat QRIS.");
+          // Backend returns { success:false, error:{ code, message } }.
+          // Accept both the normalized object and a legacy string error.
+          const err = data?.error;
+          const msg = typeof err === "string"
+            ? err
+            : err?.message ?? "QRIS belum dapat dibuat. Silakan coba lagi.";
+          setErrorMsg(msg);
           setState("error");
           return;
         }
@@ -221,15 +227,23 @@ export function AutomaticTopupModal({
                 </div>
                 <h3 className="mt-4 text-lg font-extrabold text-slate-700">Gagal membuat QRIS</h3>
                 <p className="mt-2 max-w-xs text-sm font-medium text-slate-400">
-                  {errorMsg ?? "Gateway QRIS belum dikonfigurasi. Hubungi admin."}
+                  {errorMsg ?? "QRIS belum dapat dibuat. Silakan coba lagi."}
                 </p>
-                <button
-                  onClick={handleClose}
-                  className="mt-6 h-12 w-full rounded-2xl text-sm font-extrabold text-white transition hover:opacity-90"
-                  style={{ background: "linear-gradient(135deg, #7B4DFF 0%, #6D3DFF 100%)" }}
-                >
-                  Tutup
-                </button>
+                <div className="mt-6 flex w-full gap-3">
+                  <button
+                    onClick={retry}
+                    className="h-12 flex-1 rounded-2xl text-sm font-extrabold text-white transition hover:opacity-90"
+                    style={{ background: "linear-gradient(135deg, #7B4DFF 0%, #6D3DFF 100%)" }}
+                  >
+                    Coba Lagi
+                  </button>
+                  <button
+                    onClick={handleClose}
+                    className="h-12 flex-1 rounded-2xl border border-slate-200 text-sm font-extrabold text-slate-600 transition hover:bg-slate-50"
+                  >
+                    Tutup
+                  </button>
+                </div>
               </div>
             )}
 
