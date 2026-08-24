@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, timestamp, doublePrecision } from "drizzle-orm/pg-core";
 
 export const settingsTable = pgTable("settings", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -34,6 +34,13 @@ export const settingsTable = pgTable("settings", {
   maintenanceCountdown:   boolean("maintenance_countdown").notNull().default(false),
   maintenanceUpdatedAt:   timestamp("maintenance_updated_at"),
   maintenanceUpdatedBy:   uuid("maintenance_updated_by"),
+
+  // ── Automatic Top-Up Fee Configuration ──────────────────────────────────────
+  // Fee applied to automatic QRIS top-ups. `percentage` = rate% of amount,
+  // `fixed` = flat rate in rupiah. Displayed transparently to the user before
+  // payment. Manual top-ups always have zero fee.
+  automaticFeeType: text("automatic_fee_type").default("percentage"), // 'percentage' | 'fixed'
+  automaticFeeRate: doublePrecision("automatic_fee_rate").default(0),
 });
 
 export type Settings = typeof settingsTable.$inferSelect;

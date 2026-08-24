@@ -6,6 +6,8 @@ import { useAuth } from "@/lib/auth";
 import { useListMyTopups } from "@workspace/api-client-react";
 import { Sparkles, Pencil, Star, Heart, ChevronRight, Wallet } from "lucide-react";
 import { QrisTopupModal } from "@/components/topup/QrisTopupModal";
+import { TopupMethodModal, type TopupMethod } from "@/components/topup/TopupMethodModal";
+import { ManualTopupModal } from "@/components/topup/ManualTopupModal";
 
 const MIN_TOPUP = 100;
 
@@ -40,28 +42,39 @@ export default function TopupPage() {
 
   const [selected, setSelected] = useState<number | null>(null);
   const [custom, setCustom] = useState<string>("");
-  const [modalAmount, setModalAmount] = useState<number>(0);
-  const [modalOpen, setModalOpen] = useState(false);
+  const [methodModalOpen, setMethodModalOpen] = useState(false);
+  const [methodAmount, setMethodAmount] = useState<number>(0);
+  const [qrisModalOpen, setQrisModalOpen] = useState(false);
+  const [manualModalOpen, setManualModalOpen] = useState(false);
 
   const balance = user?.walletBalance ?? 0;
   const recentCount = topupsData?.total ?? 0;
 
-  const openModal = (amount: number) => {
-    setModalAmount(amount);
-    setModalOpen(true);
+  const openMethodModal = (amount: number) => {
+    setMethodAmount(amount);
+    setMethodModalOpen(true);
   };
 
   const handlePreset = (amount: number) => {
     setSelected(amount);
     setCustom("");
-    openModal(amount);
+    openMethodModal(amount);
   };
 
   const handleCustomTopup = () => {
     const amount = Number(custom);
     if (!Number.isInteger(amount) || amount < MIN_TOPUP) return;
     setSelected(null);
-    openModal(amount);
+    openMethodModal(amount);
+  };
+
+  const handleMethodSelect = (method: TopupMethod) => {
+    setMethodModalOpen(false);
+    if (method === "automatic") {
+      setQrisModalOpen(true);
+    } else {
+      setManualModalOpen(true);
+    }
   };
 
   return (
@@ -195,11 +208,26 @@ export default function TopupPage() {
           </div>
         </div>
 
-        {/* ── QRIS payment modal ─────────────────────────────────────────── */}
+        {/* ── Method selection modal ────────────────────────────────────── */}
+        <TopupMethodModal
+          open={methodModalOpen}
+          amount={methodAmount}
+          onClose={() => setMethodModalOpen(false)}
+          onSelect={handleMethodSelect}
+        />
+
+        {/* ── Automatic QRIS payment modal ──────────────────────────────── */}
         <QrisTopupModal
-          open={modalOpen}
-          amount={modalAmount}
-          onClose={() => setModalOpen(false)}
+          open={qrisModalOpen}
+          amount={methodAmount}
+          onClose={() => setQrisModalOpen(false)}
+        />
+
+        {/* ── Manual QRIS payment modal ─────────────────────────────────── */}
+        <ManualTopupModal
+          open={manualModalOpen}
+          amount={methodAmount}
+          onClose={() => setManualModalOpen(false)}
         />
       </AppLayout>
     </ProtectedRoute>

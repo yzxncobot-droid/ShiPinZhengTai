@@ -4,6 +4,7 @@ import { db } from "@workspace/db";
 import {
   topupsTable, usersTable,
   notificationsTable, paymentProofsTable,
+  settingsTable,
 } from "@workspace/db";
 import { eq, and, desc, count } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
@@ -21,6 +22,27 @@ import {
   verifyAndCreditTopup,
 } from "../lib/topup-verification";
 
+// ── Fee config helpers ──────────────────────────────────────────────────────
+/** Read the automatic top-up fee config from the settings table. */
+async function getFeeConfig(): Promise<{ type: string; rate: number }> {
+  const [s] = await db.select({
+    type: settingsTable.automaticFeeType,
+    rate: settingsTable.automaticFeeRate,
+  }).from(settingsTable).limit(1);
+  return {
+    type: s?.type ?? "percentage",
+    rate: Number(s?.rate ?? 0),
+  };
+}
+
+/** Compute the fee for a given amount based on the configured fee type/rate. */
+function computeFee(amount: number, feeType: string, feeRate: number): number {
+  if (!feeRate || feeRate <= 0) return 0;
+  if (feeType === "fixed") return Math.round(feeRate);
+  // percentage
+  return Math.round((amount * feeRate) / 100);
+}
+
 const router = Router();
 
 const MIN_TOPUP = 100;
@@ -36,6 +58,84 @@ function parseTopupAmount(value: unknown): number | null {
 function isPaidStatus(status: string): boolean {
   return status === "paid" || status === "confirmed";
 }
+
+// ── GET /topup/fee-config — returns the automatic fee config from settings ──
+// Public endpoint so the frontend can display the fee transparently before
+// the user chooses a payment method. The fee is NEVER hardcoded in the frontend.
+router.get("/topup/fee-config", async (_req, res) => {
+  const fee = await getFeeConfig();
+  res.json({
+    automaticFeeType: fee.type,
+    automaticFeeRate: fee.rate,
+  });
+});
+
+// ── POST /topup/manual — create a manual top-up (no QRIS generation) ────────
+// Creates a pending top-up for the manual flow. The user scans a static QRIS
+// image (from settings), pays, then presses "Saya Sudah Bayar" which calls
+// POST /topup/:id/mark-paid to set status to awaiting_manual_review. The admin
+// then reviews and confirms/denies. No proof is required at creation time.
+router.post("/topup/manual", authenticate, qrisRateLimit, async (req, res) => {
+  const amount = parseTopupAmount(req.body?.amount);
+  if (amount == null) {
+    res.status(400).json({
+      error: `Nominal harus bulat antara Rp ${MIN_TOPUP.toLocaleString("id-ID")} dan Rp ${MAX_TOPUP.toLocaleString("id-ID")}.`,
+    });
+    return;
+  }
+
+  const [topup] = await db.insert(topupsTable).values({
+    userId: req.user!.userId,
+    amount,
+    paymentMethod: "qris",
+    gateway: "manual",
+    status: "pending",
+  }).returning();
+
+  logger.info({ topupId: topup.id, userId: req.user!.userId, amount }, "Manual topup created (pending admin review)");
+
+  res.status(201).json({
+    id: topup.id,
+    amount,
+    status: "pending",
+    paymentMethod: "qris",
+    gateway: "manual",
+  });
+});
+
+// ── POST /topup/:id/mark-paid — user pressed "Saya Sudah Bayar" (manual) ─────
+// Sets the manual top-up status to awaiting_manual_review. This is NOT proof
+// of payment — the admin must still verify and confirm before the wallet is
+// credited via creditVerifiedTopup(). No balance change happens here.
+router.post("/topup/:id/mark-paid", authenticate, qrisRateLimit, async (req, res) => {
+  const topupId = String(req.params.id);
+  const userId = req.user!.userId;
+
+  const [topup] = await db.select().from(topupsTable)
+    .where(and(eq(topupsTable.id, topupId), eq(topupsTable.userId, userId))).limit(1);
+  if (!topup) { res.status(404).json({ error: "Top-up not found" }); return; }
+  if (topup.gateway !== "manual") {
+    res.status(400).json({ error: "This endpoint is for manual top-ups only." });
+    return;
+  }
+  if (topup.status !== "pending") {
+    res.status(400).json({ error: `Cannot mark paid: top-up is already "${topup.status}"` });
+    return;
+  }
+
+  await db.update(topupsTable).set({
+    status: "awaiting_manual_review",
+    updatedAt: new Date(),
+  }).where(eq(topupsTable.id, topupId));
+
+  logger.info({ topupId, userId }, "Manual topup marked as paid — awaiting admin review");
+
+  res.json({
+    id: topupId,
+    status: "awaiting_manual_review",
+    message: "Pembayaran Anda sedang menunggu verifikasi admin.",
+  });
+});
 
 // ── POST /topup/prepare — create a local pending topup before widget payment ──
 // Creates a pending topup record with amount=0 and no order_id. The frontend
@@ -130,6 +230,11 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
   }).returning();
 
   try {
+    // Read the fee config from settings so the actual fee is applied by
+    // TemanQRIS and displayed transparently to the user.
+    const fee = await getFeeConfig();
+    const serviceFee = computeFee(amount, fee.type, fee.rate);
+
     // Generate a dynamic QRIS with webhook + callback so TemanQRIS notifies our
     // server automatically when the customer pays. /generate returns both the
     // QR image (Base64) and a hosted payment link, giving the frontend the best
@@ -139,6 +244,8 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
     const qris = await generateQris({
       amount,
       orderId,
+      feeType: fee.type,
+      feeValue: fee.rate,
       webhookUrl: webhookUrl ?? undefined,
       callbackUrl: callbackUrl ?? undefined,
     });
@@ -157,6 +264,10 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
       id: updated.id,
       orderId,
       amount,
+      serviceFee,
+      totalAmount: amount + serviceFee,
+      feeType: fee.type,
+      feeRate: fee.rate,
       status: "pending",
       paymentMethod: "qris",
       gateway: "temanqris",
@@ -632,7 +743,7 @@ router.patch("/topups/:id/confirm", authenticate, requireRole("admin", "owner"),
   try {
     const [topup] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
     if (!topup) { res.status(404).json({ error: "Top-up not found" }); return; }
-    if (topup.status !== "pending") {
+    if (topup.status !== "pending" && topup.status !== "awaiting_manual_review") {
       res.status(400).json({ error: `Cannot confirm: top-up is already "${topup.status}"` }); return;
     }
     if (topup.amountMatchStatus === "mismatch") {
@@ -690,7 +801,7 @@ router.patch("/topups/:id/deny", authenticate, requireRole("admin", "owner"), as
   try {
     const [topup] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
     if (!topup) { res.status(404).json({ error: "Top-up not found" }); return; }
-    if (topup.status !== "pending") {
+    if (topup.status !== "pending" && topup.status !== "awaiting_manual_review") {
       res.status(400).json({ error: `Cannot deny: top-up is already "${topup.status}"` }); return;
     }
 

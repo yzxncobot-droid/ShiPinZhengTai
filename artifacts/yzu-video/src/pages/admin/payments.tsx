@@ -123,7 +123,9 @@ export default function AdminPayments() {
               <SelectContent>
                 <SelectItem value="all">Semua Status</SelectItem>
                 <SelectItem value="pending">Menunggu</SelectItem>
+                <SelectItem value="awaiting_manual_review">Menunggu Verifikasi</SelectItem>
                 <SelectItem value="confirmed">Dikonfirmasi</SelectItem>
+                <SelectItem value="paid">Dibayar</SelectItem>
                 <SelectItem value="denied">Ditolak</SelectItem>
               </SelectContent>
             </Select>
@@ -342,7 +344,7 @@ export default function AdminPayments() {
                 )}
 
                 {/* Action buttons */}
-                {viewPayment.status === "pending" && (
+                {(viewPayment.status === "pending" || viewPayment.status === "awaiting_manual_review") && (
                   <div className="flex gap-2 pt-2 border-t">
                     {viewPayment.amountMatchStatus !== "mismatch" && (
                       <Button className="flex-1 gap-1 bg-green-600 hover:bg-green-700"
