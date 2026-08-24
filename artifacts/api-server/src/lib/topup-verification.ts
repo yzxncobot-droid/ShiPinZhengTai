@@ -32,10 +32,31 @@ import {
 import { eq, and, sql, desc } from "drizzle-orm";
 import { logger } from "./logger";
 import { invalidateUserCache, invalidateCache, keys } from "./redis";
-import { getOrder, getGatewayState } from "./temanqris";
+import { getOrder, getGatewayState, confirmCustomerPayment } from "./temanqris";
 
 function isPaidStatus(status: string): boolean {
   return status === "paid" || status === "confirmed";
+}
+
+/** Polling configuration for the "Sudah Bayar" verification flow. */
+export const POLL_CONFIG = {
+  /** Delay between polling attempts (ms). */
+  intervalMs: 2000,
+  /** Number of getOrder() attempts before giving up. */
+  attempts: 6,
+};
+
+const CONFIRMED_STATUSES = ["paid", "success", "confirmed", "completed", "settled"];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Extract the TemanQRIS link code from a payment-link URL. */
+function extractLinkCode(paymentLink: string | null): string | null {
+  if (!paymentLink) return null;
+  const match = paymentLink.match(/temanqris\.com\/p\/([^/?#]+)/);
+  return match ? match[1] : null;
 }
 
 /**
@@ -214,6 +235,10 @@ export async function verifyAndCreditTopup(
   success: boolean;
   status: "paid" | "awaiting_payment" | "verification_failed";
   message: string;
+  /** Distinguishes pending payment from gateway/system errors so the
+   * frontend can show the correct message instead of always saying
+   * "belum terdeteksi". */
+  errorType?: "pending" | "system_error" | "gateway_error";
   amount?: number;
   newBalance?: number;
 }> {
@@ -251,56 +276,97 @@ export async function verifyAndCreditTopup(
     }).where(eq(topupsTable.id, topupId));
   }
 
-  // ── 6. Check actual payment status from TemanQRIS ──────────────────────
+  // ── 6. Gateway not configured — cannot verify ─────────────────────────
   if (!topup.orderId || getGatewayState() !== "CONNECTED") {
-    return { success: false, status: "awaiting_payment", message: "Pembayaran belum terdeteksi. Pastikan pembayaran sudah berhasil." };
+    return {
+      success: false,
+      status: "awaiting_payment",
+      message: "Pembayaran belum terdeteksi. Pastikan pembayaran QRIS sudah berhasil.",
+      errorType: "pending",
+    };
   }
 
-  try {
-    const order = await getOrder(String(topup.orderId));
-    const confirmed = ["paid", "success", "confirmed", "completed", "settled"].includes(order.status);
-
-    // ── 7. Not paid yet — do NOT credit ──────────────────────────────────
-    if (!confirmed) {
-      return { success: false, status: "awaiting_payment", message: "Pembayaran belum terdeteksi. Pastikan pembayaran sudah berhasil." };
+  // ── 7. Trigger customer confirmation on TemanQRIS ──────────────────────
+  // Tell TemanQRIS the customer pressed "Sudah Bayar". This marks the order
+  // as awaiting_confirmation on their side — it is NOT proof of payment.
+  const linkCode = extractLinkCode(topup.paymentLink);
+  if (linkCode) {
+    try {
+      await confirmCustomerPayment(linkCode);
+      logger.info({ topupId, linkCode }, "[TQ] confirmCustomerPayment triggered");
+    } catch (err) {
+      logger.warn({ topupId, err: (err as any)?.message }, "[TQ] confirmCustomerPayment failed — continuing to poll");
     }
-
-    // ── 8. Validate order_id match ──────────────────────────────────────
-    if (order.orderId !== topup.orderId) {
-      logger.error(
-        { topupId, localOrderId: topup.orderId, gatewayOrderId: order.orderId },
-        "[TQ] confirm-paid: order_id mismatch — NOT crediting",
-      );
-      return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
-    }
-
-    // ── 9. Validate amount match ─────────────────────────────────────────
-    if (order.amount != null && Number.isFinite(order.amount) && order.amount !== Number(topup.amount)) {
-      logger.error(
-        { topupId, localAmount: topup.amount, gatewayAmount: order.amount },
-        "[TQ] confirm-paid: amount mismatch — NOT crediting",
-      );
-      return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
-    }
-
-    // ── 10. All validations passed — credit via the single credit path ───
-    const result = await creditVerifiedTopup(topupId, String(topup.orderId));
-
-    if (result.status === "paid") {
-      await invalidateUserCache(topup.userId).catch(() => {});
-      await invalidateCache(keys.analytics("overview")).catch(() => {});
-      return { success: true, status: "paid", message: "Pembayaran berhasil diverifikasi.", amount: Number(topup.amount), newBalance: result.newBalance };
-    }
-    if (result.status === "already_processed") {
-      return { success: true, status: "paid", message: "Pembayaran berhasil diverifikasi.", amount: Number(topup.amount) };
-    }
-
-    // creditVerifiedTopup returned a non-credit state — don't claim success
-    return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
-  } catch (err) {
-    logger.warn({ topupId, err: (err as any)?.message }, "[TQ] confirm-paid: getOrder failed");
-    return { success: false, status: "awaiting_payment", message: "Pembayaran belum terdeteksi. Pastikan pembayaran sudah berhasil." };
   }
+
+  // ── 8. Poll getOrder() for actual payment confirmation ─────────────────
+  // Check every POLL_CONFIG.intervalMs for up to POLL_CONFIG.attempts times.
+  // This gives TemanQRIS time to detect and confirm the QRIS payment. Only
+  // a paid/confirmed status with matching order_id + amount triggers credit.
+  // awaiting_confirmation is NEVER treated as paid.
+  let hadGatewayError = false;
+
+  for (let attempt = 0; attempt < POLL_CONFIG.attempts; attempt++) {
+    if (attempt > 0) await sleep(POLL_CONFIG.intervalMs);
+    try {
+      const order = await getOrder(String(topup.orderId));
+      const confirmed = CONFIRMED_STATUSES.includes(order.status);
+
+      if (!confirmed) continue; // still pending/awaiting — keep polling
+
+      // ── 8a. Validate order_id match ──────────────────────────────────
+      if (order.orderId !== topup.orderId) {
+        logger.error(
+          { topupId, localOrderId: topup.orderId, gatewayOrderId: order.orderId },
+          "[TQ] confirm-paid: order_id mismatch — NOT crediting",
+        );
+        return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
+      }
+
+      // ── 8b. Validate amount match ─────────────────────────────────────
+      if (order.amount != null && Number.isFinite(order.amount) && order.amount !== Number(topup.amount)) {
+        logger.error(
+          { topupId, localAmount: topup.amount, gatewayAmount: order.amount },
+          "[TQ] confirm-paid: amount mismatch — NOT crediting",
+        );
+        return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
+      }
+
+      // ── 8c. All validations passed — credit via the single credit path
+      const result = await creditVerifiedTopup(topupId, String(topup.orderId));
+
+      if (result.status === "paid") {
+        await invalidateUserCache(topup.userId).catch(() => {});
+        await invalidateCache(keys.analytics("overview")).catch(() => {});
+        return { success: true, status: "paid", message: "Pembayaran berhasil diverifikasi.", amount: Number(topup.amount), newBalance: result.newBalance };
+      }
+      if (result.status === "already_processed") {
+        return { success: true, status: "paid", message: "Pembayaran berhasil diverifikasi.", amount: Number(topup.amount) };
+      }
+
+      // creditVerifiedTopup returned a non-credit state — don't claim success
+      return { success: false, status: "verification_failed", message: "Pembayaran tidak dapat diverifikasi." };
+    } catch (err) {
+      hadGatewayError = true;
+      logger.warn({ topupId, attempt, err: (err as any)?.message }, "[TQ] confirm-paid: getOrder failed during poll");
+    }
+  }
+
+  // ── 9. Still not confirmed after all polling attempts ───────────────────
+  if (hadGatewayError) {
+    return {
+      success: false,
+      status: "awaiting_payment",
+      message: "Terjadi kesalahan sistem. Silakan coba lagi.",
+      errorType: "system_error",
+    };
+  }
+  return {
+    success: false,
+    status: "awaiting_payment",
+    message: "Pembayaran belum terdeteksi. Pastikan pembayaran QRIS sudah berhasil.",
+    errorType: "pending",
+  };
 }
 
 /**
