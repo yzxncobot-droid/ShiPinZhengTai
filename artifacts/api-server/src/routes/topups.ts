@@ -66,6 +66,19 @@ router.get("/topup/fee-config", async (_req, res) => {
   });
 });
 
+// ── GET /payments/buatqris/health — diagnostic config status (admin/dev) ──────
+// Safe status flags — NEVER returns secret values. Used to verify the
+// BuatQris env vars are wired up without exposing them.
+router.get("/payments/buatqris/health", authenticate, requireRole("admin", "owner"), async (_req, res) => {
+  res.json({
+    configured: getGatewayState() === "CONNECTED" && isWebhookConfigured(),
+    account_id_configured: !!process.env.BUATQRIS_ACCOUNT_ID?.trim(),
+    secret_token_configured: !!process.env.BUATQRIS_SECRET_TOKEN?.trim(),
+    webhook_secret_configured: isWebhookConfigured(),
+    callback_url: buatqrisWebhookUrl(),
+  });
+});
+
 // ── GET /buatqris/config — BuatQris gateway config (admin) ───────────────────
 // Shows the connection state, account ID, webhook secret (masked), and the
 // auto-constructed callback URL. The secret token is NEVER returned.
@@ -88,17 +101,21 @@ router.get("/buatqris/config", authenticate, requireRole("admin", "owner"), asyn
 // AUTOMATIC PAYMENT — BuatQris
 // ════════════════════════════════════════════════════════════════════════════
 
-// ── POST /topup/create — create an automatic QRIS transaction via BuatQris ──
-router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
+// ── POST /payments/buatqris/create — create an automatic QRIS via BuatQris ──
+router.post("/payments/buatqris/create", authenticate, qrisRateLimit, async (req, res) => {
   const amount = parseTopupAmount(req.body?.amount);
   if (amount == null) {
     res.status(400).json({
-      error: `Nominal harus bulat antara Rp ${MIN_TOPUP.toLocaleString("id-ID")} dan Rp ${MAX_TOPUP.toLocaleString("id-ID")}.`,
+      success: false,
+      error: { code: "INVALID_AMOUNT", message: `Nominal harus bulat antara Rp ${MIN_TOPUP.toLocaleString("id-ID")} dan Rp ${MAX_TOPUP.toLocaleString("id-ID")}.` },
     });
     return;
   }
   if (getGatewayState() !== "CONNECTED") {
-    res.status(503).json({ error: "Payment gateway belum dikonfigurasi.", gatewayStatus: getGatewayState() });
+    res.status(503).json({
+      success: false,
+      error: { code: "NOT_CONFIGURED", message: "Gateway QRIS belum dikonfigurasi. Hubungi admin." },
+    });
     return;
   }
 
@@ -181,10 +198,22 @@ router.post("/topup/create", authenticate, qrisRateLimit, async (req, res) => {
     });
   } catch (err) {
     const code = gatewayErrorCode(err);
+    // The detailed provider error is already logged inside createQrisPayment();
+    // only a safe, generic message is returned to the client.
+    logger.error(
+      { topupId: topup.id, orderId, code, providerMessage: String((err as any)?.message ?? "").slice(0, 200) },
+      "[BUATQRIS CREATE] route handler caught error",
+    );
     await db.update(topupsTable).set({ status: "failed", updatedAt: new Date() })
       .where(eq(topupsTable.id, topup.id));
     const status = code === "NOT_CONFIGURED" ? 503 : 502;
-    res.status(status).json({ error: "Gagal membuat QRIS.", gatewayStatus: code });
+    const safeMessage = code === "NOT_CONFIGURED"
+      ? "Gateway QRIS belum dikonfigurasi. Hubungi admin."
+      : "QRIS belum dapat dibuat. Silakan coba lagi.";
+    res.status(status).json({
+      success: false,
+      error: { code, message: safeMessage },
+    });
   }
 });
 

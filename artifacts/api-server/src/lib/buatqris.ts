@@ -129,14 +129,34 @@ export async function createQrisPayment(input: {
     }
 
     if (!response.ok) {
-      throw gatewayError(
-        `BuatQris request failed (${response.status}): ${text.slice(0, 200)}`,
-        "GATEWAY_ERROR",
+      logger.error(
+        { httpStatus: response.status, providerSuccess: false, providerError: text.slice(0, 200), orderId: input.orderId },
+        "[BUATQRIS CREATE] HTTP error from provider",
       );
+      throw gatewayError(`BuatQris request failed (HTTP ${response.status})`, "GATEWAY_ERROR");
     }
 
     // Response may be wrapped in data/result or flat.
     const data = body?.data ?? body?.result ?? body;
+
+    // BuatQris returns HTTP 200 even on failure (e.g. invalid account_id /
+    // secret_token, invalid amount). HTTP status alone is NOT enough — we must
+    // inspect the provider's own success/status field and surface its error
+    // message instead of throwing a generic "no transaction_id".
+    const statusField = String(body?.status ?? data?.status ?? "").toLowerCase();
+    const providerSuccess =
+      body?.success !== false && !["failed", "error", "gagal"].includes(statusField);
+
+    if (!providerSuccess) {
+      const providerError = String(
+        body?.message ?? data?.message ?? data?.qris_status ?? body?.error ?? "QRIS creation rejected by provider",
+      ).trim();
+      logger.error(
+        { httpStatus: response.status, providerSuccess: false, providerError, orderId: input.orderId },
+        "[BUATQRIS CREATE] provider returned failure",
+      );
+      throw gatewayError(providerError, "PROVIDER_ERROR");
+    }
 
     const transactionId = String(
       data?.transaction_id ?? data?.transactionId ?? data?.trx_id ?? data?.id ?? "",

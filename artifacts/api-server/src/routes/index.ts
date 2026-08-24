@@ -30,7 +30,6 @@ import socialRouter from "./social";
 import redeemRouter from "./redeem";
 import revenueRouter from "./revenue";
 import badgeRolesRouter from "./badge-roles";
-import temanqrisRouter from "./temanqris";
 
 const router: IRouter = Router();
 
