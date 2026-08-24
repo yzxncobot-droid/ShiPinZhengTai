@@ -65,7 +65,7 @@ export function maintenanceGuard() {
       path === "/health" ||
       path.startsWith("/health") ||
       path === "/settings/maintenance-status" ||
-      path.startsWith("/webhooks/temanqris");
+      path.startsWith("/webhooks/buatqris");
 
     if (allowed) {
       next();

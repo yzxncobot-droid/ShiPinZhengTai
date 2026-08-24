@@ -1,5 +1,5 @@
 import {
-  pgTable, uuid, doublePrecision, text, timestamp, pgEnum, index,
+  pgTable, uuid, doublePrecision, text, timestamp, pgEnum, index, jsonb,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -7,7 +7,18 @@ import { usersTable } from "./users";
 import { paymentProofsTable } from "./payment-proofs";
 
 export const topupStatusEnum = pgEnum("topup_status", [
-  "pending", "awaiting_confirmation", "awaiting_manual_review", "confirmed", "paid", "denied", "expired", "failed", "cancelled",
+  "pending", "awaiting_confirmation", "awaiting_manual_review", "confirmed", "paid", "denied", "rejected", "expired", "failed", "cancelled",
+]);
+
+/**
+ * payment_method — how the user chose to pay.
+ *  - "automatic" → BuatQris dynamic QRIS + webhook
+ *  - "manual"    → static QRIS + proof upload + admin approval
+ */
+export const paymentMethodEnum = pgEnum("payment_method", [
+  "qris",       // legacy default for old rows
+  "automatic",
+  "manual",
 ]);
 
 /**
@@ -26,12 +37,25 @@ export const topupsTable = pgTable(
     orderId: text("order_id").unique(),
     paymentMethod: text("payment_method").default("qris"),
     gateway: text("gateway"),
+
+    /** Provider for automatic payments ("buatqris"). */
+    provider: text("provider"),
+    /** BuatQris transaction_id — unique per provider for idempotency. */
+    providerTransactionId: text("provider_transaction_id"),
+    /** Raw webhook payload (JSON) for audit/debugging. Never stores secrets. */
+    providerPayload: jsonb("provider_payload"),
+    /** When the webhook callback was received. */
+    callbackReceivedAt: timestamp("callback_received_at"),
+
     gatewayReference: text("gateway_reference").unique(),
     qrCodeUrl: text("qr_code_url"),
     qrisString: text("qris_string"),
     paymentLink: text("payment_link"),
     expiredAt: timestamp("expired_at"),
     paidAt: timestamp("paid_at"),
+
+    /** Payment description / order reference sent to the provider. */
+    description: text("description"),
 
     /** Legacy inline proof URL — prefer paymentProofId for new records. */
     paymentProof: text("payment_proof"),
@@ -66,6 +90,7 @@ export const topupsTable = pgTable(
     userIdIdx:  index("topups_user_id_idx").on(t.userId),
     statusIdx:  index("topups_status_idx").on(t.status),
     createdIdx: index("topups_created_at_idx").on(t.createdAt),
+    providerTxIdIdx: index("topups_provider_tx_id_idx").on(t.providerTransactionId),
   }),
 );
 

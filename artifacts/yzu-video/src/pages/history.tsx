@@ -130,18 +130,22 @@ export default function HistoryPage() {
                             <td className="px-6 py-4">
                               <Badge variant="outline" className={
                                 topup.status === 'paid' || topup.status === 'confirmed' ? 'text-green-500 bg-green-500/10 border-none' :
-                                topup.status === 'denied' ? 'text-red-500 bg-red-500/10 border-none' :
+                                topup.status === 'rejected' || topup.status === 'denied' ? 'text-red-500 bg-red-500/10 border-none' :
+                                topup.status === 'expired' ? 'text-red-500 bg-red-500/10 border-none' :
+                                topup.status === 'failed' ? 'text-red-500 bg-red-500/10 border-none' :
                                 topup.status === 'awaiting_manual_review' ? 'text-blue-500 bg-blue-500/10 border-none' :
                                 topup.status === 'awaiting_confirmation' ? 'text-purple-500 bg-purple-500/10 border-none' :
                                 'text-amber-500 bg-amber-500/10 border-none'
                               }>
                                 {topup.status === 'paid' ? 'Berhasil' :
                                  topup.status === 'confirmed' ? 'Dikonfirmasi' :
+                                 topup.status === 'rejected' ? 'Ditolak' :
                                  topup.status === 'denied' ? 'Ditolak' :
                                  topup.status === 'awaiting_manual_review' ? 'Menunggu Verifikasi' :
                                  topup.status === 'awaiting_confirmation' ? 'Memeriksa Pembayaran' :
                                  topup.status === 'expired' ? 'Kedaluwarsa' :
                                  topup.status === 'failed' ? 'Gagal' :
+                                 topup.status === 'pending' ? 'Menunggu' :
                                  topup.status}
                               </Badge>
                             </td>

@@ -54,6 +54,11 @@ async function run() {
     ALTER TABLE topups ADD COLUMN IF NOT EXISTS payment_link text;
     ALTER TABLE topups ADD COLUMN IF NOT EXISTS expired_at timestamptz;
     ALTER TABLE topups ADD COLUMN IF NOT EXISTS paid_at timestamptz;
+    ALTER TABLE topups ADD COLUMN IF NOT EXISTS provider text;
+    ALTER TABLE topups ADD COLUMN IF NOT EXISTS provider_transaction_id text;
+    ALTER TABLE topups ADD COLUMN IF NOT EXISTS provider_payload jsonb;
+    ALTER TABLE topups ADD COLUMN IF NOT EXISTS callback_received_at timestamptz;
+    ALTER TABLE topups ADD COLUMN IF NOT EXISTS description text;
     ALTER TABLE videos ADD COLUMN IF NOT EXISTS uploader_type text;
     ALTER TABLE videos ADD COLUMN IF NOT EXISTS thumbnail_path text;
     ALTER TABLE videos ADD COLUMN IF NOT EXISTS storage_folder text;
@@ -66,9 +71,11 @@ async function run() {
     DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'expired'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'failed'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'cancelled'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'rejected'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     CREATE UNIQUE INDEX IF NOT EXISTS topups_order_id_unique ON topups(order_id) WHERE order_id IS NOT NULL;
     CREATE UNIQUE INDEX IF NOT EXISTS topups_gateway_reference_unique ON topups(gateway_reference) WHERE gateway_reference IS NOT NULL;
     CREATE INDEX IF NOT EXISTS topups_user_pending_idx ON topups(user_id, created_at DESC) WHERE status = 'pending';
+    CREATE INDEX IF NOT EXISTS topups_provider_tx_id_idx ON topups(provider_transaction_id) WHERE provider_transaction_id IS NOT NULL;
   `);
   console.log("✅  topup automatic QRIS columns and status values ensured");
 
