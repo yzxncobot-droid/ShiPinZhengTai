@@ -75,12 +75,18 @@ vi.mock("../temanqris", () => ({
     return mockState.orderResult ?? { orderId: "ORDER-123", amount: 10000, status: "pending" };
   }),
   getGatewayState: vi.fn(() => mockState.gatewayState),
+  confirmCustomerPayment: vi.fn(async () => ({
+    success: true,
+    orderId: "ORDER-123",
+    status: "awaiting_confirmation",
+    raw: null,
+  })),
 }));
 
 /* ── Import AFTER mocks are registered ──────────────────────────────────── */
-import { verifyAndCreditTopup, creditVerifiedTopup } from "../topup-verification";
+import { verifyAndCreditTopup, creditVerifiedTopup, POLL_CONFIG } from "../topup-verification";
 import { db } from "@workspace/db";
-import { getOrder } from "../temanqris";
+import { getOrder, confirmCustomerPayment } from "../temanqris";
 
 /* ── Test constants ──────────────────────────────────────────────────────── */
 const TOPUP_ID = "topup-001";
@@ -121,6 +127,9 @@ beforeEach(() => {
   mockState.gatewayState = "CONNECTED";
   mockState.orderResult = null;
   mockState.orderThrows = false;
+
+  // Speed up tests: no real delays between poll attempts
+  POLL_CONFIG.intervalMs = 0;
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -225,6 +234,51 @@ describe("verifyAndCreditTopup", () => {
     expect(result.status).toBe("paid");
     expect(getOrder).not.toHaveBeenCalled();
     expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  /* Test 8: webhook awaiting_confirmation → no credit
+   * The webhook handler in topups.ts does NOT call creditVerifiedTopup for
+   * the `payment.awaiting_confirmation` event. verifyAndCreditTopup also
+   * does NOT credit when the gateway reports awaiting_confirmation (Test 1).
+   * This test verifies that even when getOrder returns awaiting_confirmation
+   * on every poll attempt, no credit happens. */
+  it("Test 8 — gateway awaiting_confirmation on all polls → awaiting_payment, no credit", async () => {
+    mockState.topup = makeTopup({ paymentLink: "https://temanqris.com/p/ABC123" });
+    mockState.orderResult = { orderId: ORDER_ID, amount: AMOUNT, status: "awaiting_confirmation" };
+
+    const result = await verifyAndCreditTopup(TOPUP_ID, USER_ID);
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe("awaiting_payment");
+    expect(result.errorType).toBe("pending");
+    expect(db.transaction).not.toHaveBeenCalled();
+    // confirmCustomerPayment was called to trigger customer confirmation
+    expect(confirmCustomerPayment).toHaveBeenCalledWith("ABC123");
+  });
+
+  /* Test 9: gateway API error → system_error, NOT "belum dibayar" */
+  it("Test 9 — gateway API error on all polls → awaiting_payment + errorType=system_error", async () => {
+    mockState.topup = makeTopup();
+    mockState.orderThrows = true;
+
+    const result = await verifyAndCreditTopup(TOPUP_ID, USER_ID);
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe("awaiting_payment");
+    expect(result.errorType).toBe("system_error");
+    expect(result.message).toContain("Terjadi kesalahan sistem");
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  /* Test: confirmCustomerPayment is called before polling starts */
+  it("calls confirmCustomerPayment to trigger customer confirmation on TemanQRIS", async () => {
+    mockState.topup = makeTopup({ paymentLink: "https://temanqris.com/p/LINK-CODE-1" });
+    mockState.orderResult = { orderId: ORDER_ID, amount: AMOUNT, status: "paid" };
+    setPaidTransactionResult();
+
+    await verifyAndCreditTopup(TOPUP_ID, USER_ID);
+
+    expect(confirmCustomerPayment).toHaveBeenCalledWith("LINK-CODE-1");
   });
 });
 
