@@ -28,6 +28,7 @@ import {
 import { eq, and, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { invalidateUserCache, invalidateCache, keys } from "./redis";
+import { checkQrisStatus } from "./buatqris";
 
 /** Statuses that mean the wallet has already been credited. */
 function isPaidStatus(status: string): boolean {
@@ -159,6 +160,115 @@ export async function creditVerifiedTopup(
     );
     return { status: "paid", newBalance: after };
   });
+}
+
+// ── BuatQris status sync (confirm-paid + polling fallback) ───────────────────
+
+/**
+ * Check the BuatQris provider for the current transaction status and reconcile
+ * the local topup row. Used by:
+ *   - POST /topup/:id/confirm-paid  (user presses "Sudah Bayar")
+ *   - GET  /topup/:id/status       (polling fallback)
+ *
+ * If the provider reports "success", validates transaction_id + amount, then
+ * credits via creditVerifiedTopup() — the SAME single credit path used by the
+ * webhook. Never credits from "pending". Marks "expired"/"failed" in the DB.
+ *
+ * @returns the effective status: "paid" | "awaiting_payment" | "expired" | "failed" | "pending"
+ */
+export async function syncBuatQrisStatus(topup: any): Promise<string> {
+  // Only automatic (buatqris) payments can be synced from the provider.
+  if (topup.paymentMethod !== "automatic") {
+    return String(topup.status);
+  }
+
+  // Already paid — no need to check the provider.
+  if (isPaidStatus(String(topup.status))) {
+    return "paid";
+  }
+
+  // Terminal states — no need to check the provider.
+  const status = String(topup.status);
+  if (["expired", "failed", "cancelled", "rejected", "denied"].includes(status)) {
+    return status;
+  }
+
+  const providerTxId = topup.providerTransactionId;
+  if (!providerTxId) {
+    logger.warn({ topupId: topup.id }, "syncBuatQrisStatus: no providerTransactionId — skipping provider check");
+    return "pending";
+  }
+
+  let providerResult;
+  try {
+    providerResult = await checkQrisStatus(providerTxId);
+  } catch (err: any) {
+    logger.error(
+      { topupId: topup.id, providerTxId, error: err?.message },
+      "syncBuatQrisStatus: provider check failed — returning DB status",
+    );
+    return "pending";
+  }
+
+  if (providerResult.status === "success") {
+    // Validate transaction_id matches.
+    if (providerResult.transactionId && providerResult.transactionId !== providerTxId) {
+      logger.error(
+        { topupId: topup.id, localTxId: providerTxId, providerTxId: providerResult.transactionId },
+        "syncBuatQrisStatus: transaction_id mismatch — NOT crediting",
+      );
+      return "pending";
+    }
+
+    // Validate amount matches (if provider returned an amount).
+    if (providerResult.amount != null && Number.isFinite(providerResult.amount) && providerResult.amount !== Number(topup.amount)) {
+      logger.error(
+        { topupId: topup.id, localAmount: topup.amount, providerAmount: providerResult.amount },
+        "syncBuatQrisStatus: amount mismatch — NOT crediting",
+      );
+      return "pending";
+    }
+
+    // Credit via the single credit path.
+    logger.info({ topupId: topup.id, providerTxId }, "syncBuatQrisStatus: provider reports success — crediting");
+    const result = await creditVerifiedTopup(topup.id, providerTxId);
+
+    if (result.status === "paid" || result.status === "already_processed") {
+      await invalidateUserCache(topup.userId).catch(() => {});
+      await invalidateCache(keys.analytics("overview")).catch(() => {});
+      return "paid";
+    }
+
+    logger.warn({ topupId: topup.id, creditStatus: result.status }, "syncBuatQrisStatus: credit did not result in paid");
+    return "pending";
+  }
+
+  if (providerResult.status === "expired") {
+    if (String(topup.status) === "pending") {
+      await db.update(topupsTable).set({
+        status: "expired",
+        callbackReceivedAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(topupsTable.id, topup.id));
+      logger.info({ topupId: topup.id }, "syncBuatQrisStatus: marked expired");
+    }
+    return "expired";
+  }
+
+  if (providerResult.status === "failed") {
+    if (String(topup.status) === "pending") {
+      await db.update(topupsTable).set({
+        status: "failed",
+        callbackReceivedAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(topupsTable.id, topup.id));
+      logger.info({ topupId: topup.id }, "syncBuatQrisStatus: marked failed");
+    }
+    return "failed";
+  }
+
+  // Still pending.
+  return "awaiting_payment";
 }
 
 // ── BuatQris webhook processing ─────────────────────────────────────────────
