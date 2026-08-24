@@ -85,22 +85,22 @@ Both services start automatically via their configured workflows:
 > The Replit-managed `DATABASE_URL` is intentionally not used. Connection string is set as a Replit Secret.
 > See `lib/db/src/index.ts` — it prefers `NEON_DATABASE_URL ?? DATABASE_URL`.
 
-### Automatic QRIS (TemanQRIS)
+### Automatic QRIS (BuatQris)
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `TEMANQRIS_API_KEY` | ✅ Set (Secret) | Backend-only TemanQRIS API key for payment links and order verification |
-| `TEMANQRIS_WEBHOOK_SECRET` | ✅ Set (Secret) | Secret used to verify TemanQRIS webhook signatures |
-| `TEMANQRIS_PUBLIC_URL` | Optional | Public app URL used for callback URLs |
-| `TEMANQRIS_WEBHOOK_URL` | Optional | Override webhook URL; defaults to `/api/webhooks/temanqris` |
+| `BUATQRIS_ACCOUNT_ID` | ✅ Set (Secret) | Backend-only BuatQris Account ID for QRIS creation and status checks |
+| `BUATQRIS_SECRET_TOKEN` | ✅ Set (Secret) | Backend-only BuatQris Secret Token (never sent to frontend) |
+| `BUATQRIS_WEBHOOK_SECRET` | ✅ Set (Secret) | Secret used to verify BuatQris webhook signatures (X-BuatQris-Signature) |
+| `PUBLIC_BASE_URL` | Optional | Public app URL used for the webhook callback URL; falls back to `BASE44_PUBLIC_HOST_SUFFIX` |
 
-The application creates a TemanQRIS payment link through `POST /api/topup/create`.
-The customer scans and pays, then presses **Saya Sudah Bayar**. The backend calls
-TemanQRIS order verification through `GET /api/topup/:id/status`; it never credits
-the wallet from the button click alone. TemanQRIS must confirm the order and send
-the signed `payment.confirmed` callback to `POST /api/webhooks/temanqris`. Only
-that verified event (or a successful order verification response) credits the
-wallet inside an idempotent database transaction.
+The application creates a BuatQris dynamic QRIS through `POST /api/payments/buatqris/create`.
+The customer scans and pays, then presses **Sudah Bayar**. The backend checks the
+BuatQris transaction status through `POST /api/topup/:id/confirm-paid`; it never credits
+the wallet from the button click alone. BuatQris sends the signed `payment.success`
+callback to `POST /api/webhooks/buatqris`. Only that verified event (or a successful
+provider status check) credits the wallet via `creditVerifiedTopup()` inside an
+idempotent database transaction with a PostgreSQL advisory lock.
 
 ## Database
 

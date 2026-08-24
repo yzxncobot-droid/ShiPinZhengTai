@@ -104,6 +104,7 @@ export async function createQrisPayment(input: {
     amount: String(input.amount),
     description: input.orderId,
     qris_method: "qris_two",
+    fee_by: "user",
     callback_url: callbackUrl,
   });
 
@@ -175,6 +176,95 @@ export async function createQrisPayment(input: {
     }
 
     return { transactionId, qrUrl, qrisImage, paymentUrl, amount, totalAmount, status, raw: body };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Check the status of a BuatQris transaction.
+ *
+ * POST https://api.buatqris.site
+ * form-urlencoded body:
+ *   action=api_check_status
+ *   account_id=...
+ *   secret_token=...
+ *   transaction_id=...
+ *
+ * Returns the provider status: "pending" | "success" | "expired" | "failed".
+ */
+export async function checkQrisStatus(transactionId: string): Promise<{
+  status: "pending" | "success" | "expired" | "failed" | null;
+  amount: number | null;
+  transactionId: string | null;
+  orderId: string | null;
+  raw: unknown;
+}> {
+  if (!accountId() || !secretToken()) {
+    throw gatewayError("BUATQRIS_ACCOUNT_ID / BUATQRIS_SECRET_TOKEN is not configured", "NOT_CONFIGURED");
+  }
+
+  const params = new URLSearchParams({
+    action: "api_check_status",
+    account_id: accountId()!,
+    secret_token: secretToken()!,
+    transaction_id: transactionId,
+  });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(BUATQRIS_BASE_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body: params.toString(),
+      signal: controller.signal,
+    });
+
+    const text = await response.text();
+    let body: any = null;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = { rawText: text };
+    }
+
+    if (!response.ok) {
+      logger.error(
+        { httpStatus: response.status, providerError: text.slice(0, 200), transactionId },
+        "[BUATQRIS CHECK STATUS] HTTP error from provider",
+      );
+      throw gatewayError(`BuatQris status check failed (HTTP ${response.status})`, "GATEWAY_ERROR");
+    }
+
+    const data = body?.data ?? body?.result ?? body;
+    const rawStatus = String(data?.status ?? body?.status ?? "").toLowerCase();
+
+    // Map provider status to our canonical values.
+    let status: "pending" | "success" | "expired" | "failed" | null = null;
+    if (["success", "paid", "completed", "settled"].includes(rawStatus)) {
+      status = "success";
+    } else if (rawStatus === "pending") {
+      status = "pending";
+    } else if (rawStatus === "expired") {
+      status = "expired";
+    } else if (["failed", "error", "gagal"].includes(rawStatus)) {
+      status = "failed";
+    }
+
+    const amount = data?.amount != null ? Number(data.amount) : null;
+    const txId = String(data?.transaction_id ?? data?.transactionId ?? data?.trx_id ?? "") || null;
+    const orderId = String(data?.order_id ?? data?.orderId ?? data?.description ?? "") || null;
+
+    logger.info(
+      { transactionId, providerStatus: rawStatus, mappedStatus: status },
+      "[BUATQRIS CHECK STATUS] result",
+    );
+
+    return { status, amount, transactionId: txId, orderId, raw: body };
   } finally {
     clearTimeout(timeout);
   }

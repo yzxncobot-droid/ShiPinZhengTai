@@ -22,6 +22,7 @@ import {
 import {
   creditVerifiedTopup,
   processBuatQrisWebhook,
+  syncBuatQrisStatus,
 } from "../lib/topup-verification";
 
 // ── Fee config helpers ──────────────────────────────────────────────────────
@@ -217,10 +218,12 @@ router.post("/payments/buatqris/create", authenticate, qrisRateLimit, async (req
   }
 });
 
-// ── GET /topup/:id/status — read-only status check (NO crediting) ────────────
-// The frontend polls this to reflect the current DB status. The actual
-// crediting is done by the BuatQris webhook — this endpoint never credits
-// and never calls the BuatQris API.
+// ── GET /topup/:id/status — status check with BuatQris sync fallback ────────
+// The frontend polls this to reflect the current status. For automatic
+// (buatqris) payments that are still pending, it also queries the BuatQris
+// provider as a fallback — if the provider reports "success", the wallet is
+// credited via creditVerifiedTopup() (the SAME single credit path used by the
+// webhook). Polling never has its own credit logic.
 router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) => {
   const id = String(req.params.id);
   const [topup] = await db.select().from(topupsTable)
@@ -243,12 +246,104 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
     return;
   }
 
+  // For automatic (buatqris) payments still pending, sync with the provider
+  // as a fallback. If the provider reports success, creditVerifiedTopup()
+  // is called (idempotent — safe even if the webhook already credited).
+  if (topup.paymentMethod === "automatic" && topup.providerTransactionId) {
+    try {
+      const effectiveStatus = await syncBuatQrisStatus(topup);
+      if (effectiveStatus === "paid") {
+        res.json({ ...topup, status: "paid", paid: true });
+        return;
+      }
+      if (effectiveStatus === "expired" || effectiveStatus === "failed") {
+        res.json({ ...topup, status: effectiveStatus, paid: false });
+        return;
+      }
+    } catch (err: any) {
+      logger.warn({ topupId: id, error: err?.message }, "Status sync failed — returning DB status");
+    }
+  }
+
   const [latest] = await db.select().from(topupsTable).where(eq(topupsTable.id, id)).limit(1);
   res.json({
     ...(latest ?? topup),
     status: isPaidStatus(latest?.status ?? "pending") ? "paid" : latest?.status ?? "pending",
     paid: isPaidStatus(latest?.status ?? "pending"),
   });
+});
+
+// ── POST /topup/:id/confirm-paid — "Sudah Bayar" button (BuatQris only) ─────
+// The user presses "Sudah Bayar" after paying the QRIS. This does NOT credit
+// the wallet by itself — it checks the BuatQris provider for the actual
+// transaction status. Only if the provider confirms "success" does it credit
+// via creditVerifiedTopup(). If still pending, returns "awaiting_payment".
+router.post("/topup/:id/confirm-paid", authenticate, qrisRateLimit, async (req, res) => {
+  const id = String(req.params.id);
+  const userId = req.user!.userId;
+
+  const [topup] = await db.select().from(topupsTable)
+    .where(eq(topupsTable.id, id)).limit(1);
+  if (!topup) {
+    res.status(404).json({ success: false, error: { code: "not_found", message: "Top-up tidak ditemukan." } });
+    return;
+  }
+
+  // Ownership check — user cannot confirm another user's topup.
+  if (topup.userId !== userId) {
+    res.status(403).json({ success: false, error: { code: "forbidden", message: "Anda tidak memiliki akses ke top-up ini." } });
+    return;
+  }
+
+  // Only automatic (buatqris) payments use this route.
+  if (topup.paymentMethod !== "automatic") {
+    res.status(400).json({ success: false, error: { code: "validation_error", message: "Tombol ini hanya untuk pembayaran otomatis (BuatQris)." } });
+    return;
+  }
+
+  // Already paid — idempotent success.
+  if (isPaidStatus(String(topup.status))) {
+    res.json({ success: true, status: "paid" });
+    return;
+  }
+
+  // Terminal states.
+  if (["expired", "failed", "cancelled", "rejected", "denied"].includes(String(topup.status))) {
+    res.json({ success: true, status: String(topup.status) });
+    return;
+  }
+
+  // Check the BuatQris provider for the actual payment status.
+  try {
+    const effectiveStatus = await syncBuatQrisStatus(topup);
+
+    if (effectiveStatus === "paid") {
+      // Invalidate caches so the frontend sees the new balance.
+      await invalidateUserCache(topup.userId).catch(() => {});
+      await invalidateCache(keys.analytics("overview")).catch(() => {});
+      res.json({ success: true, status: "paid" });
+      return;
+    }
+
+    if (effectiveStatus === "expired") {
+      res.json({ success: true, status: "expired" });
+      return;
+    }
+
+    if (effectiveStatus === "failed") {
+      res.json({ success: true, status: "failed" });
+      return;
+    }
+
+    // Still pending — payment not detected yet.
+    res.json({ success: true, status: "awaiting_payment" });
+  } catch (err: any) {
+    logger.error({ topupId: id, error: err?.message }, "confirm-paid: provider check failed");
+    res.status(502).json({
+      success: false,
+      error: { code: "provider_error", message: "Gagal memeriksa status pembayaran. Silakan coba lagi." },
+    });
+  }
 });
 
 // ════════════════════════════════════════════════════════════════════════════

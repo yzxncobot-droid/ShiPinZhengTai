@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Loader2, ImageIcon, ExternalLink, CheckCircle2, Clock, AlertCircle, XCircle } from "lucide-react";
+import { X, Loader2, ImageIcon, ExternalLink, CheckCircle2, Clock, AlertCircle, XCircle, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getGetMeQueryKey, getListMyTopupsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getToken } from "@/lib/admin-api";
 
-type ModalState = "creating" | "qr" | "paid" | "error";
+type ModalState = "creating" | "qr" | "paid" | "error" | "checking";
 
 /**
  * Automatic top-up modal — BuatQris dynamic QRIS.
@@ -36,6 +36,9 @@ export function AutomaticTopupModal({
   const [serviceFee, setServiceFee] = useState<number>(0);
   const [totalAmount, setTotalAmount] = useState<number>(amount);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+  const [confirmingPaid, setConfirmingPaid] = useState(false);
+  const [awaitingMsg, setAwaitingMsg] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fmtRp = (n: number) => `Rp ${n.toLocaleString("id-ID")}`;
@@ -49,11 +52,25 @@ export function AutomaticTopupModal({
     setServiceFee(0);
     setTotalAmount(amount);
     setErrorMsg(null);
+    setRetryKey(0);
+    setConfirmingPaid(false);
+    setAwaitingMsg(null);
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
   }, [amount]);
+
+  const retry = useCallback(() => {
+    setState("creating");
+    setErrorMsg(null);
+    setTopupId(null);
+    setOrderId(null);
+    setQrImage(null);
+    setPaymentLink(null);
+    setAwaitingMsg(null);
+    setRetryKey((k) => k + 1);
+  }, []);
 
   const handleClose = () => {
     reset();
@@ -107,7 +124,7 @@ export function AutomaticTopupModal({
 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, amount]);
+  }, [open, amount, retryKey]);
 
   // ── Poll for payment status (read-only — reflects webhook result) ────────
   useEffect(() => {
@@ -154,7 +171,7 @@ export function AutomaticTopupModal({
       }
     };
 
-    pollingRef.current = setInterval(poll, 3000);
+    pollingRef.current = setInterval(poll, 7000);
 
     return () => {
       active = false;
@@ -165,6 +182,67 @@ export function AutomaticTopupModal({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topupId, state]);
+
+  // ── "Sudah Bayar" handler — checks BuatQris provider status ─────────────
+  // This does NOT credit the wallet directly. It asks the backend to check
+  // the BuatQris provider. Only if the provider confirms "success" does the
+  // backend credit via creditVerifiedTopup().
+  const handleConfirmPaid = useCallback(async () => {
+    if (!topupId || confirmingPaid) return;
+    setConfirmingPaid(true);
+    setAwaitingMsg(null);
+    try {
+      const token = getToken();
+      const res = await fetch(`/api/topup/${topupId}/confirm-paid`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const err = data?.error;
+        setAwaitingMsg(typeof err === "string" ? err : err?.message ?? "Gagal memeriksa pembayaran.");
+        return;
+      }
+      if (data.status === "paid") {
+        setState("paid");
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+        queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListMyTopupsQueryKey() });
+        toast({
+          title: "Pembayaran Berhasil!",
+          description: `Saldo bertambah ${fmtRp(amount)}.`,
+        });
+      } else if (data.status === "expired") {
+        setErrorMsg("QRIS telah kedaluwarsa. Silakan buat pembayaran baru.");
+        setState("error");
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+      } else if (data.status === "failed") {
+        setErrorMsg("Pembayaran gagal. Silakan coba lagi.");
+        setState("error");
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+      } else {
+        // awaiting_payment — payment not detected yet.
+        setAwaitingMsg("Pembayaran belum terdeteksi. Pastikan pembayaran QRIS sudah berhasil. Saldo belum ditambahkan.");
+      }
+    } catch (err: any) {
+      setAwaitingMsg(err?.message ?? "Gagal memeriksa pembayaran.");
+    } finally {
+      setConfirmingPaid(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topupId, confirmingPaid, amount, queryClient, toast]);
 
   return (
     <AnimatePresence>
@@ -342,6 +420,47 @@ export function AutomaticTopupModal({
                     <ExternalLink className="h-4 w-4" />
                     Bayar Sekarang
                   </a>
+                )}
+
+                {/* Sudah Bayar button — checks BuatQris provider status */}
+                <button
+                  onClick={handleConfirmPaid}
+                  disabled={confirmingPaid}
+                  className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border-2 border-violet-200 bg-violet-50 text-sm font-extrabold transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ color: "#4F2DAA" }}
+                >
+                  {confirmingPaid ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Memeriksa Pembayaran...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="h-4 w-4" />
+                      Sudah Bayar
+                    </>
+                  )}
+                </button>
+
+                {/* Awaiting payment message (after "Sudah Bayar" with pending status) */}
+                {awaitingMsg && (
+                  <div className="mt-3 rounded-2xl bg-amber-50 px-4 py-3">
+                    <div className="flex items-start gap-2.5">
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                      <div>
+                        <p className="text-xs font-bold text-amber-700">Pembayaran belum terdeteksi</p>
+                        <p className="mt-0.5 text-xs font-medium text-amber-600">{awaitingMsg}</p>
+                        <button
+                          onClick={handleConfirmPaid}
+                          disabled={confirmingPaid}
+                          className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-700 transition hover:bg-amber-200 disabled:opacity-50"
+                        >
+                          <RefreshCw className="h-3 w-3" />
+                          Cek Lagi
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 )}
 
                 {/* Status indicator */}
