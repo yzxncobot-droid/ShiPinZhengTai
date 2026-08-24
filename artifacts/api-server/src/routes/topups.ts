@@ -33,7 +33,7 @@ async function getFeeConfig(): Promise<{ type: string; rate: number }> {
   }).from(settingsTable).limit(1);
   return {
     type: s?.type ?? "percentage",
-    rate: Number(s?.rate ?? 0),
+    rate: Number(s?.rate ?? 2),
   };
 }
 
