@@ -244,7 +244,7 @@ export default function ProfilePage() {
                 {[
                   { label: "Top Up", icon: Plus, href: "/topup", color: "bg-purple-500" },
                   { label: "Riwayat", icon: History, href: "/history", color: "bg-blue-500" },
-                  { label: "Bundle", icon: Gift, href: "/bundles", color: "bg-pink-500" },
+                  { label: "Shop", icon: Gift, href: "/shop", color: "bg-pink-500" },
                 ].map((a) => (
                   <Link key={a.label} href={a.href}
                     className="flex flex-col items-center gap-1.5 py-3 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-purple-50 hover:border-purple-100 transition-colors"
@@ -271,7 +271,7 @@ export default function ProfilePage() {
                 <StatCard icon={Heart} label="Like" value={0} color="bg-pink-500" />
                 <StatCard icon={Star} label="Favorit" value={0} color="bg-amber-500" />
                 <StatCard icon={Users} label="Follower" value={0} color="bg-blue-500" />
-                <StatCard icon={Gift} label="Bundle" value={0} color="bg-emerald-500" />
+                <StatCard icon={Gift} label="Shop" value={0} color="bg-emerald-500" />
                 <StatCard icon={Award} label="Badge" value={0} color="bg-orange-500" />
               </div>
             </motion.div>
@@ -290,7 +290,7 @@ export default function ProfilePage() {
                 <MenuItem icon={User} label="Edit Profil" onClick={() => setShowEdit(!showEdit)} iconBg="bg-gradient-to-br from-purple-500 to-purple-400" />
                 <MenuItem icon={Wallet} label="Wallet & Saldo" href="/topup" iconBg="bg-gradient-to-br from-amber-500 to-orange-400" />
                 <MenuItem icon={History} label="Riwayat Transaksi" href="/history" iconBg="bg-gradient-to-br from-blue-500 to-sky-400" />
-                <MenuItem icon={Gift} label="Bundle Saya" href="/bundles/my" iconBg="bg-gradient-to-br from-pink-500 to-rose-400" />
+                <MenuItem icon={Gift} label="Shop Video" href="/shop" iconBg="bg-gradient-to-br from-pink-500 to-rose-400" />
               </div>
 
               <div className="px-4 pt-4 pb-2 border-t border-slate-50">

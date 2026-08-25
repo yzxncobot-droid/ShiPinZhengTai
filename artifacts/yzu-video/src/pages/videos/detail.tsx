@@ -254,31 +254,6 @@ export default function VideoDetailPage() {
           </div>
         </div>
 
-        {/* Video Dalam Paket Ini */}
-        {video.bundles && video.bundles.length > 0 && (
-          <div className="mx-4 mt-6">
-            <div className="flex items-center justify-between mb-3 px-1">
-              <h3 className="text-lg font-heading font-extrabold text-slate-800 flex items-center gap-2">
-                <span className="text-base">🎁</span> Video Dalam Paket Ini
-              </h3>
-            </div>
-            <div className="flex gap-3 overflow-x-auto pb-2 px-1">
-              {video.bundles.map((b: { id: number; title: string; thumbnail?: string | null; videoCount?: number }) => (
-                <button
-                  key={b.id}
-                  onClick={() => setLocation(`/bundles/${b.id}`)}
-                  className="shrink-0 w-32 text-left"
-                >
-                  <div className="h-20 w-full rounded-2xl bg-gradient-to-br from-purple-400 to-pink-400 overflow-hidden mb-1.5">
-                    {b.thumbnail && <img src={b.thumbnail} alt={b.title} className="h-full w-full object-cover" />}
-                  </div>
-                  <p className="text-[11px] font-extrabold text-slate-700 line-clamp-2 leading-tight">{b.title}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Up Next */}
         {relatedVideos && relatedVideos.length > 0 && (
           <div className="mx-4 mt-6">

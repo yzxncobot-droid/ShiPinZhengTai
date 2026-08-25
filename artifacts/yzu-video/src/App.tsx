@@ -21,9 +21,7 @@ import LeaderboardPage from "@/pages/leaderboard";
 import ProfilePage from "@/pages/profile";
 import NotificationsPage from "@/pages/notifications";
 import SearchPage from "@/pages/search";
-import BundlesPage from "@/pages/bundles";
-import BundleDetailPage from "@/pages/bundles/detail";
-import MyBundlesPage from "@/pages/bundles/my";
+import ShopPage from "@/pages/shop";
 import VideoDetailPage from "@/pages/videos/detail";
 import DebugUploadPage from "@/pages/debug-upload";
 import CreatorUploadPage from "@/pages/upload";
@@ -47,7 +45,6 @@ import AdminSettings from "@/pages/admin/settings";
 import AdminAuditLogs from "@/pages/admin/audit-logs";
 import AdminSystem from "@/pages/admin/system";
 import AdminSystemCheck from "@/pages/admin/system-check";
-import BundleWatchPage from "@/pages/bundle/watch";
 import AdminNotifications from "@/pages/admin/notifications-mgmt";
 import AdminReports from "@/pages/admin/reports";
 import AdminAnnouncementsPage from "@/pages/admin/announcements";
@@ -105,10 +102,7 @@ function AppRouter() {
       </Route>
 
       {/* Content */}
-      <Route path="/bundle/watch/:videoId" component={BundleWatchPage} />
-      <Route path="/bundles" component={BundlesPage} />
-      <Route path="/bundles/my" component={MyBundlesPage} />
-      <Route path="/bundles/:id" component={BundleDetailPage} />
+      <Route path="/shop" component={ShopPage} />
       <Route path="/videos/:id" component={VideoDetailPage} />
       <Route path="/debug-upload" component={DebugUploadPage} />
       <Route path="/upload" component={CreatorUploadPage} />

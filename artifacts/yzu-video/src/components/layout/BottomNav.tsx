@@ -1,13 +1,11 @@
 import { Link, useLocation } from "wouter";
-import { Home, ShoppingBag, CreditCard, User } from "lucide-react";
+import { Home, ShoppingBag, CreditCard, User, MessageCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 
 /**
- * Mobile bottom navigation — 4 items only:
- *   Home · Shop · Top Up · Profile
- *
- * (Bundle & Chat were removed per the new Home feed spec.)
+ * Mobile bottom navigation — 5 items:
+ *   Home · Shop · Top Up · Chat · Profile
  */
 export function BottomNav() {
   const [location] = useLocation();
@@ -20,7 +18,8 @@ export function BottomNav() {
 
   const sideItems = [
     { href: "/", icon: Home, label: "Home" },
-    { href: "/bundles", icon: ShoppingBag, label: "Shop" },
+    { href: "/shop", icon: ShoppingBag, label: "Shop" },
+    { href: "/chat", icon: MessageCircle, label: "Chat" },
     { href: user ? "/profile" : "/login", icon: User, label: "Profile" },
   ];
 
@@ -73,8 +72,11 @@ export function BottomNav() {
             </motion.div>
           </Link>
 
-          {/* Profile */}
+          {/* Chat */}
           <SideLink item={sideItems[2]} active={isActive(sideItems[2].href)} />
+
+          {/* Profile */}
+          <SideLink item={sideItems[3]} active={isActive(sideItems[3].href)} />
         </nav>
       </div>
     </div>
