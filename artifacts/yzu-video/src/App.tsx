@@ -75,6 +75,7 @@ function AppRouter() {
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route path="/topup" component={TopupPage} />
+      <Route path="/withdraw" component={WithdrawPage} />
       <Route path="/history" component={HistoryPage} />
       <Route path="/profile" component={ProfilePage} />
       <Route path="/notifications" component={NotificationsPage} />

@@ -4,35 +4,95 @@ import {
   withdrawalsTable, usersTable, transactionsTable, notificationsTable, auditLogsTable,
   walletTransactionsTable, walletsTable,
 } from "@workspace/db";
-import { eq, desc, and, sql, count } from "drizzle-orm";
+import { eq, desc, and, sql, count, gte, ne } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
 import { invalidateUserCache } from "../lib/redis";
 import { logger } from "../lib/logger";
 
 const router = Router();
 
-// User: create withdrawal request
+/** Roles allowed to use the withdraw feature (Creator and above). */
+const WITHDRAW_ROLES = ["creator", "verified_creator", "admin", "owner"];
+/** Minimum withdrawal amount in IDR. */
+const MIN_WITHDRAWAL = 5000;
+/** Maximum total withdrawal amount per rolling 7-day window in IDR. */
+const WEEKLY_LIMIT = 10000;
+
+/** Sum of non-rejected withdrawals a user made in the last 7 days. */
+async function weeklyUsedAmount(userId: string): Promise<number> {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const rows = await db
+    .select({ amount: withdrawalsTable.amount })
+    .from(withdrawalsTable)
+    .where(
+      and(
+        eq(withdrawalsTable.userId, userId),
+        gte(withdrawalsTable.createdAt, since),
+        ne(withdrawalsTable.status, "rejected"),
+      ),
+    );
+  return rows.reduce((sum, r) => sum + Number(r.amount), 0);
+}
+
+// User: weekly withdrawal limit status
+router.get("/withdrawals/weekly-status", authenticate, async (req, res) => {
+  const used = await weeklyUsedAmount(req.user!.userId);
+  res.json({ used, limit: WEEKLY_LIMIT, remaining: Math.max(0, WEEKLY_LIMIT - used) });
+});
+
+// User: create withdrawal request (Creator and above only)
 router.post("/withdrawals", authenticate, async (req, res) => {
   const userId = req.user!.userId;
+  const role = req.user!.role;
+
+  if (!WITHDRAW_ROLES.includes(role)) {
+    res.status(403).json({ error: "Hanya role Creator yang dapat mengakses fitur withdraw" });
+    return;
+  }
+
   const { amount, method = "bank", accountName, accountNumber, bankName, notes } = req.body;
 
-  if (!amount || amount <= 0) {
-    res.status(400).json({ error: "Invalid amount" }); return;
+  if (!amount || Number(amount) <= 0) {
+    res.status(400).json({ error: "Nominal tidak valid" }); return;
+  }
+  if (Number(amount) < MIN_WITHDRAWAL) {
+    res.status(400).json({ error: `Minimal penarikan Rp ${MIN_WITHDRAWAL.toLocaleString("id-ID")}` }); return;
+  }
+  if (method !== "bank" && method !== "ewallet") {
+    res.status(400).json({ error: "Metode penarikan tidak valid" }); return;
+  }
+  if (!bankName || !accountNumber) {
+    res.status(400).json({ error: "Nama bank/e-wallet dan nomor rekening wajib diisi" }); return;
   }
 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
-  if (user.walletBalance < amount) {
-    res.status(400).json({ error: "Insufficient wallet balance" }); return;
+  if (user.walletBalance < Number(amount)) {
+    res.status(400).json({ error: "Saldo wallet tidak mencukupi" }); return;
+  }
+
+  // Enforce the rolling weekly limit (Rp 10.000 / 7 days).
+  const weeklyUsed = await weeklyUsedAmount(userId);
+  if (weeklyUsed + Number(amount) > WEEKLY_LIMIT) {
+    const remaining = Math.max(0, WEEKLY_LIMIT - weeklyUsed);
+    res.status(400).json({
+      error: `Batas penarikan Rp ${WEEKLY_LIMIT.toLocaleString("id-ID")} per minggu tercapai. Sisa kuota minggu ini: Rp ${remaining.toLocaleString("id-ID")}.`,
+    }); return;
   }
 
   const [withdrawal] = await db.insert(withdrawalsTable).values({
-    userId, amount, method, accountName, accountNumber, bankName, notes,
+    userId,
+    amount: Number(amount),
+    method,
+    accountName: accountName ?? user.username,
+    accountNumber: String(accountNumber),
+    bankName,
+    notes,
   }).returning();
 
   await db.insert(auditLogsTable).values({
     userId, action: "create_withdrawal", entity: "withdrawal", entityId: withdrawal.id,
-    details: JSON.stringify({ amount, method }),
+    details: JSON.stringify({ amount: Number(amount), method }),
     ipAddress: req.ip,
   });
 
