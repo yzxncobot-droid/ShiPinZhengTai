@@ -13,9 +13,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Megaphone, MessageSquare, Search, Pin, ExternalLink, MessageCircle,
-  Share2, Hash, Lock, Globe2, ShieldCheck,
-  ChevronDown, X, Loader2, CheckCircle2, Bell, Sparkles, Edit3, Send,
-  MessagesSquare,
+  Share2, Hash, Lock, Globe2, ShieldCheck, Users,
+  ChevronDown, X, Loader2, CheckCircle2, Bell, Sparkles, Send,
+  MessagesSquare, MessageSquarePlus,
 } from "lucide-react";
 import { formatDistanceToNow, isToday, isYesterday, format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
@@ -211,15 +211,20 @@ function AnnouncementCard({ ann, userId, onReact, onComment }: {
 
 // ─── Comment Modal ──────────────────────────────────────────────────────────────
 
-function CommentModal({ ann, userId, onClose }: { ann: Announcement; userId?: string; onClose: () => void }) {
+function CommentModal({ ann, userId, userRole, onClose }: { ann: Announcement; userId?: string; userRole?: string; onClose: () => void }) {
   const qc = useQueryClient();
   const [content, setContent] = useState("");
 
   const { data: comments = [], isLoading } = useQuery({
     queryKey: ["announcement-comments", ann.id],
     queryFn: () => adminFetch<any[]>(`/announcements/${ann.id}/comments`),
-    refetchInterval: 10000,
+    refetchInterval: 5000,
   });
+
+  // API returns newest-first; a chat thread reads oldest → newest (top to bottom)
+  const orderedComments = [...comments].reverse();
+
+  const isOwner = userRole === "owner";
 
   const submit = useMutation({
     mutationFn: () => adminFetch(`/announcements/${ann.id}/comments`, { method: "POST", body: JSON.stringify({ content }) }),
@@ -239,7 +244,10 @@ function CommentModal({ ann, userId, onClose }: { ann: Announcement; userId?: st
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-extrabold text-slate-800 text-base">💬 Komentar</h3>
+          <h3 className="font-extrabold text-slate-800 text-base flex items-center gap-2">
+            💬 Chat Pengumuman
+            <ShieldCheck className="h-4 w-4 text-blue-500" />
+          </h3>
           <button onClick={onClose} className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors">
             <X className="h-4 w-4 text-slate-600" />
           </button>
@@ -247,38 +255,46 @@ function CommentModal({ ann, userId, onClose }: { ann: Announcement; userId?: st
         <div className="flex-1 overflow-y-auto space-y-3 mb-4">
           {isLoading
             ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)
-            : comments.length === 0
-            ? <div className="text-center py-10 text-slate-400 text-sm font-medium">Belum ada komentar. Jadilah yang pertama!</div>
-            : comments.map((c: any) => (
-                <div key={c.id} className="flex gap-2.5">
-                  <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold text-xs shrink-0">
-                    {c.authorUsername?.[0]?.toUpperCase()}
+            : orderedComments.length === 0
+            ? <div className="text-center py-10 text-slate-400 text-sm font-medium">Belum ada pesan.</div>
+            : orderedComments.map((c: any) => {
+                const mine = c.authorId === userId;
+                return (
+                  <div key={c.id} className={`flex gap-2.5 ${mine ? "flex-row-reverse" : ""}`}>
+                    <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold text-xs shrink-0 overflow-hidden">
+                      {c.authorAvatar
+                        ? <img src={c.authorAvatar} className="h-full w-full object-cover" />
+                        : c.authorUsername?.[0]?.toUpperCase()}
+                    </div>
+                    <div className={`rounded-2xl px-3 py-2 max-w-[80%] ${mine ? "bg-purple-500 text-white rounded-tr-sm" : "bg-slate-100 text-slate-700 rounded-tl-sm"}`}>
+                      {!mine && <p className="text-[11px] font-bold text-purple-600 mb-0.5">{c.authorUsername}</p>}
+                      <p className="text-sm leading-relaxed">{c.content}</p>
+                      <p className={`text-[10px] mt-1 font-medium ${mine ? "text-purple-200" : "text-slate-400"}`}>{timeAgo(c.createdAt)}</p>
+                    </div>
                   </div>
-                  <div className="bg-slate-50 rounded-2xl rounded-tl-sm px-3 py-2 flex-1">
-                    <p className="text-[11px] font-bold text-purple-600">{c.authorUsername}</p>
-                    <p className="text-sm text-slate-700 mt-0.5 leading-relaxed">{c.content}</p>
-                    <p className="text-[10px] text-slate-400 mt-1 font-medium">{timeAgo(c.createdAt)}</p>
-                  </div>
-                </div>
-              ))
+                );
+              })
           }
         </div>
-        {userId ? (
+        {isOwner ? (
           <div className="flex gap-2">
             <input
               value={content}
               onChange={(e) => setContent(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && content.trim() && submit.mutate()}
-              placeholder="Tulis komentar..."
+              placeholder="Kirim pesan sebagai owner..."
               className="flex-1 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium focus:outline-none focus:border-purple-300 bg-slate-50 focus:bg-white transition-all"
             />
             <Button onClick={() => submit.mutate()} disabled={!content.trim() || submit.isPending}
               className="rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 border-none shadow-md px-4">
-              {submit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Kirim"}
+              {submit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </Button>
           </div>
         ) : (
-          <p className="text-center text-sm text-slate-400 font-medium">Login untuk berkomentar</p>
+          <div className="flex items-center justify-center gap-2 py-3 bg-slate-50 rounded-2xl text-xs font-bold text-slate-400">
+            <Lock className="h-3.5 w-3.5" />
+            Hanya owner yang dapat mengirim pesan di sini
+          </div>
         )}
       </motion.div>
     </motion.div>
@@ -287,7 +303,7 @@ function CommentModal({ ann, userId, onClose }: { ann: Announcement; userId?: st
 
 // ─── Announcements Modal (full feed) ────────────────────────────────────────────
 
-function AnnouncementsModal({ userId, onClose }: { userId?: string; onClose: () => void }) {
+function AnnouncementsModal({ userId, userRole, onClose }: { userId?: string; userRole?: string; onClose: () => void }) {
   const qc = useQueryClient();
   const [commentTarget, setCommentTarget] = useState<Announcement | null>(null);
 
@@ -465,33 +481,37 @@ function OnlineDot() {
 
 function AnnouncementRow({ ann, onClick }: { ann: Announcement; onClick: () => void }) {
   return (
-    <motion.button
-      layout whileTap={{ scale: 0.98 }} onClick={onClick}
-      className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-purple-50/40 transition-colors"
-    >
-      <div className="relative shrink-0">
-        <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shadow-sm">
-          <Megaphone className="h-6 w-6 text-white" />
-        </div>
-        <span className="absolute -top-0.5 -right-0.5 h-4 w-4 bg-orange-500 rounded-full border-2 border-white" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 mb-0.5">
-          <span className="font-extrabold text-sm text-slate-900 truncate">Announcement</span>
-          <ShieldCheck className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-          <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-500 border border-purple-100 shrink-0">
-            Pengumuman untuk semua pengguna
+    <div className="px-4 pt-3 bg-white">
+      <motion.button
+        layout whileTap={{ scale: 0.99 }} onClick={onClick}
+        className="w-full flex items-center gap-3 p-3 text-left bg-[#FBFBFF] rounded-3xl border border-slate-100 hover:border-purple-100 transition-colors"
+      >
+        <div className="relative shrink-0">
+          <div className="h-12 w-12 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center shadow-sm">
+            <Megaphone className="h-6 w-6 text-white" />
+          </div>
+          <span className="absolute -bottom-0.5 -right-0.5 h-5 w-5 bg-purple-600 rounded-full border-2 border-white flex items-center justify-center">
+            <Megaphone className="h-2.5 w-2.5 text-white" />
           </span>
         </div>
-        <p className="text-xs text-slate-500 truncate font-medium">
-          {ann.content || ann.title}
-        </p>
-      </div>
-      <div className="flex flex-col items-end gap-1.5 shrink-0">
-        <span className="text-[11px] text-slate-400">{shortTime(ann.createdAt)}</span>
-        <UnreadBadge count={1} />
-      </div>
-    </motion.button>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="font-extrabold text-sm text-slate-900 truncate">Announcement</span>
+            <ShieldCheck className="h-4 w-4 text-blue-500 shrink-0" />
+          </div>
+          <span className="inline-block text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 mb-1">
+            Pengumuman untuk semua pengguna
+          </span>
+          <p className="text-xs text-slate-500 truncate font-medium">
+            {ann.content || ann.title}
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <span className="text-[11px] text-slate-400">{shortTime(ann.createdAt)}</span>
+          <UnreadBadge count={1} />
+        </div>
+      </motion.button>
+    </div>
   );
 }
 
@@ -518,15 +538,17 @@ function GroupRow({ group, onClick }: { group: Group; onClick: () => void }) {
           <span className={`font-extrabold text-sm truncate ${hasUnread ? "text-slate-900" : "text-slate-700"}`}>
             {group.name}
           </span>
+          <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-500 border border-purple-100 shrink-0">
+            Grup
+          </span>
           {group.isLocked && <Lock className="h-3 w-3 text-slate-300 shrink-0" />}
-          {group.category && (
-            <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-500 border border-purple-100 shrink-0 hidden sm:inline">
-              {group.category}
-            </span>
-          )}
         </div>
         <p className={`text-xs truncate ${hasUnread ? "font-semibold text-slate-700" : "text-slate-400 font-medium"}`}>
           {preview}
+        </p>
+        <p className="text-[10px] text-slate-400 font-medium mt-0.5 flex items-center gap-1">
+          <Users className="h-2.5 w-2.5" />
+          {(group.memberCount ?? 0).toLocaleString("id-ID")} anggota
         </p>
       </div>
       <div className="flex flex-col items-end gap-1.5 shrink-0">
@@ -712,7 +734,15 @@ export default function ChatHomePage() {
           {/* Groups */}
           {showGroups && (
             <>
-              <SectionLabel icon={MessageSquare} label="Grup" />
+              <div className="flex items-center justify-between px-4 pt-4 pb-1.5 bg-white">
+                <div className="flex items-center gap-1.5">
+                  <MessageSquare className="h-3.5 w-3.5 text-purple-500" />
+                  <span className="text-[11px] font-extrabold text-purple-600 uppercase tracking-wide">Grup</span>
+                </div>
+                <button onClick={() => setFilter("groups")} className="text-[11px] font-bold text-purple-500 hover:text-purple-700 transition-colors">
+                  Lihat semua &rsaquo;
+                </button>
+              </div>
               {loadingGroups ? (
                 <div className="divide-y divide-slate-50">
                   {Array.from({ length: 4 }).map((_, i) => (
@@ -805,9 +835,9 @@ export default function ChatHomePage() {
         <motion.button
           whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
           onClick={() => setShowNewDm(true)}
-          className="h-14 w-14 rounded-full bg-gradient-to-br from-purple-600 to-pink-500 text-white flex items-center justify-center shadow-xl shadow-purple-500/40"
+          className="h-14 w-14 rounded-[1.25rem] bg-gradient-to-br from-purple-600 to-violet-500 text-white flex items-center justify-center shadow-xl shadow-purple-500/40"
         >
-          <Edit3 className="h-6 w-6" />
+          <MessageSquarePlus className="h-6 w-6" />
         </motion.button>
       </div>
 
