@@ -331,9 +331,11 @@ export default function CreatorUploadPage() {
     return null;
   }
 
-  // Permission check: read from active custom roles (never badge flags)
+  // Permission check: base roles (user/meril) can upload by default,
+  // or via an active custom role with permUploadVideo (never badge flags)
   const isAdminOrOwner = user?.role === "admin" || user?.role === "owner";
-  const hasUploadPermission = isAdminOrOwner || (customRoles?.some((r: any) => r.permUploadVideo) ?? false);
+  const isBaseUser = user?.role === "user" || user?.role === "meril";
+  const hasUploadPermission = isAdminOrOwner || isBaseUser || (customRoles?.some((r: any) => r.permUploadVideo) ?? false);
 
   // Admin/Owner always redirect to their dedicated upload pages
   if (isAdminOrOwner) {

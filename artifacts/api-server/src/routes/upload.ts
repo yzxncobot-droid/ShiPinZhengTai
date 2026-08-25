@@ -184,6 +184,11 @@ async function resolveUploaderType(
     return { type: normalized }; // may be null (legacy) or a specific type
   }
 
+  // Base roles (user/meril) can upload by default — route to PUBLIC creator storage.
+  if (["user", "meril"].includes(userRole)) {
+    return { type: "creator" };
+  }
+
   // Check custom role permissions — this is now the sole source of upload access.
   // Client-supplied uploaderType is ignored for all non-admin/owner users.
   try {

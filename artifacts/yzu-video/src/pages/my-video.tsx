@@ -136,7 +136,8 @@ export default function MyVideoPage() {
   });
 
   const isAdminOrOwner = user?.role === "admin" || user?.role === "owner";
-  const hasMyVideoPermission = isAdminOrOwner || (customRoles?.some((r: any) => r.permMyVideo) ?? false);
+  const isBaseUser = user?.role === "user" || user?.role === "meril";
+  const hasMyVideoPermission = isAdminOrOwner || isBaseUser || (customRoles?.some((r: any) => r.permMyVideo) ?? false);
 
   // Top-priority custom role for display in the access-denied screen
   const topCustomRole = customRoles?.[0] ?? null;
