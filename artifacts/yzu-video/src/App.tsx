@@ -16,6 +16,7 @@ import Home from "@/pages/home";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
 import TopupPage from "@/pages/topup";
+import WithdrawPage from "@/pages/withdraw";
 import HistoryPage from "@/pages/history";
 import LeaderboardPage from "@/pages/leaderboard";
 import ProfilePage from "@/pages/profile";
@@ -75,6 +76,7 @@ function AppRouter() {
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route path="/topup" component={TopupPage} />
+      <Route path="/withdraw" component={WithdrawPage} />
       <Route path="/history" component={HistoryPage} />
       <Route path="/profile" component={ProfilePage} />
       <Route path="/notifications" component={NotificationsPage} />

@@ -32,7 +32,7 @@ export default function AdminWithdrawals() {
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["admin-withdrawals", statusFilter, page],
-    queryFn: () => adminFetch(`/withdrawals?${statusFilter !== "all" ? `status=${statusFilter}&` : ""}page=${page}&limit=15`),
+    queryFn: () => adminFetch(`/withdrawals/all?${statusFilter !== "all" ? `status=${statusFilter}&` : ""}page=${page}&limit=15`),
     placeholderData: (prev) => prev,
   });
 
