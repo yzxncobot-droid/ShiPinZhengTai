@@ -2,11 +2,10 @@ import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { useAuth } from "@/lib/auth";
-import { useGetMe } from "@workspace/api-client-react";
+import { useGetMe, getGetMeQueryKey } from "@workspace/api-client-react";
 import { adminFetch } from "@/lib/admin-api";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { getGetMeQueryKey } from "@workspace/api-client-react";
 import { motion } from "framer-motion";
 import {
   Wallet, Info, Send, Loader2, ShieldAlert, Sparkles, Clock,
@@ -62,6 +61,24 @@ export default function WithdrawPage() {
   const [submitting, setSubmitting] = useState(false);
   const [weeklyRemaining, setWeeklyRemaining] = useState<number>(WEEKLY_LIMIT);
 
+  const loadWeeklyStatus = async () => {
+    try {
+      const data = await adminFetch<{ used: number; limit: number; remaining: number }>(
+        "/withdrawals/weekly-status",
+      );
+      setWeeklyRemaining(data.remaining);
+    } catch {
+      // keep default
+    }
+  };
+
+  // Load remaining weekly quota once the page mounts. (must stay above any
+  // conditional return to respect the Rules of Hooks)
+  useEffect(() => {
+    loadWeeklyStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Role gate — only Creator and above can use the feature.
   if (user && !CREATOR_ROLES.includes(user.role)) {
     return <AccessDenied />;
@@ -85,22 +102,6 @@ export default function WithdrawPage() {
     setCustom(raw);
     setSelected(null);
   };
-
-  const loadWeeklyStatus = async () => {
-    try {
-      const data = await adminFetch<{ used: number; limit: number; remaining: number }>(
-        "/withdrawals/weekly-status",
-      );
-      setWeeklyRemaining(data.remaining);
-    } catch {
-      // keep default
-    }
-  };
-
-  // Load remaining weekly quota once the page mounts.
-  useState(() => {
-    loadWeeklyStatus();
-  });
 
   const handleSubmit = async () => {
     if (!canSubmit) return;

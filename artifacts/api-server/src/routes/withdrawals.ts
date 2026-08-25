@@ -31,7 +31,7 @@ async function weeklyUsedAmount(userId: string): Promise<number> {
         ne(withdrawalsTable.status, "rejected"),
       ),
     );
-  return rows.reduce((sum, r) => sum + Number(r.amount), 0);
+  return rows.reduce((sum: number, r: { amount: number }) => sum + Number(r.amount), 0);
 }
 
 // User: weekly withdrawal limit status
