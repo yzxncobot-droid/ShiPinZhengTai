@@ -31,6 +31,8 @@ import redeemRouter from "./redeem";
 import revenueRouter from "./revenue";
 import badgeRolesRouter from "./badge-roles";
 import homeFeedRouter from "./home-feed";
+import gamificationRouter from "./gamification";
+import adminGamificationRouter from "./admin-gamification";
 
 const router: IRouter = Router();
 
@@ -66,6 +68,8 @@ router.use(redeemRouter);
 router.use(revenueRouter);
 router.use(badgeRolesRouter);
 router.use(homeFeedRouter);
+router.use(gamificationRouter);
+router.use(adminGamificationRouter);
 
 
 export default router;

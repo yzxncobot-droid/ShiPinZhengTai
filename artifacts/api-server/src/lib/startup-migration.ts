@@ -290,6 +290,196 @@ export async function runBestEffortStartupMigration(): Promise<void> {
     await runStep(client, "topup_status: add 'awaiting_manual_review'", `
       DO $$ BEGIN ALTER TYPE topup_status ADD VALUE IF NOT EXISTS 'awaiting_manual_review'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     `);
+
+    // ── 8. Gamification system tables ─────────────────────────────────────────
+    await runStep(client, "gamification: achievement_rarity enum", `
+      DO $$ BEGIN
+        CREATE TYPE achievement_rarity AS ENUM ('COMMON', 'RARE', 'EPIC', 'LEGENDARY', 'SPECIAL');
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
+    `);
+    await runStep(client, "gamification: exp_source enum", `
+      DO $$ BEGIN
+        CREATE TYPE exp_source AS ENUM (
+          'login', 'watch_video', 'like_video', 'comment', 'send_message',
+          'join_group', 'achievement', 'daily_mission', 'upload_video',
+          'admin_adjustment', 'level_reward'
+        );
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
+    `);
+    await runStep(client, "gamification: user_levels table", `
+      CREATE TABLE IF NOT EXISTS user_levels (
+        id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        total_exp       integer NOT NULL DEFAULT 0,
+        current_level   integer NOT NULL DEFAULT 1,
+        exp_today       integer NOT NULL DEFAULT 0,
+        exp_today_date  text,
+        lifetime_exp    integer NOT NULL DEFAULT 0,
+        last_exp_activity timestamp,
+        streak_days     integer NOT NULL DEFAULT 0,
+        last_login_date text,
+        created_at      timestamp NOT NULL DEFAULT NOW(),
+        updated_at      timestamp NOT NULL DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS user_levels_user_idx ON user_levels(user_id);
+      CREATE INDEX IF NOT EXISTS user_levels_level_idx ON user_levels(current_level);
+      CREATE INDEX IF NOT EXISTS user_levels_total_exp_idx ON user_levels(total_exp);
+    `);
+    await runStep(client, "gamification: exp_transactions table", `
+      CREATE TABLE IF NOT EXISTS exp_transactions (
+        id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        amount      integer NOT NULL,
+        source      exp_source NOT NULL,
+        reference_id text,
+        metadata    jsonb,
+        created_at  timestamp NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS exp_transactions_user_idx ON exp_transactions(user_id);
+      CREATE INDEX IF NOT EXISTS exp_transactions_created_idx ON exp_transactions(created_at);
+      CREATE INDEX IF NOT EXISTS exp_transactions_source_idx ON exp_transactions(source);
+      CREATE UNIQUE INDEX IF NOT EXISTS exp_transactions_ref_idx ON exp_transactions(user_id, source, reference_id);
+    `);
+    await runStep(client, "gamification: achievements table", `
+      CREATE TABLE IF NOT EXISTS achievements (
+        id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        name             text NOT NULL,
+        description      text NOT NULL,
+        icon             text NOT NULL DEFAULT '🏆',
+        rarity           achievement_rarity NOT NULL DEFAULT 'COMMON',
+        requirement_type text NOT NULL,
+        requirement_value integer NOT NULL DEFAULT 1,
+        exp_reward       integer NOT NULL DEFAULT 0,
+        badge_reward     text,
+        is_hidden        boolean NOT NULL DEFAULT false,
+        is_active        boolean NOT NULL DEFAULT true,
+        created_at       timestamp NOT NULL DEFAULT NOW(),
+        updated_at       timestamp NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS achievements_active_idx ON achievements(is_active);
+      CREATE INDEX IF NOT EXISTS achievements_req_type_idx ON achievements(requirement_type);
+    `);
+    await runStep(client, "gamification: user_achievements table", `
+      CREATE TABLE IF NOT EXISTS user_achievements (
+        id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id        uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        achievement_id uuid NOT NULL REFERENCES achievements(id) ON DELETE CASCADE,
+        unlocked_at    timestamp NOT NULL DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS user_achievements_unique_idx ON user_achievements(user_id, achievement_id);
+      CREATE INDEX IF NOT EXISTS user_achievements_user_idx ON user_achievements(user_id);
+    `);
+    await runStep(client, "gamification: special_badges table", `
+      CREATE TABLE IF NOT EXISTS special_badges (
+        id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        name        text NOT NULL UNIQUE,
+        icon        text NOT NULL DEFAULT '⭐',
+        color       text NOT NULL DEFAULT '#8b5cf6',
+        description text,
+        is_active   boolean NOT NULL DEFAULT true,
+        created_at  timestamp NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS special_badges_active_idx ON special_badges(is_active);
+    `);
+    await runStep(client, "gamification: user_special_badges table", `
+      CREATE TABLE IF NOT EXISTS user_special_badges (
+        id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        badge_id    uuid NOT NULL REFERENCES special_badges(id) ON DELETE CASCADE,
+        assigned_by uuid REFERENCES users(id) ON DELETE SET NULL,
+        assigned_at timestamp NOT NULL DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS user_special_badges_unique_idx ON user_special_badges(user_id, badge_id);
+      CREATE INDEX IF NOT EXISTS user_special_badges_user_idx ON user_special_badges(user_id);
+    `);
+    await runStep(client, "gamification: user_showcase_badges table", `
+      CREATE TABLE IF NOT EXISTS user_showcase_badges (
+        id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        badge_type   text NOT NULL,
+        badge_ref    uuid,
+        display_order integer NOT NULL DEFAULT 0,
+        created_at    timestamp NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS user_showcase_badges_user_idx ON user_showcase_badges(user_id);
+      CREATE INDEX IF NOT EXISTS user_showcase_badges_order_idx ON user_showcase_badges(user_id, display_order);
+    `);
+    await runStep(client, "gamification: user_statistics table", `
+      CREATE TABLE IF NOT EXISTS user_statistics (
+        id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        videos_watched   integer NOT NULL DEFAULT 0,
+        videos_liked     integer NOT NULL DEFAULT 0,
+        comments_posted  integer NOT NULL DEFAULT 0,
+        messages_sent    integer NOT NULL DEFAULT 0,
+        groups_joined    integer NOT NULL DEFAULT 0,
+        videos_uploaded  integer NOT NULL DEFAULT 0,
+        updated_at       timestamp NOT NULL DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS user_statistics_user_idx ON user_statistics(user_id);
+    `);
+    await runStep(client, "gamification: level_rewards table", `
+      CREATE TABLE IF NOT EXISTS level_rewards (
+        id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        level       integer NOT NULL,
+        reward_type text NOT NULL DEFAULT 'profile_frame',
+        reward_value text,
+        description text,
+        created_at  timestamp NOT NULL DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS level_rewards_level_idx ON level_rewards(level);
+    `);
+    await runStep(client, "gamification: exp_audit_logs table", `
+      CREATE TABLE IF NOT EXISTS exp_audit_logs (
+        id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        admin_id  uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_id   uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        amount    integer NOT NULL,
+        reason    text NOT NULL,
+        created_at timestamp NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS exp_audit_logs_user_idx ON exp_audit_logs(user_id);
+      CREATE INDEX IF NOT EXISTS exp_audit_logs_admin_idx ON exp_audit_logs(admin_id);
+    `);
+    await runStep(client, "gamification: user_privacy_settings table", `
+      CREATE TABLE IF NOT EXISTS user_privacy_settings (
+        id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id             uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        show_level          boolean NOT NULL DEFAULT true,
+        show_badges         boolean NOT NULL DEFAULT true,
+        show_achievements   boolean NOT NULL DEFAULT true,
+        show_total_video    boolean NOT NULL DEFAULT true,
+        show_chat_count     boolean NOT NULL DEFAULT false,
+        show_activity_stats boolean NOT NULL DEFAULT false,
+        updated_at          timestamp NOT NULL DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS user_privacy_settings_user_idx ON user_privacy_settings(user_id);
+    `);
+    await runStep(client, "gamification: gamification_config table", `
+      CREATE TABLE IF NOT EXISTS gamification_config (
+        id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        base_exp            integer NOT NULL DEFAULT 100,
+        step_exp            integer NOT NULL DEFAULT 50,
+        growth_multiplier   double precision NOT NULL DEFAULT 1.0,
+        multiplier_interval integer NOT NULL DEFAULT 5,
+        max_level           integer NOT NULL DEFAULT 0,
+        updated_at          timestamp NOT NULL DEFAULT NOW()
+      );
+    `);
+    await runStep(client, "gamification: level_badge_tiers table", `
+      CREATE TABLE IF NOT EXISTS level_badge_tiers (
+        id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        name        text NOT NULL,
+        icon        text NOT NULL DEFAULT '🆕',
+        color       text NOT NULL DEFAULT '#94a3b8',
+        min_level   integer NOT NULL DEFAULT 1,
+        sort_order  integer NOT NULL DEFAULT 0,
+        created_at  timestamp NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS level_badge_tiers_min_level_idx ON level_badge_tiers(min_level);
+    `);
   } finally {
     client.release();
   }

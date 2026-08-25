@@ -30,3 +30,4 @@ export * from "./leaderboard";
 export * from "./revenue-shares";
 export * from "./custom-roles";
 export * from "./home-feed";
+export * from "./gamification";

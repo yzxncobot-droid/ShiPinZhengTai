@@ -239,6 +239,13 @@ router.post("/videos/:id/view", optionalAuth, async (req, res) => {
   // Record individual view in DB
   await db.insert(viewsTable).values({ videoId: id, userId: userId ?? null });
 
+  // ── Gamification: award watch EXP (idempotent per video, daily-limited) ─────
+  if (userId) {
+    import("../lib/gamification").then(({ awardExp }) =>
+      awardExp(userId, "watch_video", `watch_${id}`, undefined, { videoId: id }).catch(() => {}),
+    );
+  }
+
   res.json({ message: "View recorded", bufferedViews: bufferedCount });
 });
 
@@ -358,6 +365,11 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
 
     // Invalidate analytics cache (best-effort — Redis may be unavailable)
     await invalidateCache(keys.analytics("overview")).catch(() => {});
+
+    // ── Gamification: award upload EXP (idempotent per video, daily-limited) ──
+    import("../lib/gamification").then(({ awardExp }) =>
+      awardExp(userId, "upload_video", `upload_${video.id}`, undefined, { videoId: video.id }).catch(() => {}),
+    );
 
     res.status(201).json(await formatVideo(video, userId));
   } catch (err: any) {
@@ -488,6 +500,12 @@ router.post("/videos/:id/like", authenticate, async (req, res) => {
   try {
     await db.insert(likesTable).values({ videoId: id, userId });
     await db.update(videosTable).set({ likes: sql`${videosTable.likes} + 1` }).where(eq(videosTable.id, id));
+
+    // ── Gamification: award like EXP (idempotent per video, daily-limited) ───
+    import("../lib/gamification").then(({ awardExp }) =>
+      awardExp(userId, "like_video", `like_${id}`, undefined, { videoId: id }).catch(() => {}),
+    );
+
     res.json({ liked: true });
   } catch (err: any) {
     const pgCode = err?.code ?? err?.cause?.code;
@@ -727,6 +745,11 @@ router.post("/videos/:id/comments", authenticate, async (req, res) => {
   const [user] = await db.select({
     id: usersTable.id, username: usersTable.username, avatar: usersTable.avatar,
   }).from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+
+  // ── Gamification: award comment EXP (idempotent per comment, daily-limited) ─
+  import("../lib/gamification").then(({ awardExp }) =>
+    awardExp(userId, "comment", `comment_${comment.id}`, undefined, { videoId: id, commentId: comment.id }).catch(() => {}),
+  );
 
   res.status(201).json({ ...comment, user });
 });

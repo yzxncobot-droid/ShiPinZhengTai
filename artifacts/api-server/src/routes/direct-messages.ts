@@ -281,6 +281,11 @@ router.post("/dm/conversations/:id/messages", authenticate, async (req, res) => 
     const [sender] = await db.select({ username: usersTable.username, avatar: usersTable.avatar })
       .from(usersTable).where(eq(usersTable.id, userId));
 
+    // ── Gamification: award message EXP (idempotent per message, daily-limited) ─
+    import("../lib/gamification").then(({ awardExp }) =>
+      awardExp(userId, "send_message", `dm_${created.id}`, undefined, { conversationId: convId }).catch(() => {}),
+    );
+
     res.status(201).json({ ...created, senderUsername: sender.username, senderAvatar: sender.avatar, isMine: true, reactions: [] });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

@@ -40,9 +40,14 @@ app.listen(port, (err) => {
   logger.info({ port }, "Server listening");
 
   // Best-effort: adds columns, back-fills, etc. Failures are warnings only.
-  runBestEffortStartupMigration().catch((e) =>
-    logger.warn({ err: e?.message }, "startup-migration: unexpected error"),
-  );
+  // Seed default gamification data AFTER the migration completes so the
+  // tables exist when the seed queries them.
+  runBestEffortStartupMigration()
+    .then(() => import("./lib/gamification"))
+    .then(({ seedDefaultGamification }) => seedDefaultGamification())
+    .catch((e) =>
+      logger.warn({ err: e?.message }, "startup-migration/seed: unexpected error"),
+    );
 
   // Best-effort: validate service_role keys and auto-create the `yzx` bucket
   // in every configured Supabase project (PUBLIC / OWNER / MEDIA).

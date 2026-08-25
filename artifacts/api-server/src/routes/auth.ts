@@ -311,6 +311,11 @@ router.post("/auth/login", authRateLimit, async (req, res, next) => {
 
     await invalidateUserCache(user.id).catch(() => {});
 
+    // ── Gamification: update login streak & award daily login EXP ─────────────
+    import("../lib/gamification").then(({ onLogin }) =>
+      onLogin(user.id).catch((err: any) => logger.warn({ err }, "gamification onLogin failed")),
+    );
+
     logger.info({ userId: user.id, username: user.username }, "User logged in successfully");
     res.json({
       success: true,

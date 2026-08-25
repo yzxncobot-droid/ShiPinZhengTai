@@ -15,7 +15,9 @@ import {
   Loader2, Camera, Wallet, ChevronRight, LogOut, Settings,
   Bell, Shield, HelpCircle, Heart, Video, Star, Users, Gift,
   History, User, Lock, Moon, Sun, Award, Plus, Minus,
+  TrendingUp, Trophy, Flame, MessageCircle, Upload,
 } from "lucide-react";
+import { useGamificationProfile } from "@/lib/gamification-api";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const ROLE_STYLE: Record<string, { label: string; className: string }> = {
@@ -77,6 +79,7 @@ export default function ProfilePage() {
   const { toast } = useToast();
   const { data: freshUser, refetch } = useGetMe();
   const updateUser = useUpdateUser();
+  const { data: gamification } = useGamificationProfile();
 
   const currentUser = freshUser || authUser;
 
