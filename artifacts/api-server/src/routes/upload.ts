@@ -4,7 +4,7 @@ import path from "path";
 import { eq, and } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { usersTable, customRolesTable, userCustomRolesTable } from "@workspace/db";
-import { authenticate } from "../middlewares/auth";
+import { authenticate, requireRole } from "../middlewares/auth";
 import {
   // Legacy Supabase (for backward-compat uploads without uploader type,
   // bundle videos, bundle thumbnails, generic images)
@@ -592,6 +592,59 @@ router.post(
         message: friendlyUploadError(err, `legacy/${proofFolder}`),
         detail:  err?.message,
       });
+    }
+  },
+);
+
+// ── Home Feed video upload → MEDIA Supabase (media/home-feed/videos/) ─────────
+//
+//  Home feed videos are stored in the MEDIA Supabase project, completely
+//  separate from Shop product videos. Admin/owner only.
+router.post(
+  "/upload/home-feed-video",
+  authenticate,
+  requireRole("admin", "owner"),
+  withMulterErrorHandling((req, res, cb) => videoUpload.single("video")(req, res, cb)),
+  async (req: Request, res: Response) => {
+    if (!req.file) {
+      res.status(400).json({ success: false, message: "Tidak ada file video yang dipilih." });
+      return;
+    }
+    if (!isMediaStorageAvailable) {
+      res.status(503).json({ success: false, message: "Media storage belum dikonfigurasi (MEDIA_SUPABASE_URL / MEDIA_SUPABASE_SERVICE_KEY). Hubungi administrator." });
+      return;
+    }
+    try {
+      const { path: storedPath, url, folder } = await uploadToMediaStorage("home-feed-video", req.file);
+      res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: "yzx", folder });
+    } catch (err: any) {
+      logger.error({ err }, "Home feed video upload failed");
+      res.status(500).json({ success: false, message: friendlyUploadError(err, "media/home-feed/videos"), detail: err?.message });
+    }
+  },
+);
+
+// ── Home Feed thumbnail upload → MEDIA Supabase (media/home-feed/thumbnails/) ─
+router.post(
+  "/upload/home-feed-thumbnail",
+  authenticate,
+  requireRole("admin", "owner"),
+  withMulterErrorHandling((req, res, cb) => imageUpload.single("thumbnail")(req, res, cb)),
+  async (req: Request, res: Response) => {
+    if (!req.file) {
+      res.status(400).json({ success: false, message: "Tidak ada file thumbnail yang dipilih." });
+      return;
+    }
+    if (!isMediaStorageAvailable) {
+      res.status(503).json({ success: false, message: "Media storage belum dikonfigurasi (MEDIA_SUPABASE_URL / MEDIA_SUPABASE_SERVICE_KEY). Hubungi administrator." });
+      return;
+    }
+    try {
+      const { path: storedPath, url, folder } = await uploadToMediaStorage("home-feed-thumbnail", req.file);
+      res.json({ success: true, url, path: storedPath, filename: storedPath, size: req.file.size, bucket: "yzx", folder });
+    } catch (err: any) {
+      logger.error({ err }, "Home feed thumbnail upload failed");
+      res.status(500).json({ success: false, message: friendlyUploadError(err, "media/home-feed/thumbnails"), detail: err?.message });
     }
   },
 );

@@ -31,7 +31,7 @@ export function PremiumLockScreen({ video }: PremiumLockScreenProps) {
   const walletBalance = user?.walletBalance ?? 0;
   const canAfford = walletBalance >= price;
 
-  const bundleTarget = video.bundles && video.bundles.length > 0 ? `/bundles?highlight=${video.bundles[0].id}` : "/bundles";
+  const bundleTarget = "/shop";
   const handleGoToBundle = () => {
     setLocation(bundleTarget);
   };

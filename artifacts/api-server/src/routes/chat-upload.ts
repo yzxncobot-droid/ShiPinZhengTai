@@ -1,9 +1,8 @@
 import { Router } from "express";
 import multer from "multer";
 import { authenticate } from "../middlewares/auth";
-import { uploadWithRetry, MEDIA_BUCKET, isSupabaseAvailable } from "../lib/supabase";
-import { randomUUID } from "crypto";
-import path from "path";
+import { uploadToMediaStorage, isMediaStorageAvailable } from "../lib/storage/media";
+import { logger } from "../lib/logger";
 
 const router = Router();
 const upload = multer({
@@ -24,25 +23,31 @@ const upload = multer({
   },
 });
 
-const FOLDER_MAP: Record<string, string> = {
-  "image/jpeg": "chat-images",
-  "image/png": "chat-images",
-  "image/webp": "chat-images",
-  "image/gif": "chat-images",
-  "video/mp4": "chat-videos",
-  "video/quicktime": "chat-videos",
-  "video/webm": "chat-videos",
-  "application/pdf": "chat-files",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "chat-files",
-  "application/zip": "chat-files",
-  "audio/webm": "voice-notes",
-  "audio/ogg": "voice-notes",
-  "audio/mpeg": "voice-notes",
+/**
+ * Map a MIME type to:
+ *   - `assetType`  → Media Supabase folder (media/chat/…)
+ *   - `folder`     → legacy folder name the frontend uses to detect message type
+ */
+const TYPE_MAP: Record<string, { assetType: string; folder: string }> = {
+  "image/jpeg":              { assetType: "chat-image", folder: "chat-images" },
+  "image/png":               { assetType: "chat-image", folder: "chat-images" },
+  "image/webp":              { assetType: "chat-image", folder: "chat-images" },
+  "image/gif":               { assetType: "chat-image", folder: "chat-images" },
+  "video/mp4":               { assetType: "chat-video", folder: "chat-videos" },
+  "video/quicktime":         { assetType: "chat-video", folder: "chat-videos" },
+  "video/webm":              { assetType: "chat-video", folder: "chat-videos" },
+  "application/pdf":         { assetType: "chat-file",  folder: "chat-files" },
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                             { assetType: "chat-file",  folder: "chat-files" },
+  "application/zip":         { assetType: "chat-file",  folder: "chat-files" },
+  "audio/webm":              { assetType: "chat-voice", folder: "voice-notes" },
+  "audio/ogg":               { assetType: "chat-voice", folder: "voice-notes" },
+  "audio/mpeg":              { assetType: "chat-voice", folder: "voice-notes" },
 };
 
 router.post("/chat/upload", authenticate, upload.single("file"), async (req, res) => {
-  if (!isSupabaseAvailable) {
-    res.status(503).json({ error: "Storage not configured" });
+  if (!isMediaStorageAvailable) {
+    res.status(503).json({ error: "Media storage not configured" });
     return;
   }
   if (!req.file) {
@@ -51,28 +56,26 @@ router.post("/chat/upload", authenticate, upload.single("file"), async (req, res
   }
 
   try {
-    const folder = FOLDER_MAP[req.file.mimetype] ?? "chat-files";
-    const ext = path.extname(req.file.originalname) || "";
-    const filename = `${randomUUID()}${ext}`;
-    const storagePath = `${folder}/${filename}`;
+    const mapping = TYPE_MAP[req.file.mimetype] ?? { assetType: "chat-file", folder: "chat-files" };
 
-    const { url } = await uploadWithRetry(
-      MEDIA_BUCKET,
-      storagePath,
-      req.file.buffer,
-      req.file.mimetype,
-      { upsert: false },
+    const { url, path: storagePath } = await uploadToMediaStorage(mapping.assetType, req.file);
+
+    logger.info(
+      { folder: mapping.folder, path: storagePath, size: req.file.size, mime: req.file.mimetype },
+      "chat-upload: MEDIA Supabase upload SUCCESS",
     );
 
     res.json({
       url,
       path: storagePath,
       fileName: req.file.originalname,
+      originalName: req.file.originalname,
       mimeType: req.file.mimetype,
       size: req.file.size,
-      folder,
+      folder: mapping.folder,
     });
   } catch (err: any) {
+    logger.error({ err }, "chat-upload: MEDIA Supabase upload FAILED");
     res.status(500).json({ error: err.message });
   }
 });

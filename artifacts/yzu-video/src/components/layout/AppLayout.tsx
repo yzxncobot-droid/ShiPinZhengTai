@@ -72,14 +72,11 @@ export function Navbar() {
             <Link href="/" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location === '/' ? 'text-purple-600' : 'text-slate-500'}`}>
               Home
             </Link>
-            <Link href="/bundles" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location.startsWith('/bundles') ? 'text-purple-600' : 'text-slate-500'}`}>
-              Bundles
+            <Link href="/shop" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location.startsWith('/shop') ? 'text-purple-600' : 'text-slate-500'}`}>
+              Shop
             </Link>
             <Link href="/topup" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location === '/topup' ? 'text-purple-600' : 'text-slate-500'}`}>
               Top Up
-            </Link>
-            <Link href="/chat" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location.startsWith('/chat') ? 'text-purple-600' : 'text-slate-500'}`}>
-              Chat
             </Link>
           </nav>
         </div>
@@ -245,7 +242,7 @@ export function Footer() {
             <h4 className="font-heading font-extrabold text-slate-800">Links</h4>
             <ul className="space-y-2 text-sm font-medium text-slate-500">
               <li><Link href="/" className="hover:text-purple-600 transition-colors">Home</Link></li>
-              <li><Link href="/bundles" className="hover:text-purple-600 transition-colors">Bundles</Link></li>
+              <li><Link href="/shop" className="hover:text-purple-600 transition-colors">Shop</Link></li>
               <li><Link href="/leaderboard" className="hover:text-purple-600 transition-colors">Leaderboard</Link></li>
               <li><Link href="/search" className="hover:text-purple-600 transition-colors">Search</Link></li>
             </ul>
