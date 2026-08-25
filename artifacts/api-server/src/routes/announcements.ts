@@ -270,7 +270,9 @@ router.get("/announcements/:id/comments", optionalAuth, async (req, res) => {
   }
 });
 
-router.post("/announcements/:id/comments", authenticate, async (req, res) => {
+// Only the owner can send messages in the announcement chat thread.
+// All other roles (admins, moderators, regular users) can read but not post.
+router.post("/announcements/:id/comments", authenticate, requireRole("owner"), async (req, res) => {
   try {
     const { content } = req.body;
     if (!content?.trim()) { res.status(400).json({ error: "content required" }); return; }
