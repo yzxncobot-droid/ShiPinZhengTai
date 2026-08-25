@@ -25,7 +25,7 @@ import {
   transactionsTable,
 } from "@workspace/db";
 import {
-  eq, desc, sum, count, and, ne, isNotNull, sql,
+  eq, desc, sum, count, and, ne, isNotNull, sql, or, ilike,
 } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
 import { logger } from "../lib/logger";
@@ -387,6 +387,92 @@ router.get(
     } catch (err) {
       logger.error({ err }, "GET /revenue/admin/creators failed");
       res.status(500).json({ error: "Failed to fetch creator revenue report" });
+    }
+  },
+);
+
+/**
+ * GET /revenue/admin/top-premium-earners?search=&page=1&limit=50
+ * Top earners from PREMIUM videos uploaded by base roles (user/meril),
+ * with optional username search. Excludes cancelled shares & bundle sales.
+ */
+router.get(
+  "/revenue/admin/top-premium-earners",
+  authenticate,
+  requireRole("admin", "owner"),
+  async (req, res) => {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
+    const offset = (page - 1) * limit;
+    const search = ((req.query.search as string) || "").trim();
+
+    try {
+      // Only individual premium-video purchases where the uploader is a base
+      // role (user/meril). Bundle sales (videoId NULL) are excluded by the
+      // inner join on videos.
+      const where = and(
+        isNotNull(revenueSharesTable.creatorId),
+        eq(videosTable.visibility, "premium"),
+        ne(revenueSharesTable.payoutStatus, "cancelled"),
+        or(eq(usersTable.role, "user"), eq(usersTable.role, "meril")),
+        search ? ilike(usersTable.username, `%${search}%`) : undefined,
+      );
+
+      const [{ total }] = await db
+        .select({ total: count(sql`DISTINCT ${revenueSharesTable.creatorId}`) })
+        .from(revenueSharesTable)
+        .innerJoin(videosTable, eq(revenueSharesTable.videoId, videosTable.id))
+        .innerJoin(usersTable, eq(revenueSharesTable.creatorId, usersTable.id))
+        .where(where);
+
+      const rows = await db
+        .select({
+          creatorId: revenueSharesTable.creatorId,
+          username: usersTable.username,
+          avatar: usersTable.avatar,
+          role: usersTable.role,
+          totalSales: count(),
+          totalEarned: sum(revenueSharesTable.creatorShare),
+          totalPlatformShare: sum(revenueSharesTable.platformShare),
+          totalRevenue: sum(revenueSharesTable.videoPrice),
+          avgShareRate: sql<number>`AVG(${revenueSharesTable.shareRate})`,
+        })
+        .from(revenueSharesTable)
+        .innerJoin(videosTable, eq(revenueSharesTable.videoId, videosTable.id))
+        .innerJoin(usersTable, eq(revenueSharesTable.creatorId, usersTable.id))
+        .where(where)
+        .groupBy(
+          revenueSharesTable.creatorId,
+          usersTable.username,
+          usersTable.avatar,
+          usersTable.role,
+        )
+        .orderBy(desc(sum(revenueSharesTable.creatorShare)))
+        .limit(limit)
+        .offset(offset);
+
+      res.json({
+        data: rows.map((r: any) => ({
+          creatorId: r.creatorId,
+          username: r.username,
+          avatar: r.avatar,
+          role: r.role,
+          totalSales: Number(r.totalSales) || 0,
+          totalEarned: Number(r.totalEarned) || 0,
+          totalPlatformShare: Number(r.totalPlatformShare) || 0,
+          totalRevenue: Number(r.totalRevenue) || 0,
+          avgShareRate: Number(r.avgShareRate) || 0,
+        })),
+        pagination: {
+          page,
+          limit,
+          total: Number(total) || 0,
+          totalPages: Math.ceil((Number(total) || 0) / limit),
+        },
+      });
+    } catch (err) {
+      logger.error({ err }, "GET /revenue/admin/top-premium-earners failed");
+      res.status(500).json({ error: "Failed to fetch top premium earners" });
     }
   },
 );
