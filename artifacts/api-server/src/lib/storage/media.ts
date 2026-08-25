@@ -66,7 +66,11 @@ export type MediaAssetType =
   | "logo"
   | "images"
   | "home-feed-video"
-  | "home-feed-thumbnail";
+  | "home-feed-thumbnail"
+  | "chat-image"
+  | "chat-video"
+  | "chat-voice"
+  | "chat-file";
 
 const ASSET_FOLDER: Record<MediaAssetType, string> = {
   "avatar":              "media/avatars",
@@ -78,6 +82,10 @@ const ASSET_FOLDER: Record<MediaAssetType, string> = {
   "images":              "media/images",
   "home-feed-video":     "media/home-feed/videos",
   "home-feed-thumbnail": "media/home-feed/thumbnails",
+  "chat-image":          "media/chat/images",
+  "chat-video":          "media/chat/videos",
+  "chat-voice":          "media/chat/voice",
+  "chat-file":           "media/chat/files",
 };
 
 /**
@@ -96,6 +104,11 @@ export function resolveMediaAssetType(raw: string | undefined): MediaAssetType {
   if (s === "bundle-thumbnail") return "bundle-thumbnail";
   if (s === "bundle-banner")    return "bundle-banner";
   if (s === "logo")             return "logo";
+  // chat asset aliases
+  if (s === "chat-image")       return "chat-image";
+  if (s === "chat-video")       return "chat-video";
+  if (s === "chat-voice")       return "chat-voice";
+  if (s === "chat-file")        return "chat-file";
   // frontend field-name aliases
   if (s === "qrisimage")        return "qris";
   if (s === "thumbnail")        return "bundle-thumbnail";

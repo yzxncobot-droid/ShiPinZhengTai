@@ -153,6 +153,7 @@ router.get("/videos", optionalAuth, async (req, res) => {
       createdAt: videosTable.createdAt,
       views: videosTable.views,
       likes: videosTable.likes,
+      price: videosTable.price,
     };
     const sortCol = sortColMap[sort] ?? videosTable.createdAt;
     const orderFn = order === "asc" ? asc : desc;

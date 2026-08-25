@@ -1,12 +1,17 @@
-import { useGetFeaturedVideos, useListVideos, useListCategories, getListVideosQueryKey } from "@workspace/api-client-react";
+import { useGetFeaturedVideos, useListCategories } from "@workspace/api-client-react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { VideoCard, VideoCardSkeleton } from "@/components/video/VideoCard";
 import { Button } from "@/components/ui/button";
-import { Play, Rocket, Star, Music, Gamepad2, Heart, Smile, Cloud, Sparkles, ChevronDown } from "lucide-react";
+import { Play, Rocket, Star, Music, Gamepad2, Heart, Smile, Cloud, Sparkles, ChevronDown, SlidersHorizontal, Crown } from "lucide-react";
 import { Link } from "wouter";
 import { useState, Component, type ReactNode } from "react";
-import { Badge } from "@/components/ui/badge";
+import { useQuery } from "@tanstack/react-query";
+import { adminFetch } from "@/lib/admin-api";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Video } from "@workspace/api-client-react";
 
 /** Lightweight section-level error boundary — renders a quiet fallback instead of crashing the page. */
 class SectionBoundary extends Component<{ label: string; children: ReactNode }, { err: boolean }> {
@@ -30,36 +35,45 @@ const CATEGORY_ICONS = [Star, Rocket, Sparkles, Music, Gamepad2, Heart, Smile, C
 const INITIAL_LIMIT = 6;
 const LOAD_MORE_STEP = 4;
 
-// ─── Module-level state ───────────────────────────────────────────────────────
-// Persists across SPA route navigation (component unmount/remount) but resets
-// when the browser does a full page refresh (module re-evaluation).
+// ─── Sort options ────────────────────────────────────────────────────────────
+type SortKey = "popular" | "price_low" | "price_high" | "newest" | "views";
+
+const SORT_OPTIONS: { key: SortKey; label: string; sort: string; order: "asc" | "desc" }[] = [
+  { key: "popular",   label: "Terpopuler",         sort: "popular",   order: "desc" },
+  { key: "newest",    label: "Baru Diupload",      sort: "newest",    order: "desc" },
+  { key: "price_low", label: "Harga Terendah",    sort: "price",     order: "asc"  },
+  { key: "price_high",label: "Harga Tertinggi",    sort: "price",     order: "desc" },
+  { key: "views",     label: "Paling Banyak Ditonton", sort: "views", order: "desc" },
+];
+
+const formatRupiah = (value: number) => `Rp ${value.toLocaleString("id-ID")}`;
+
+// ─── Module-level state (persists across SPA navigation) ─────────────────────
 let persistedVisibleCount = INITIAL_LIMIT;
 let persistedCategoryId: string | null = null;
+let persistedSort: SortKey = "popular";
 
 export default function ShopPage() {
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(persistedCategoryId);
   const [visibleCount, setVisibleCount] = useState(persistedVisibleCount);
+  const [sortKey, setSortKey] = useState<SortKey>(persistedSort);
 
   const { data: featuredVideos } = useGetFeaturedVideos();
   const { data: categories } = useListCategories();
 
-  // Main video grid — newest first, filtered by category
-  const { data: videosData, isLoading: isLoadingVideos } = useListVideos(
-    {
-      categoryId: activeCategoryId ?? undefined,
-      sort: "newest",
-      limit: 100, // fetch all, slice client-side for See More
-    },
-    {
-      query: {
-        queryKey: getListVideosQueryKey({
-          categoryId: activeCategoryId ?? undefined,
-          sort: "newest",
-          limit: 100,
-        }),
-      },
-    },
-  );
+  const sortOption = SORT_OPTIONS.find((s) => s.key === sortKey) ?? SORT_OPTIONS[0];
+
+  // Main video grid — sorted + filtered by category (custom fetch to support price/order)
+  const { data: videosData, isLoading: isLoadingVideos } = useQuery<{ data: Video[]; total: number }>({
+    queryKey: ["shop-videos", activeCategoryId ?? "all", sortKey],
+    queryFn: () =>
+      adminFetch<{ data: Video[]; total: number }>(
+      `/videos?sort=${sortOption.sort}&order=${sortOption.order}&limit=100${
+        activeCategoryId ? `&categoryId=${encodeURIComponent(activeCategoryId)}` : ""
+      }`,
+      ),
+    staleTime: 30_000,
+  });
 
   const heroVideo = featuredVideos?.[0];
   const allVideos = Array.isArray(videosData?.data) ? videosData.data : [];
@@ -75,84 +89,137 @@ export default function ShopPage() {
   const handleCategoryChange = (id: string | null) => {
     setActiveCategoryId(id);
     persistedCategoryId = id;
-    setVisibleCount(INITIAL_LIMIT); // reset pagination on category switch
+    setVisibleCount(INITIAL_LIMIT);
+    persistedVisibleCount = INITIAL_LIMIT;
+  };
+
+  const handleSortChange = (key: SortKey) => {
+    setSortKey(key);
+    persistedSort = key;
+    setVisibleCount(INITIAL_LIMIT);
     persistedVisibleCount = INITIAL_LIMIT;
   };
 
   return (
     <AppLayout>
-      {/* Hero Section */}
-      <section className="relative w-full h-[60vh] md:h-[70vh] min-h-[480px] overflow-hidden bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 rounded-b-[40px] shadow-xl">
-        {/* Decorative elements */}
-        <div className="absolute top-10 left-10 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
-        <div className="absolute bottom-10 right-10 w-48 h-48 bg-pink-500/20 rounded-full blur-3xl" />
-        <Star className="absolute top-16 right-[15%] h-12 w-12 text-yellow-300 fill-yellow-300 drop-shadow-md transform rotate-12" />
-        <Rocket className="absolute bottom-20 left-[10%] h-16 w-16 text-white drop-shadow-lg transform -rotate-12" />
-        <Cloud className="absolute top-1/3 left-[20%] h-10 w-10 text-white/40 fill-white/40" />
+      {/* ─── Featured Hero Banner (compact, matches design proportions) ─── */}
+      <section className="px-4 pt-4">
+        <div className="relative w-full overflow-hidden rounded-3xl bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 shadow-xl">
+          {/* Decorative clouds & stars */}
+          <Star className="absolute top-5 right-[18%] h-6 w-6 text-yellow-300 fill-yellow-300 drop-shadow-md rotate-12" />
+          <Star className="absolute top-12 left-[40%] h-3.5 w-3.5 text-white/70 fill-white/70" />
+          <Cloud className="absolute bottom-6 left-[8%] h-8 w-8 text-white/30 fill-white/30" />
+          <Cloud className="absolute top-8 left-[6%] h-6 w-6 text-white/20 fill-white/20" />
+          <div className="absolute -top-6 -right-6 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
+          <div className="absolute -bottom-10 left-1/3 w-40 h-40 bg-pink-500/20 rounded-full blur-3xl" />
 
-        {heroVideo ? (
-          <>
-            <div className="absolute inset-0 z-0">
-              <img
-                src={heroVideo.thumbnail || ''}
-                alt={heroVideo.title}
-                className="w-full h-full object-cover opacity-30 mix-blend-overlay"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-indigo-900/90 via-indigo-900/40 to-transparent" />
-            </div>
-
-            <div className="relative z-10 h-full container mx-auto px-6 flex flex-col justify-end pb-16 md:pb-24">
-              <div className="max-w-2xl space-y-4">
-                <div className="flex gap-2">
-                  <Badge className="bg-gradient-to-r from-orange-400 to-pink-500 text-white border-none font-extrabold px-3 py-1 rounded-full shadow-lg">
-                    POPULAR 🔥
-                  </Badge>
-                </div>
-
-                <h1 className="text-3xl md:text-5xl font-heading font-extrabold tracking-tight text-white leading-tight drop-shadow-md line-clamp-2">
+          {heroVideo ? (
+            <div className="relative z-10 flex items-stretch gap-2 p-4 sm:p-6">
+              {/* Left: text content */}
+              <div className="flex-1 flex flex-col justify-center min-w-0 space-y-2.5">
+                <span className="inline-flex w-max items-center gap-1 bg-gradient-to-r from-amber-400 to-orange-500 text-white text-[10px] font-extrabold px-2.5 py-1 rounded-full shadow-md">
+                  <Crown className="h-3 w-3" /> POPULAR
+                </span>
+                <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight text-white leading-tight drop-shadow-md line-clamp-2">
                   {heroVideo.title}
                 </h1>
-
-                <p className="text-sm md:text-base text-white/90 line-clamp-2 font-medium max-w-lg">
-                  {heroVideo.description}
+                <p className="text-xs sm:text-sm text-white/90 line-clamp-2 font-medium max-w-xs">
+                  {heroVideo.description || "Serunya belajar sambil bermain!"}
                 </p>
-
-                <div className="pt-2">
+                <div className="flex items-center gap-2 pt-0.5">
                   <Link href={`/videos/${heroVideo.id}`}>
-                    <Button size="lg" className="h-12 px-8 font-extrabold rounded-full bg-white text-purple-700 hover:bg-slate-100 shadow-xl shadow-black/10 transform transition-transform hover:scale-105">
-                      <Play className="mr-2 h-5 w-5 fill-purple-700" /> Tonton Sekarang
+                    <Button size="sm" className="h-9 px-4 font-extrabold rounded-full bg-white text-purple-700 hover:bg-slate-100 shadow-lg shadow-black/10">
+                      <Play className="mr-1.5 h-4 w-4 fill-purple-700" /> Tonton
                     </Button>
                   </Link>
+                  {heroVideo.price ? (
+                    <span className="text-base font-extrabold text-white drop-shadow">
+                      {formatRupiah(heroVideo.price)}
+                    </span>
+                  ) : (
+                    <span className="text-sm font-extrabold text-white drop-shadow">Gratis</span>
+                  )}
                 </div>
               </div>
+
+              {/* Right: thumbnail */}
+              <Link href={`/videos/${heroVideo.id}`} className="relative shrink-0 w-28 sm:w-40 md:w-48 aspect-video rounded-2xl overflow-hidden shadow-2xl ring-2 ring-white/30 self-center">
+                {heroVideo.thumbnail ? (
+                  <img src={heroVideo.thumbnail} alt={heroVideo.title} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-white/20">
+                    <Play className="h-8 w-8 text-white" />
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                  <Play className="h-4 w-4 text-purple-600 fill-purple-600 ml-0.5" />
+                </div>
+              </Link>
             </div>
-          </>
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-12 h-12 rounded-full border-4 border-white border-t-transparent animate-spin" />
+          ) : (
+            <div className="relative z-10 h-32 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-full border-4 border-white border-t-transparent animate-spin" />
+            </div>
+          )}
+
+          {/* Carousel dots */}
+          <div className="relative z-10 flex items-center gap-1.5 px-5 pb-3">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <span
+                key={i}
+                className={`h-1.5 rounded-full transition-all ${i === 0 ? "w-5 bg-white" : "w-1.5 bg-white/40"}`}
+              />
+            ))}
           </div>
-        )}
+        </div>
       </section>
 
-      {/* Main Content */}
-      <div className="container mx-auto px-4 py-8 space-y-6">
+      {/* ─── Main Content ─── */}
+      <div className="container mx-auto px-4 py-6 space-y-5">
 
-        {/* Category Chips + Video Grid */}
+        {/* Filter section heading + sort dropdown */}
         <SectionBoundary label="video-grid">
           <section>
-            {/* Section heading */}
-            <div className="flex items-center justify-between mb-4 px-2">
-              <h2 className="text-xl font-heading font-extrabold text-slate-800">
-                Shop Video 🎬
+            <div className="flex items-center justify-between mb-3 px-1">
+              <h2 className="flex items-center gap-2 text-lg font-extrabold text-slate-800">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-purple-100">
+                  <Play className="h-4 w-4 text-purple-600 fill-purple-600" />
+                </span>
+                Produk Video
               </h2>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-600 shadow-sm hover:border-purple-200 hover:text-purple-600 transition-colors">
+                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                    {sortOption.label}
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  {SORT_OPTIONS.map((opt) => (
+                    <DropdownMenuItem
+                      key={opt.key}
+                      onClick={() => handleSortChange(opt.key)}
+                      className={`cursor-pointer justify-between rounded-lg text-xs font-bold ${
+                        sortKey === opt.key ? "text-purple-600 bg-purple-50" : "text-slate-600"
+                      }`}
+                    >
+                      {opt.label}
+                      {sortKey === opt.key && <span className="h-2 w-2 rounded-full bg-purple-500" />}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             {/* Horizontal category chips */}
             <ScrollArea className="w-full whitespace-nowrap pb-3">
-              <div className="flex w-max space-x-2 px-2 mb-5">
+              <div className="flex w-max space-x-2 px-1 mb-4">
                 <Button
                   variant={activeCategoryId === null ? "default" : "outline"}
-                  className={`rounded-full h-10 px-6 font-extrabold transition-all ${
+                  className={`rounded-full h-9 px-5 text-xs font-extrabold transition-all ${
                     activeCategoryId === null
                       ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white border-none shadow-md shadow-purple-500/30'
                       : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-purple-600'
@@ -167,14 +234,14 @@ export default function ShopPage() {
                     <Button
                       key={cat.id}
                       variant={activeCategoryId === cat.id ? "default" : "outline"}
-                      className={`rounded-full h-10 px-5 font-extrabold transition-all ${
+                      className={`rounded-full h-9 px-4 text-xs font-extrabold transition-all ${
                         activeCategoryId === cat.id
                           ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white border-none shadow-md shadow-purple-500/30'
                           : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-purple-600'
                       }`}
                       onClick={() => handleCategoryChange(cat.id)}
                     >
-                      <Icon className="mr-2 h-4 w-4" /> {cat.name}
+                      <Icon className="mr-1.5 h-3.5 w-3.5" /> {cat.name}
                     </Button>
                   );
                 })}
@@ -197,28 +264,27 @@ export default function ShopPage() {
                 <div className="h-16 w-16 bg-purple-100 rounded-full flex items-center justify-center mb-3">
                   <Rocket className="h-8 w-8 text-purple-500" />
                 </div>
-                <h3 className="text-lg font-heading font-extrabold text-slate-800">Belum ada video nih</h3>
-                <p className="text-sm font-medium text-slate-500 mt-1">Coba kategori lain yuk!</p>
+                <h3 className="text-lg font-extrabold text-slate-800">Belum ada video nih</h3>
+                <p className="text-sm font-medium text-slate-500 mt-1">Coba kategori atau sort lain yuk!</p>
               </div>
             )}
 
             {/* See More button */}
             {!isLoadingVideos && hasMore && (
-              <div className="flex justify-center mt-8">
+              <div className="flex justify-center mt-7">
                 <Button
-                  variant="outline"
                   onClick={handleSeeMore}
-                  className="h-11 px-8 rounded-full font-extrabold border-2 border-purple-200 text-purple-700 hover:bg-purple-50 hover:border-purple-400 transition-all gap-2"
+                  className="h-11 px-7 rounded-full font-extrabold bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-500/30 gap-2"
                 >
                   <ChevronDown className="h-4 w-4" />
-                  Lihat Lebih Banyak ({allVideos.length - visibleCount} lagi)
+                  Lihat Produk Lainnya
                 </Button>
               </div>
             )}
 
-            {/* All videos loaded indicator */}
+            {/* All loaded indicator */}
             {!isLoadingVideos && !hasMore && allVideos.length > INITIAL_LIMIT && (
-              <div className="flex justify-center mt-8">
+              <div className="flex justify-center mt-7">
                 <p className="text-sm font-medium text-slate-400">Semua video sudah ditampilkan</p>
               </div>
             )}
