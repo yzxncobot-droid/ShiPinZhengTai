@@ -4,6 +4,7 @@ import { useGetAnalyticsOverview } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, Video, DollarSign, Wallet, TrendingUp, TrendingDown } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { TopPremiumEarners } from "@/components/owner/TopPremiumEarners";
 
 export default function OwnerOverview() {
   const { data: analytics, isLoading } = useGetAnalyticsOverview();
@@ -142,6 +143,9 @@ export default function OwnerOverview() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Top premium-video earners (user/meril) with search */}
+          <TopPremiumEarners />
         </div>
       </AdminLayout>
     </ProtectedRoute>

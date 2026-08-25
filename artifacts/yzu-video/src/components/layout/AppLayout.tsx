@@ -47,13 +47,15 @@ export function Navbar() {
 
   const isOwner = user?.role === "owner";
   const isAdmin = user?.role === "admin";
+  // Base roles (user/meril) can upload & manage their videos by default.
+  const isBaseUser = user?.role === "user" || user?.role === "meril";
 
-  // Permission comes exclusively from active custom roles (never badge flags)
+  // Permission comes from the base role OR active custom roles (never badge flags)
   const hasCustomUpload  = customRoles?.some((r: any) => r.permUploadVideo) ?? false;
   const hasCustomMyVideo = customRoles?.some((r: any) => r.permMyVideo)    ?? false;
 
-  const canUpload  = isOwner || isAdmin || hasCustomUpload;
-  const canMyVideo = isOwner || isAdmin || hasCustomMyVideo;
+  const canUpload  = isOwner || isAdmin || hasCustomUpload  || isBaseUser;
+  const canMyVideo = isOwner || isAdmin || hasCustomMyVideo || isBaseUser;
 
   const handleLogout = () => {
     logout();

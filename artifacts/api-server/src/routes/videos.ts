@@ -560,9 +560,12 @@ router.post("/videos/:id/purchase", authenticate, async (req, res) => {
     }
   }
 
-  // Determine creator earnings after platform tax
+  // Determine creator earnings after platform tax.
+  // Any non-admin/owner uploader is a "creator upload" eligible for revenue
+  // share (base roles user/meril, creator, verified_creator, moderator).
+  // Admin/owner uploads are platform uploads — no creator share.
   const isCreatorUpload = creator && video.creatorId !== userId &&
-    (creator.creatorBadge || creator.verifiedCreator);
+    !["admin", "owner"].includes(creator.role);
   const TAX_VERIFIED_CREATOR = 0.25; // 25% platform tax for Verified Creator
   const TAX_CREATOR          = 0.50; // 50% platform tax for Creator
   const defaultTaxRate = creator?.verifiedCreator ? TAX_VERIFIED_CREATOR : TAX_CREATOR;

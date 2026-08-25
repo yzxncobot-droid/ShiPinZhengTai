@@ -41,6 +41,12 @@ function requirePermission(perm: "permUploadVideo" | "permMyVideo") {
       return;
     }
 
+    // Base roles (user/meril) can upload & manage their videos by default
+    if (role === "user" || role === "meril") {
+      next();
+      return;
+    }
+
     // Check if ANY active custom role assigned to this user has the permission
     try {
       const rows = await db
