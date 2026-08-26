@@ -18,7 +18,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import {
   Loader2, UploadCloud, Video as VideoIcon, Image as ImageIcon,
-  Link as LinkIcon, CheckCircle2, Globe, Sparkles, Package, Users,
+  Link as LinkIcon, CheckCircle2, Globe, Sparkles, Package, Users, Star, Lock,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
@@ -118,8 +118,12 @@ const uploadSchema = z.object({
   videoSourceType: z.enum(["upload", "external_link"]).default("upload"),
   videoUrl:        z.string().min(1, "Video wajib diisi"),
   videoFilePath:   z.string().optional(),
-  thumbnail:       z.string().min(1, "Thumbnail wajib diupload"),
+  thumbnail:       z.string().optional(),
   uploaderType:    z.enum(["Public", "Owner", "Media"]).optional(),
+  rewardEnabled:   z.boolean().default(false),
+  rewardType:      z.enum(["LIKE", "COMMENT"]).default("LIKE"),
+  rewardTarget:    z.coerce.number().min(0).default(0),
+  rewardCode:      z.string().default(""),
 }).superRefine((data, ctx) => {
   if (data.videoSourceType === "external_link" && data.videoUrl && !isValidVideoLink(data.videoUrl)) {
     ctx.addIssue({
@@ -134,6 +138,23 @@ const uploadSchema = z.object({
       path: ["categoryId"],
       message: "Pilih kategori",
     });
+  }
+  // Thumbnail required only for non-home videos
+  if (data.visibility !== "home_video" && !data.thumbnail) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["thumbnail"],
+      message: "Thumbnail wajib diupload",
+    });
+  }
+  // Reward config validation (home video only)
+  if (data.visibility === "home_video" && data.rewardEnabled) {
+    if (data.rewardTarget <= 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["rewardTarget"], message: "Target minimal 1" });
+    }
+    if (!data.rewardCode.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["rewardCode"], message: "Kode reward wajib diisi" });
+    }
   }
 });
 
@@ -163,9 +184,11 @@ function SectionCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AdminUploadVideo() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+
+  const isOwner = user?.role === "owner";
 
   const { data: categoriesRaw, isLoading: isLoadingCategories, refetch: refetchCategories } = useListCategories();
   const categories: any[] = Array.isArray(categoriesRaw)
@@ -208,6 +231,10 @@ export default function AdminUploadVideo() {
       videoFilePath: "",
       thumbnail: "",
       uploaderType: undefined,
+      rewardEnabled: false,
+      rewardType: "LIKE",
+      rewardTarget: 0,
+      rewardCode: "",
     },
   });
 
@@ -340,6 +367,9 @@ export default function AdminUploadVideo() {
             thumbnail: values.thumbnail || null,
             status: "published",
             isActive: true,
+            rewardType: values.rewardEnabled ? values.rewardType : "NONE",
+            rewardTarget: values.rewardEnabled ? Number(values.rewardTarget) || 0 : 0,
+            rewardCode: values.rewardEnabled ? values.rewardCode : "",
           }),
         });
         toast({ title: "🎉 Video Home berhasil dipublikasi!" });
@@ -456,8 +486,11 @@ export default function AdminUploadVideo() {
                   <FormItem>
                     <FormLabel className="text-gray-700 font-semibold sr-only">Tipe Konten</FormLabel>
                     <FormControl>
-                      <div className="grid grid-cols-3 gap-3">
-                        {CONTENT_TYPE_OPTIONS.map((opt) => {
+                      <div className={`grid gap-3 ${(() => {
+                        const opts = CONTENT_TYPE_OPTIONS.filter((o) => o.value !== "home_video" || isOwner);
+                        return opts.length === 1 ? "grid-cols-1" : opts.length === 2 ? "grid-cols-2" : "grid-cols-3";
+                      })()}`}>
+                        {CONTENT_TYPE_OPTIONS.filter((opt) => opt.value !== "home_video" || isOwner).map((opt) => {
                           const isSelected = field.value === opt.value;
                           return (
                             <button
@@ -642,8 +675,9 @@ export default function AdminUploadVideo() {
               </SectionCard>
 
               {/* ══════════════════════════════════════════════
-                  3. THUMBNAIL
+                  3. THUMBNAIL (hidden for home video)
               ══════════════════════════════════════════════ */}
+              {visibility !== "home_video" && (
               <SectionCard
                 icon={<ImageIcon className="h-4 w-4" />}
                 title="Thumbnail"
@@ -699,6 +733,88 @@ export default function AdminUploadVideo() {
                   </FormItem>
                 )} />
               </SectionCard>
+              )}
+
+              {/* ══════════════════════════════════════════════
+                  3b. REWARD / KODE PROGRES (home video only)
+              ══════════════════════════════════════════════ */}
+              {visibility === "home_video" && (
+              <SectionCard
+                icon={<Star className="h-4 w-4" />}
+                title="Kode Progres (Reward)"
+                gradient="bg-gradient-to-r from-purple-500 to-violet-600"
+              >
+                {/* On/Off toggle */}
+                <FormField control={form.control} name="rewardEnabled" render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-xl border border-purple-100 bg-purple-50/40 p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base text-gray-700 font-semibold flex items-center gap-1.5">
+                        <Lock className="h-4 w-4 text-purple-500" /> Aktifkan Kode Progres
+                      </FormLabel>
+                      <FormDescription className="text-xs">
+                        Aktifkan untuk membuat kode rahasia yang terbuka otomatis saat target like/komentar tercapai.
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
+                  </FormItem>
+                )} />
+
+                {/* Reward config fields (only when enabled) */}
+                {form.watch("rewardEnabled") && (
+                  <div className="space-y-4 rounded-xl border-2 border-purple-100 bg-purple-50/30 p-4">
+                    {/* Reward type + target */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField control={form.control} name="rewardType" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-bold text-gray-600">Syarat Buka Kode</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger className="mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="LIKE">❤️ Like</SelectItem>
+                              <SelectItem value="COMMENT">💬 Komentar</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+
+                      <FormField control={form.control} name="rewardTarget" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-bold text-gray-600">Jumlah Target</FormLabel>
+                          <FormControl>
+                            <Input type="number" min={1} placeholder="cth: 100" className="mt-1" {...field} />
+                          </FormControl>
+                          <FormDescription className="text-[11px]">
+                            Jumlah {form.watch("rewardType") === "LIKE" ? "like" : "komentar"} untuk membuka kode.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                    </div>
+
+                    {/* Reward code */}
+                    <FormField control={form.control} name="rewardCode" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-bold text-gray-600">Kode Reward</FormLabel>
+                        <FormControl>
+                          <Input placeholder="cth: ABC123XYZ" className="mt-1" {...field} />
+                        </FormControl>
+                        <FormDescription className="text-[11px]">
+                          Kode ini hanya terungkap ke user setelah target tercapai (divalidasi backend).
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
+                )}
+              </SectionCard>
+              )}
 
               {/* ══════════════════════════════════════════════
                   4. DETAIL VIDEO
