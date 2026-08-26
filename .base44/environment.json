@@ -15,7 +15,8 @@
     { "name": "OWNER_SUPABASE_SERVICE_KEY", "description": "Supabase OWNER project service_role key.", "requiredAtBoot": false },
     { "name": "MEDIA_SUPABASE_URL", "description": "Supabase MEDIA project URL for avatars/banners/images/manual QRIS.", "requiredAtBoot": false },
     { "name": "MEDIA_SUPABASE_SERVICE_KEY", "description": "Supabase MEDIA project service_role key.", "requiredAtBoot": false },
-    { "name": "UPSTASH_REDIS_REST_URL", "description": "Upstash Redis REST URL (sessions/caching). Optional.", "requiredAtBoot": false },
-    { "name": "UPSTASH_REDIS_REST_TOKEN", "description": "Upstash Redis REST token. Optional.", "requiredAtBoot": false }
+    { "name": "CLOUDFLARE_ACCOUNT_ID", "description": "Cloudflare account ID for KV (sessions/caching). Optional — app runs without it (no session invalidation or caching).", "requiredAtBoot": false },
+    { "name": "CLOUDFLARE_API_TOKEN", "description": "Cloudflare API token with Workers KV Storage Edit permission. Optional.", "requiredAtBoot": false },
+    { "name": "CLOUDFLARE_KV_NAMESPACE_ID", "description": "Cloudflare KV namespace ID for sessions/caching. Optional.", "requiredAtBoot": false }
   ]
 }

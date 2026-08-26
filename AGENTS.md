@@ -53,7 +53,7 @@ The app has **two payment methods**, both crediting the wallet through a single
 
 ## Secrets
 
-External credentials (Neon DB, BuatQris, Supabase ×3, Upstash Redis) are
+External credentials (Neon DB, BuatQris, Supabase ×3, Cloudflare KV) are
 **optional for boot** — the app degrades gracefully without them. They are
 delivered via `/run/base44/app.env` (last `env_file` entry, always wins over
 `.env.base44-defaults`).

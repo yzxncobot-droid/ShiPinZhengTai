@@ -95,7 +95,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
 
   // Check Redis session — null means the session was invalidated (logout).
   // Skip this check entirely when Redis is not configured so that the server
-  // works without Upstash credentials (JWT-only auth mode).
+  // works without KV credentials (JWT-only auth mode).
   if (payload.jti && isRedisAvailable) {
     try {
       const session = await getSession(payload.jti);

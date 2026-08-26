@@ -125,7 +125,7 @@ export default function AdminSystemCheck() {
               />
               <CheckRow
                 icon={Wifi}
-                label="Upstash Redis"
+                label="Cloudflare KV"
                 status={s?.redis?.status ?? "unknown"}
                 detail={s?.redis?.latencyMs != null ? `Latensi: ${s.redis.latencyMs}ms` : s?.redis?.error}
                 error={s?.redis?.error}
