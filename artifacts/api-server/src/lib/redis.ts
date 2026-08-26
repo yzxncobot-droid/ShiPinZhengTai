@@ -12,8 +12,7 @@ export const isRedisAvailable = isCloudflareKVAvailable;
 
 /**
  * Cloudflare KV does not support atomic INCR/EXPIRE, so rate limits and
- * view counters are always disabled. Only the old Upstash backend provided
- * those semantics.
+ * view counters are always disabled.
  */
 export const isAtomicRedisAvailable = false;
 

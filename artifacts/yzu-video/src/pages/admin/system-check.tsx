@@ -186,7 +186,7 @@ export default function AdminSystemCheck() {
                 { label: "SUPABASE_URL", key: "supabaseKeySet" },
                 { label: "SESSION_SECRET", key: "sessionSecretSet" },
                 { label: "JWT_SECRET", key: "jwtSecretSet" },
-                { label: "UPSTASH_REDIS_REST_URL", key: "upstashUrlSet" },
+                { label: "CLOUDFLARE_ACCOUNT_ID", key: "cloudflareKvSet" },
               ].map(({ label, key }) => {
                 const isSet = s?.environment?.[key];
                 return (
