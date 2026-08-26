@@ -327,9 +327,27 @@ router.post("/admin/home-feed", authenticate, requireRole("admin", "owner"), asy
       .returning();
 
     res.status(201).json(video);
-  } catch (err) {
-    logger.error({ err }, "POST /admin/home-feed failed");
-    res.status(500).json({ error: "Gagal membuat video" });
+  } catch (err: any) {
+    const pgCode   = err?.code   ?? err?.cause?.code;
+    const pgColumn = err?.column ?? err?.cause?.column;
+    logger.error({ err, pgCode, body: req.body }, "POST /admin/home-feed failed");
+
+    if (pgCode === "42P01" || pgCode === "42703" || pgCode === "42704") {
+      // Table/column/type does not exist — schema not migrated
+      res.status(500).json({
+        error: "Tabel home_feed_videos belum dibuat di database. Jalankan migrasi database (drizzle-kit push) atau restart server.",
+      });
+      return;
+    }
+    if (pgCode === "23502") {
+      res.status(400).json({ error: `Data video tidak lengkap: field '${pgColumn ?? "unknown"}' wajib diisi` });
+      return;
+    }
+    if (pgCode === "22P02" || pgCode === "23514") {
+      res.status(400).json({ error: "Nilai reward_type tidak valid" });
+      return;
+    }
+    res.status(500).json({ error: "Gagal membuat video. Periksa log server untuk detail." });
   }
 });
 
@@ -361,9 +379,14 @@ router.patch("/admin/home-feed/:id", authenticate, requireRole("admin", "owner")
       .returning();
 
     res.json(updated);
-  } catch (err) {
-    logger.error({ err, videoId: id }, "PATCH /admin/home-feed failed");
-    res.status(500).json({ error: "Gagal memperbarui video" });
+  } catch (err: any) {
+    const pgCode = err?.code ?? err?.cause?.code;
+    logger.error({ err, pgCode, videoId: id }, "PATCH /admin/home-feed failed");
+    if (pgCode === "42P01" || pgCode === "42703" || pgCode === "42704") {
+      res.status(500).json({ error: "Tabel home_feed_videos belum dibuat di database. Jalankan migrasi database atau restart server." });
+      return;
+    }
+    res.status(500).json({ error: "Gagal memperbarui video. Periksa log server untuk detail." });
   }
 });
 
@@ -373,9 +396,14 @@ router.delete("/admin/home-feed/:id", authenticate, requireRole("admin", "owner"
   try {
     await db.delete(homeFeedVideosTable).where(eq(homeFeedVideosTable.id, id));
     res.json({ message: "Deleted" });
-  } catch (err) {
-    logger.error({ err, videoId: id }, "DELETE /admin/home-feed failed");
-    res.status(500).json({ error: "Gagal menghapus video" });
+  } catch (err: any) {
+    const pgCode = err?.code ?? err?.cause?.code;
+    logger.error({ err, pgCode, videoId: id }, "DELETE /admin/home-feed failed");
+    if (pgCode === "42P01" || pgCode === "42703" || pgCode === "42704") {
+      res.status(500).json({ error: "Tabel home_feed_videos belum dibuat di database. Jalankan migrasi database atau restart server." });
+      return;
+    }
+    res.status(500).json({ error: "Gagal menghapus video. Periksa log server untuk detail." });
   }
 });
 

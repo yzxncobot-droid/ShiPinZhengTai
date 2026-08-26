@@ -480,6 +480,61 @@ export async function runBestEffortStartupMigration(): Promise<void> {
       );
       CREATE INDEX IF NOT EXISTS level_badge_tiers_min_level_idx ON level_badge_tiers(min_level);
     `);
+
+    // ── 9. Home Feed tables (TikTok-style vertical video feed) ───────────────
+    // These tables are created by drizzle-kit push, but also here so the API
+    // can boot safely on a production DB where the standalone migration has
+    // not been run yet. Without these, POST /admin/home-feed fails with a
+    // generic "Gagal membuat video" error.
+    await runStep(client, "home_feed: reward_type enum", `
+      DO $$ BEGIN
+        CREATE TYPE home_feed_reward_type AS ENUM ('LIKE', 'COMMENT', 'NONE');
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
+    `);
+    await runStep(client, "home_feed: videos table", `
+      CREATE TABLE IF NOT EXISTS home_feed_videos (
+        id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        title         text NOT NULL,
+        description   text,
+        video_url     text NOT NULL,
+        thumbnail     text,
+        status        text NOT NULL DEFAULT 'published',
+        is_active     boolean NOT NULL DEFAULT true,
+        sort_order    integer NOT NULL DEFAULT 0,
+        reward_type   home_feed_reward_type NOT NULL DEFAULT 'NONE',
+        reward_target integer NOT NULL DEFAULT 0,
+        reward_code   text,
+        created_at    timestamp NOT NULL DEFAULT NOW(),
+        updated_at    timestamp NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS home_feed_videos_sort_idx   ON home_feed_videos(sort_order);
+      CREATE INDEX IF NOT EXISTS home_feed_videos_active_idx ON home_feed_videos(is_active);
+      CREATE INDEX IF NOT EXISTS home_feed_videos_created_idx ON home_feed_videos(created_at);
+    `);
+    await runStep(client, "home_feed: likes table", `
+      CREATE TABLE IF NOT EXISTS home_feed_likes (
+        id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        video_id   uuid NOT NULL REFERENCES home_feed_videos(id) ON DELETE CASCADE,
+        user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at timestamp NOT NULL DEFAULT NOW(),
+        UNIQUE (video_id, user_id)
+      );
+      CREATE INDEX IF NOT EXISTS home_feed_likes_video_idx ON home_feed_likes(video_id);
+      CREATE INDEX IF NOT EXISTS home_feed_likes_user_idx  ON home_feed_likes(user_id);
+    `);
+    await runStep(client, "home_feed: comments table", `
+      CREATE TABLE IF NOT EXISTS home_feed_comments (
+        id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        video_id   uuid NOT NULL REFERENCES home_feed_videos(id) ON DELETE CASCADE,
+        user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        content    text NOT NULL,
+        created_at timestamp NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS home_feed_comments_video_idx   ON home_feed_comments(video_id);
+      CREATE INDEX IF NOT EXISTS home_feed_comments_user_idx    ON home_feed_comments(user_id);
+      CREATE INDEX IF NOT EXISTS home_feed_comments_created_idx ON home_feed_comments(created_at);
+    `);
   } finally {
     client.release();
   }

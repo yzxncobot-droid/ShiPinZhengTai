@@ -134,9 +134,24 @@ router.post("/creator/videos", authenticate, requirePermission("permUploadVideo"
 
     logger.info({ videoId: video.id, creatorId: userId }, "Creator uploaded video");
     res.status(201).json(video);
-  } catch (err) {
-    logger.error({ err }, "POST /creator/videos failed");
-    res.status(500).json({ error: "Failed to create video" });
+  } catch (err: any) {
+    const pgCode   = err?.code   ?? err?.cause?.code;
+    const pgColumn = err?.column ?? err?.cause?.column;
+    logger.error({ err, pgCode, body: req.body }, "POST /creator/videos failed");
+
+    if (pgCode === "42P01" || pgCode === "42703" || pgCode === "42704") {
+      res.status(500).json({ error: "Skema database tidak sinkron. Jalankan migrasi database atau restart server." });
+      return;
+    }
+    if (pgCode === "23502") {
+      res.status(400).json({ error: `Data video tidak lengkap: field '${pgColumn ?? "unknown"}' wajib diisi` });
+      return;
+    }
+    if (pgCode === "23503") {
+      res.status(400).json({ error: "Kategori tidak ditemukan" });
+      return;
+    }
+    res.status(500).json({ error: "Gagal membuat video. Periksa log server untuk detail." });
   }
 });
 
