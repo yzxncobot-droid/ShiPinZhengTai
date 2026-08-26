@@ -37,7 +37,7 @@ router.get("/system/status", authenticate, requireRole("owner", "admin"), async 
       databaseUrlSet: !!(process.env.NEON_DATABASE_URL || process.env.DATABASE_URL),
       neonUrlSet: !!process.env.NEON_DATABASE_URL,
       supabaseKeySet: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-      upstashUrlSet: !!process.env.UPSTASH_REDIS_REST_URL,
+      cloudflareKvSet: !!process.env.CLOUDFLARE_ACCOUNT_ID,
     },
     memory: {
       heapUsedMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),

@@ -836,7 +836,9 @@ router.get("/chat/unread", authenticate, async (req, res) => {
 });
 
 // ── Typing indicator ─────────────────────────────────────────────────────────
-// Uses Redis with a 5-second TTL per user. Gracefully no-ops when Redis is unavailable.
+// Uses the KV store with a 5-second TTL per user. Gracefully no-ops when KV is
+// unavailable (Cloudflare KV has no key-pattern scan, so typing indicators are
+// disabled when only KV is configured — the try/catch returns empty silently).
 
 router.post("/chat/rooms/:id/typing", authenticate, async (req, res) => {
   try {

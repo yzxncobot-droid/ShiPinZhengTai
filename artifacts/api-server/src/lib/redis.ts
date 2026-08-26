@@ -1,25 +1,24 @@
 import { logger } from "./logger";
 import { cloudflareKV, isCloudflareKVAvailable } from "./cloudflare-kv";
 
-// ── Availability flag ─────────────────────────────────────────────────────────
+// ── Availability flags ─────────────────────────────────────────────────────────
 
 /**
- * True only when both Upstash env vars are present.
- * Used by the auth middleware to skip session-store checks when Redis is
+ * True when Cloudflare KV credentials are present.
+ * Used by the auth middleware to skip session-store checks when KV is
  * not configured (so the server degrades gracefully instead of crashing).
  */
-const isUpstashAvailable =
-  !!process.env.UPSTASH_REDIS_REST_URL && !!process.env.UPSTASH_REDIS_REST_TOKEN;
+export const isRedisAvailable = isCloudflareKVAvailable;
 
-/** True when a backend session/cache store is available. */
-export const isRedisAvailable = isUpstashAvailable || isCloudflareKVAvailable;
+/**
+ * Cloudflare KV does not support atomic INCR/EXPIRE, so rate limits and
+ * view counters are always disabled.
+ */
+export const isAtomicRedisAvailable = false;
 
-/** Only Upstash provides atomic INCR/EXPIRE semantics used by rate limits/views. */
-export const isAtomicRedisAvailable = isUpstashAvailable;
+// ── Client interface ──────────────────────────────────────────────────────────
 
-// ── No-op stub ────────────────────────────────────────────────────────────────
-
-/** Minimal interface that matches the Upstash Redis API surface we use. */
+/** Minimal interface that matches the Redis API surface we use. */
 interface RedisLike {
   get<T = string>(key: string): Promise<T | null>;
   setex(key: string, ttl: number, value: string): Promise<unknown>;
@@ -29,9 +28,11 @@ interface RedisLike {
   expire(key: string, seconds: number): Promise<number>;
   /** Returns the remaining TTL in seconds, or -2 if key does not exist. */
   ttl(key: string): Promise<number>;
-  /** Ping the Redis server — returns "PONG". */
+  /** Ping the store — returns "PONG". */
   ping(): Promise<string>;
 }
+
+// ── No-op stub (used when KV is not configured) ────────────────────────────────
 
 const noopRedis: RedisLike = {
   get:    async () => null,
@@ -43,54 +44,31 @@ const noopRedis: RedisLike = {
   ping:   async () => "PONG",
 };
 
-// ── Real client (lazy — only instantiated when env vars are present) ───────────
+// ── Real client (Cloudflare KV) ───────────────────────────────────────────────
 
-let _redis: RedisLike = noopRedis;
+let _client: RedisLike = noopRedis;
 
-if (isRedisAvailable) {
-  // Dynamic import so the module does NOT crash when the package is missing
-  // or the env vars are absent.  The import() returns a promise; we resolve
-  // it synchronously-ish by reassigning _redis inside the then handler.
-  // Because the server's listen() call is deferred to after all top-level
-  // awaits in the entry file, the assignment will complete before the first
-  // request arrives in practice.
-  import("@upstash/redis")
-    .then(({ Redis }) => {
-      _redis = new Redis({
-        url: process.env.UPSTASH_REDIS_REST_URL!,
-        token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-      });
-      logger.info("Redis connected (Upstash)");
-    })
-    .catch((err) => {
-      logger.warn({ err }, "Redis import failed — running without Redis cache");
-    });
-} else if (isCloudflareKVAvailable) {
-  _redis = {
-    get: cloudflareKV.get,
-    setex: cloudflareKV.setex,
-    del: cloudflareKV.del,
-    incr: async () => {
-      throw new Error("Cloudflare KV does not support atomic increment");
-    },
+if (isCloudflareKVAvailable) {
+  _client = {
+    get:    cloudflareKV.get,
+    setex:  cloudflareKV.setex,
+    del:    cloudflareKV.del,
+    incr:   async () => { throw new Error("Cloudflare KV does not support atomic increment"); },
     expire: async () => 0,
-    ttl: async () => -1,
-    ping: cloudflareKV.ping,
+    ttl:    async () => -1,
+    ping:   cloudflareKV.ping,
   };
+  logger.info("Cloudflare KV connected for sessions/cache");
 } else {
   logger.warn(
-    "UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set — " +
-    "running without Redis. Session invalidation, caching, and view " +
+    "CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN / CLOUDFLARE_KV_NAMESPACE_ID not set — " +
+    "running without KV. Session invalidation, caching, and view " +
     "buffering are disabled. All other features work normally.",
   );
 }
 
-/** Access the Redis client (real or no-op). */
-export const redis: RedisLike = new Proxy(noopRedis, {
-  get(_target, prop) {
-    return (_redis as any)[prop];
-  },
-});
+/** Access the KV client (real or no-op). */
+export const redis: RedisLike = _client;
 
 // ── TTL constants ─────────────────────────────────────────────────────────────
 export const TTL = {
@@ -124,7 +102,7 @@ export interface SessionData {
   createdAt: number;
 }
 
-/** Store a new session in Redis. */
+/** Store a new session in KV. */
 export async function createSession(jti: string, data: SessionData): Promise<void> {
   await redis.setex(keys.session(jti), TTL.SESSION, JSON.stringify(data));
 }
@@ -214,7 +192,7 @@ export async function consumeTempToken(type: string, token: string): Promise<unk
 
 // ── Video view counter ────────────────────────────────────────────────────────
 
-/** Increment Redis view counter and return the new count. */
+/** Increment view counter and return the new count (always 0 without atomic support). */
 export async function incrementVideoViews(videoId: string): Promise<number> {
   if (!isAtomicRedisAvailable) return 0;
   return (await redis.incr(keys.videoViews(videoId))) as number;

@@ -125,7 +125,7 @@ export default function AdminSystemCheck() {
               />
               <CheckRow
                 icon={Wifi}
-                label="Upstash Redis"
+                label="Cloudflare KV"
                 status={s?.redis?.status ?? "unknown"}
                 detail={s?.redis?.latencyMs != null ? `Latensi: ${s.redis.latencyMs}ms` : s?.redis?.error}
                 error={s?.redis?.error}
@@ -186,7 +186,7 @@ export default function AdminSystemCheck() {
                 { label: "SUPABASE_URL", key: "supabaseKeySet" },
                 { label: "SESSION_SECRET", key: "sessionSecretSet" },
                 { label: "JWT_SECRET", key: "jwtSecretSet" },
-                { label: "UPSTASH_REDIS_REST_URL", key: "upstashUrlSet" },
+                { label: "CLOUDFLARE_ACCOUNT_ID", key: "cloudflareKvSet" },
               ].map(({ label, key }) => {
                 const isSet = s?.environment?.[key];
                 return (
