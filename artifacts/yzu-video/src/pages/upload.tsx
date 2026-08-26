@@ -1,11 +1,9 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useQuery } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { useListCategories, useListBundles } from "@workspace/api-client-react";
 import { adminFetch } from "@/lib/admin-api";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,44 +11,24 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
   Loader2, UploadCloud, Video as VideoIcon,
-  Link as LinkIcon, CheckCircle2, Globe, Sparkles, Package, ShieldAlert,
+  Link as LinkIcon, CheckCircle2, Globe, Sparkles, ShieldAlert,
+  Gift, Heart, MessageCircle, KeyRound,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { motion } from "framer-motion";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const CONTENT_TYPE_OPTIONS = [
-  {
-    value: "public",
-    label: "Video Gratis",
-    icon: "🌍",
-    description: "Semua orang bisa menonton",
-    color: "border-green-400 bg-green-50 text-green-700",
-  },
-  {
-    value: "premium",
-    label: "Video Premium",
-    icon: "⭐",
-    description: "Butuh langganan atau pembelian",
-    color: "border-amber-400 bg-amber-50 text-amber-700",
-  },
-  {
-    value: "hidden_bundle",
-    label: "Video Bundle",
-    icon: "📦",
-    description: "Eksklusif dalam paket bundle",
-    color: "border-purple-400 bg-purple-50 text-purple-700",
-  },
-] as const;
-
 type VideoSourceType = "upload" | "external_link";
+type RewardType = "LIKE" | "COMMENT";
+
+const REWARD_TYPE_OPTIONS: { value: RewardType; label: string; icon: React.ElementType; color: string }[] = [
+  { value: "LIKE",    label: "Like",    icon: Heart,         color: "border-rose-400 bg-rose-50 text-rose-700" },
+  { value: "COMMENT", label: "Komentar", icon: MessageCircle, color: "border-sky-400 bg-sky-50 text-sky-700" },
+];
 
 function isValidVideoLink(url: string): boolean {
   try {
@@ -66,22 +44,25 @@ function isValidVideoLink(url: string): boolean {
 const uploadSchema = z.object({
   title:           z.string().min(3, "Judul minimal 3 karakter"),
   description:     z.string().optional(),
-  categoryId:      z.string().optional(),
-  visibility:      z.enum(["public", "premium", "hidden_bundle"]).default("public"),
-  bundleId:        z.string().optional(),
-  price:           z.coerce.number().min(0).optional(),
-  downloadable:    z.boolean().default(false),
   videoSourceType: z.enum(["upload", "external_link"]).default("upload"),
   videoUrl:        z.string().min(1, "Video wajib diisi"),
   videoFilePath:   z.string().optional(),
-  thumbnail:       z.string().optional(),
-  tags:            z.string().optional(),
+  // ── Kode progres (reward) ──
+  rewardEnabled: z.boolean().default(false),
+  rewardType:    z.enum(["LIKE", "COMMENT"]).default("LIKE"),
+  rewardTarget:  z.coerce.number().int().min(1, "Minimal 1").default(10),
+  rewardCode:    z.string().default(""),
 }).superRefine((data, ctx) => {
   if (data.videoSourceType === "external_link" && data.videoUrl && !isValidVideoLink(data.videoUrl)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["videoUrl"], message: "Link tidak valid." });
   }
-  if (data.visibility === "hidden_bundle" && !data.bundleId) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["bundleId"], message: "Pilih bundle tujuan" });
+  if (data.rewardEnabled) {
+    if (!data.rewardCode.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["rewardCode"], message: "Kode wajib diisi" });
+    }
+    if (!data.rewardTarget || data.rewardTarget < 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["rewardTarget"], message: "Jumlah minimal 1" });
+    }
   }
 });
 
@@ -103,7 +84,7 @@ function SectionCard({ icon, title, gradient, children }: {
 }
 
 // ─── Not Authorized ───────────────────────────────────────────────────────────
-function NotAuthorized({ currentRole }: { currentRole?: { name: string; emoji?: string | null } | null }) {
+function NotAuthorized() {
   const [, setLocation] = useLocation();
   return (
     <AppLayout>
@@ -115,14 +96,8 @@ function NotAuthorized({ currentRole }: { currentRole?: { name: string; emoji?: 
         <p className="text-slate-500 text-sm max-w-sm">
           Halaman upload video hanya bisa digunakan oleh <strong>Owner</strong>.
         </p>
-        {currentRole && (
-          <div className="flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-full text-sm font-semibold text-slate-600">
-            {currentRole.emoji && <span>{currentRole.emoji}</span>}
-            <span>Role saat ini: {currentRole.name}</span>
-          </div>
-        )}
-        <Button onClick={() => setLocation("/profile")} className="rounded-full bg-purple-600 hover:bg-purple-700 text-white font-bold">
-          Kembali ke Profil
+        <Button onClick={() => setLocation("/")} className="rounded-full bg-purple-600 hover:bg-purple-700 text-white font-bold">
+          Kembali ke Beranda
         </Button>
       </div>
     </AppLayout>
@@ -135,59 +110,35 @@ export default function CreatorUploadPage() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
 
-  // Fetch user's active custom roles — permission source of truth
-  const { data: customRoles, isLoading: rolesLoading } = useQuery<any[]>({
-    queryKey: ["my-custom-roles"],
-    queryFn: () => adminFetch("/users/me/custom-roles"),
-    enabled: !!token,
-    staleTime: 60_000,
-  });
-
-  const { data: categoriesRaw } = useListCategories();
-  const { data: bundlesRaw } = useListBundles();
-  const categories: any[] = Array.isArray(categoriesRaw) ? categoriesRaw : (categoriesRaw as any)?.data ?? [];
-  const bundles: any[] = Array.isArray(bundlesRaw) ? bundlesRaw : (bundlesRaw as any)?.data ?? [];
-
   const [isUploadingVideo, setIsUploadingVideo] = useState(false);
   const [isSubmitting, setIsSubmitting]         = useState(false);
   const [uploadProgress, setUploadProgress]     = useState(0);
   const [xhrRef] = useState<{ current: XMLHttpRequest | null }>({ current: null });
-
-  // Storage metadata returned from upload endpoints — forwarded to POST /creator/videos
-  const [uploadMeta, setUploadMeta] = useState<{
-    videoStorageFolder?: string;
-    bucketName?: string;
-  }>({});
 
   const videoInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<UploadForm>({
     resolver: zodResolver(uploadSchema),
     defaultValues: {
-      title: "", description: "", categoryId: "", visibility: "public",
-      bundleId: "", price: 0, downloadable: false,
-      videoSourceType: "upload", videoUrl: "", videoFilePath: "", thumbnail: "", tags: "",
+      title: "", description: "",
+      videoSourceType: "upload", videoUrl: "", videoFilePath: "",
+      rewardEnabled: false, rewardType: "LIKE", rewardTarget: 10, rewardCode: "",
     },
   });
 
-  const visibility      = form.watch("visibility");
   const videoSourceType = form.watch("videoSourceType");
-  const videoUrl        = form.watch("videoUrl");
+  const rewardEnabled   = form.watch("rewardEnabled");
+  const rewardType      = form.watch("rewardType");
 
-  // ── File upload ──────────────────────────────────────────────────────────────
+  // ── File upload (Home Feed video → MEDIA Supabase) ───────────────────────────
   const handleFileUpload = async (file: File) => {
     setIsUploadingVideo(true);
     setUploadProgress(0);
     const fd = new FormData();
     fd.append("video", file);
 
-    // The backend resolves uploaderType from the user's custom role permissions.
-    // We do not send uploaderType from the frontend — the server decides storage routing.
-
     try {
-      const data = await new Promise<{
-        url: string; path?: string; storageFolder?: string; bucketName?: string;
-      }>((resolve, reject) => {
+      const data = await new Promise<{ url: string; path?: string }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhrRef.current = xhr;
         xhr.upload.addEventListener("progress", (e) => {
@@ -199,28 +150,19 @@ export default function CreatorUploadPage() {
           if (xhr.status >= 200 && xhr.status < 300 && parsed?.success !== false) {
             resolve(parsed);
           } else {
-            // Prefer the server's detailed error; fall back to generic message
             const serverMsg = parsed?.message ?? "Upload gagal";
             const serverDetail = parsed?.detail ? ` — ${parsed.detail}` : "";
             reject(new Error(`${serverMsg}${serverDetail}`));
           }
         });
         xhr.addEventListener("error", () => reject(new Error("Tidak dapat terhubung ke server. Periksa koneksi internet.")));
-        xhr.open("POST", "/api/upload/video");
+        xhr.open("POST", "/api/upload/home-feed-video");
         xhr.setRequestHeader("Authorization", `Bearer ${token}`);
         xhr.send(fd);
       });
 
       form.setValue("videoUrl", data.url, { shouldValidate: true });
       if (data.path) form.setValue("videoFilePath", data.path);
-
-      // Capture storage metadata to forward when creating the video record
-      setUploadMeta(prev => ({
-        ...prev,
-        videoStorageFolder: data.storageFolder,
-        bucketName: data.bucketName ?? undefined,
-      }));
-
       toast({ title: "Video berhasil diupload! ✅" });
     } catch (err: any) {
       toast({ title: "Upload gagal", description: err.message, variant: "destructive" });
@@ -245,48 +187,26 @@ export default function CreatorUploadPage() {
     form.clearErrors("videoUrl");
   };
 
-  // ── Submit ───────────────────────────────────────────────────────────────────
+  // ── Submit → POST /admin/home-feed ───────────────────────────────────────────
   const onSubmit = async (values: UploadForm) => {
-    if (values.visibility === "public") values.price = 0;
     setIsSubmitting(true);
     try {
-      const created: any = await adminFetch("/creator/videos", {
+      await adminFetch("/admin/home-feed", {
         method: "POST",
         body: JSON.stringify({
-          ...values,
-          categoryId:    values.categoryId || null,
-          videoFilePath: values.videoFilePath || null,
-          thumbnail:     values.thumbnail || null,
-          // Forward storage metadata captured from upload endpoints
-          storageFolder: uploadMeta.videoStorageFolder || null,
-          bucketName:    uploadMeta.bucketName         || null,
+          title: values.title,
+          description: values.description || null,
+          videoUrl: values.videoUrl,
+          thumbnail: null,
+          status: "published",
+          isActive: true,
+          rewardType: values.rewardEnabled ? values.rewardType : "NONE",
+          rewardTarget: values.rewardEnabled ? Number(values.rewardTarget) : 0,
+          rewardCode: values.rewardEnabled ? values.rewardCode.trim() : "",
         }),
       });
-
-      // If bundle video, link to the chosen bundle
-      if (values.visibility === "hidden_bundle" && values.bundleId && created?.id) {
-        try {
-          const existingBundle: any = await adminFetch(`/bundles/${values.bundleId}`);
-          const currentIds: string[] = (existingBundle?.videos ?? []).map((v: any) => v.id);
-          if (!currentIds.includes(created.id)) {
-            await adminFetch(`/bundles/${values.bundleId}`, {
-              method: "PATCH",
-              body: JSON.stringify({ videoIds: [...currentIds, created.id] }),
-            });
-          }
-        } catch (bundleErr: any) {
-          toast({
-            title: "Video dibuat, tapi gagal ditambahkan ke bundle",
-            description: bundleErr.message ?? "Tambahkan manual dari menu Bundle.",
-            variant: "destructive",
-          });
-          setIsSubmitting(false);
-          return;
-        }
-      }
-
-      toast({ title: "🎉 Video berhasil dipublikasi!" });
-      setLocation("/my-video");
+      toast({ title: "🎉 Video Home berhasil dipublikasi!" });
+      setLocation("/");
     } catch (err: any) {
       toast({ title: "Gagal mempublikasi", description: err.message, variant: "destructive" });
     } finally {
@@ -295,7 +215,7 @@ export default function CreatorUploadPage() {
   };
 
   // ── Auth guard ───────────────────────────────────────────────────────────────
-  if (authLoading || rolesLoading) {
+  if (authLoading) {
     return (
       <AppLayout>
         <div className="flex min-h-[60vh] items-center justify-center">
@@ -310,131 +230,26 @@ export default function CreatorUploadPage() {
   }
 
   // Only the owner can use the home video upload.
-  const isOwner = user?.role === "owner";
-
-  // Admin keeps its own dedicated upload page.
-  if (user?.role === "admin") {
-    setLocation("/admin");
-    return null;
+  if (user?.role !== "owner") {
+    return <NotAuthorized />;
   }
-  if (!isOwner) {
-    const topRole = customRoles?.[0] ?? null;
-    return <NotAuthorized currentRole={topRole} />;
-  }
-
-  // Collect all allowed upload types from every active custom role.
-  // uploadTypes is already a parsed string[] from the backend endpoint.
-  const allowedUploadTypes: Set<string> = new Set(
-    (customRoles ?? []).flatMap((r: any) =>
-      Array.isArray(r.uploadTypes) ? r.uploadTypes : [],
-    ),
-  );
-  // Default to "free" if no upload types are configured on any role
-  if (allowedUploadTypes.size === 0) allowedUploadTypes.add("free");
-
-  // Map upload type names → visibility values used in the form
-  const uploadTypeToVisibility: Record<string, string> = {
-    free:    "public",
-    premium: "premium",
-    bundle:  "hidden_bundle",
-  };
-
-  // Only show content type cards the role allows
-  const visibleContentTypes = CONTENT_TYPE_OPTIONS.filter((opt) => {
-    const typeKey = Object.entries(uploadTypeToVisibility).find(([, v]) => v === opt.value)?.[0];
-    return typeKey ? allowedUploadTypes.has(typeKey) : false;
-  });
 
   return (
     <AppLayout>
       <div className="px-4 py-6 max-w-2xl mx-auto">
 
         {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -12 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-6"
-        >
+        <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
           <div className="inline-flex items-center gap-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-bold px-3 py-1 rounded-full mb-3 shadow-sm">
             <Sparkles className="h-3 w-3" />
-            Creator Studio
+            Home Feed
           </div>
-          <h1 className="text-2xl font-heading font-extrabold text-slate-800">Upload Video</h1>
-          <p className="text-slate-500 text-sm mt-1">Publish konten baru ke platform</p>
+          <h1 className="text-2xl font-heading font-extrabold text-slate-800">Upload Video Home</h1>
+          <p className="text-slate-500 text-sm mt-1">Publish video ke feed beranda</p>
         </motion.div>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
-
-            {/* ── Content Type ── */}
-            <SectionCard icon={<Package className="h-4 w-4" />} title="Tipe Konten" gradient="bg-gradient-to-r from-purple-500 to-pink-500">
-              <FormField control={form.control} name="visibility" render={({ field }) => (
-                <FormItem>
-                  <FormControl>
-                    <div className={`grid gap-3 ${visibleContentTypes.length === 1 ? "grid-cols-1" : visibleContentTypes.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
-                      {visibleContentTypes.map((opt) => {
-                        const isSelected = field.value === opt.value;
-                        return (
-                          <button
-                            key={opt.value} type="button"
-                            onClick={() => { field.onChange(opt.value); if (opt.value !== "hidden_bundle") form.setValue("bundleId", ""); }}
-                            className={`flex flex-col items-center text-center gap-1.5 py-4 px-2 rounded-xl border-2 transition-all font-medium text-sm
-                              ${isSelected ? opt.color + " shadow-sm scale-[1.02]" : "border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300"}`}
-                          >
-                            <span className="text-2xl">{opt.icon}</span>
-                            <span className="font-extrabold text-[12px] leading-tight">{opt.label}</span>
-                            <span className="text-[10px] leading-tight opacity-70">{opt.description}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-
-              {/* Bundle selector */}
-              {visibility === "hidden_bundle" && (
-                <FormField control={form.control} name="bundleId" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="font-semibold">Bundle Tujuan <span className="text-red-500">*</span></FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || undefined}>
-                      <FormControl>
-                        <SelectTrigger className="border-purple-200 focus:border-purple-400">
-                          <SelectValue placeholder="Pilih bundle tujuan" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {bundles.length === 0
-                          ? <div className="py-3 px-4 text-sm text-slate-400 text-center">Belum ada bundle.</div>
-                          : bundles.map((b: any) => (
-                            <SelectItem key={b.id} value={String(b.id)}>
-                              <div className="flex items-center gap-2">
-                                <Package className="h-3.5 w-3.5 text-purple-500" />
-                                <span>{b.title}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              )}
-
-              {/* Price */}
-              {(visibility === "premium" || visibility === "hidden_bundle") && (
-                <FormField control={form.control} name="price" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="font-semibold">Harga (Rp)</FormLabel>
-                    <FormControl>
-                      <Input type="number" placeholder="0" className="border-amber-200 focus:border-amber-400" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              )}
-            </SectionCard>
 
             {/* ── Video Source ── */}
             <SectionCard icon={<VideoIcon className="h-4 w-4" />} title="Sumber Video" gradient="bg-gradient-to-r from-sky-400 to-blue-500">
@@ -551,46 +366,85 @@ export default function CreatorUploadPage() {
                   </FormControl>
                 </FormItem>
               )} />
+            </SectionCard>
 
-              <FormField control={form.control} name="categoryId" render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="font-semibold">Kategori</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value || undefined}>
-                    <FormControl>
-                      <SelectTrigger className="border-emerald-200 focus:border-emerald-400">
-                        <SelectValue placeholder="Pilih kategori" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {categories.map((cat: any) => (
-                        <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </FormItem>
-              )} />
-
-              <FormField control={form.control} name="tags" render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="font-semibold">Tags</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="anak, belajar, lucu (pisahkan dengan koma)" className="border-emerald-200 focus:border-emerald-400" />
-                  </FormControl>
-                  <FormDescription className="text-xs">Pisahkan dengan koma</FormDescription>
-                </FormItem>
-              )} />
-
-              <FormField control={form.control} name="downloadable" render={({ field }) => (
+            {/* ── Kode Progres (Reward) ── */}
+            <SectionCard icon={<Gift className="h-4 w-4" />} title="Kode Progres" gradient="bg-gradient-to-r from-violet-500 to-purple-600">
+              {/* On/Off toggle */}
+              <FormField control={form.control} name="rewardEnabled" render={({ field }) => (
                 <FormItem className="flex items-center justify-between rounded-xl border border-slate-100 p-3 bg-slate-50">
                   <div>
-                    <FormLabel className="font-semibold">Izinkan Download</FormLabel>
-                    <FormDescription className="text-xs">Penonton bisa mengunduh video ini</FormDescription>
+                    <FormLabel className="font-semibold">Aktifkan Kode Progres</FormLabel>
+                    <FormDescription className="text-xs">Buka kode setelah target like/komentar tercapai</FormDescription>
                   </div>
                   <FormControl>
                     <Switch checked={field.value} onCheckedChange={field.onChange} />
                   </FormControl>
                 </FormItem>
               )} />
+
+              {/* Reward config — only when enabled */}
+              {rewardEnabled && (
+                <div className="space-y-4 pt-1">
+                  {/* Reward type: Like / Komentar */}
+                  <FormField control={form.control} name="rewardType" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="font-semibold">Tipe Progres</FormLabel>
+                      <FormControl>
+                        <div className="grid grid-cols-2 gap-3">
+                          {REWARD_TYPE_OPTIONS.map((opt) => {
+                            const Icon = opt.icon;
+                            const isSelected = field.value === opt.value;
+                            return (
+                              <button
+                                key={opt.value} type="button"
+                                onClick={() => field.onChange(opt.value)}
+                                className={`flex flex-col items-center gap-1.5 py-4 px-2 rounded-xl border-2 transition-all font-medium text-sm
+                                  ${isSelected ? opt.color + " shadow-sm scale-[1.02]" : "border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300"}`}
+                              >
+                                <Icon className={`h-6 w-6 ${isSelected ? "" : "text-slate-400"}`} />
+                                <span className="font-extrabold text-[12px]">{opt.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+
+                  {/* Target count */}
+                  <FormField control={form.control} name="rewardTarget" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="font-semibold">
+                        Jumlah {rewardType === "LIKE" ? "Like" : "Komentar"} agar kode terbuka <span className="text-red-500">*</span>
+                      </FormLabel>
+                      <FormControl>
+                        <Input type="number" min={1} placeholder="contoh: 100" className="border-violet-200 focus:border-violet-400" {...field} />
+                      </FormControl>
+                      <FormDescription className="text-xs">
+                        Kode akan terbuka otomatis saat video mencapai jumlah ini
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+
+                  {/* Reward code */}
+                  <FormField control={form.control} name="rewardCode" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="font-semibold">Kode <span className="text-red-500">*</span></FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-violet-400" />
+                          <Input {...field} placeholder="contoh: FUN100X" className="pl-9 border-violet-200 focus:border-violet-400 uppercase tracking-wider" />
+                        </div>
+                      </FormControl>
+                      <FormDescription className="text-xs">Kode ini akan ditampilkan ke penonton setelah target tercapai</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                </div>
+              )}
             </SectionCard>
 
             {/* Submit */}
