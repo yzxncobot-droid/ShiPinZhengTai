@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -79,10 +79,10 @@ const CONTENT_TYPE_OPTIONS = [
     selectedColor: "border-amber-400 bg-amber-50",
   },
   {
-    value: "hidden_bundle",
-    label: "Video Bundle",
-    icon: "📦",
-    description: "Eksklusif dalam paket bundle",
+    value: "home_video",
+    label: "Video Home",
+    icon: "🏠",
+    description: "Tampil di Home tanpa harga",
     color: "border-purple-400 bg-purple-50 text-purple-700",
     selectedColor: "border-purple-400 bg-purple-50",
   },
@@ -110,8 +110,8 @@ function isValidVideoLink(url: string): boolean {
 const uploadSchema = z.object({
   title:           z.string().min(3, "Judul minimal 3 karakter"),
   description:     z.string().optional(),
-  categoryId:      z.string().min(1, "Pilih kategori"),
-  visibility:      z.enum(["public", "premium", "hidden_bundle"]).default("public"),
+  categoryId:      z.string().optional(),
+  visibility:      z.enum(["public", "premium", "home_video"]).default("public"),
   bundleId:        z.string().optional(),
   price:           z.coerce.number().min(0).optional(),
   downloadable:    z.boolean().default(false),
@@ -128,11 +128,11 @@ const uploadSchema = z.object({
       message: "Link tidak valid. Gunakan YouTube, Vimeo, Google Drive, atau link MP4/M3U8 langsung.",
     });
   }
-  if (data.visibility === "hidden_bundle" && !data.bundleId) {
+  if (data.visibility !== "home_video" && !data.categoryId) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ["bundleId"],
-      message: "Pilih bundle tujuan untuk video bundle",
+      path: ["categoryId"],
+      message: "Pilih kategori",
     });
   }
 });
@@ -171,10 +171,6 @@ export default function AdminUploadVideo() {
   const categories: any[] = Array.isArray(categoriesRaw)
     ? categoriesRaw
     : (categoriesRaw as any)?.data ?? [];
-
-  // Bundles list for bundle selector
-  const [bundles, setBundles] = useState<any[]>([]);
-  const [isLoadingBundles, setIsLoadingBundles] = useState(false);
 
   const [isUploadingVideo, setIsUploadingVideo]   = useState(false);
   const [isUploadingThumb, setIsUploadingThumb]   = useState(false);
@@ -220,16 +216,6 @@ export default function AdminUploadVideo() {
   const videoUrl        = form.watch("videoUrl");
   const thumbnail       = form.watch("thumbnail");
 
-  // Load bundles when hidden_bundle is selected
-  useEffect(() => {
-    if (visibility !== "hidden_bundle") return;
-    setIsLoadingBundles(true);
-    adminFetch("/bundles/all")
-      .then((data: any) => setBundles(Array.isArray(data) ? data : []))
-      .catch(() => setBundles([]))
-      .finally(() => setIsLoadingBundles(false));
-  }, [visibility]);
-
   // ── File upload ──────────────────────────────────────────────────────────────
   const handleFileUpload = async (file: File, type: "video" | "image") => {
     const isVideo        = type === "video";
@@ -249,7 +235,10 @@ export default function AdminUploadVideo() {
     // For "Public" type: send uploaderType "Creator" → PUBLIC Supabase.
     // For "Owner" type:  send uploaderType "Owner"   → OWNER Supabase.
     let resolvedEndpoint = endpoint;
-    if (!isVideo && currentUploaderType === "Media") {
+    const currentVisibility = form.getValues("visibility");
+    if (currentVisibility === "home_video") {
+      resolvedEndpoint = isVideo ? "/api/upload/home-feed-video" : "/api/upload/home-feed-thumbnail";
+    } else if (!isVideo && currentUploaderType === "Media") {
       resolvedEndpoint = "/api/upload/image";
     }
 
@@ -262,8 +251,11 @@ export default function AdminUploadVideo() {
     }
 
     // Pass translated uploaderType so backend routes to the correct storage folder
-    const apiUploaderType = toApiUploaderType(currentUploaderType);
-    if (apiUploaderType) fd.append("uploaderType", apiUploaderType);
+    // (home feed uploads use dedicated endpoints — no uploaderType needed)
+    if (currentVisibility !== "home_video") {
+      const apiUploaderType = toApiUploaderType(currentUploaderType);
+      if (apiUploaderType) fd.append("uploaderType", apiUploaderType);
+    }
 
     try {
       const data = await new Promise<{
@@ -337,6 +329,23 @@ export default function AdminUploadVideo() {
     if (values.visibility === "public") values.price = 0;
     setIsSubmitting(true);
     try {
+      // Home feed video — different API, no price/bundle/category
+      if (values.visibility === "home_video") {
+        await adminFetch("/admin/home-feed", {
+          method: "POST",
+          body: JSON.stringify({
+            title: values.title,
+            description: values.description || null,
+            videoUrl: values.videoUrl,
+            thumbnail: values.thumbnail || null,
+            status: "published",
+            isActive: true,
+          }),
+        });
+        toast({ title: "🎉 Video Home berhasil dipublikasi!" });
+        setLocation("/admin/home-feed");
+        return;
+      }
       // 1. Create the video
       const created: any = await adminFetch("/videos", {
         method: "POST",
@@ -358,30 +367,6 @@ export default function AdminUploadVideo() {
           bunnyLibraryId:       uploadMeta.bunnyLibraryId       ?? null,
         }),
       });
-
-      // 2. If bundle video, link it to the chosen bundle
-      if (values.visibility === "hidden_bundle" && values.bundleId && created?.id) {
-        try {
-          // Fetch existing bundle to get current videoIds
-          const existingBundle: any = await adminFetch(`/bundles/${values.bundleId}`);
-          const currentIds: string[] = (existingBundle?.videos ?? []).map((v: any) => v.id);
-          if (!currentIds.includes(created.id)) {
-            await adminFetch(`/bundles/${values.bundleId}`, {
-              method: "PATCH",
-              body: JSON.stringify({ videoIds: [...currentIds, created.id] }),
-            });
-          }
-        } catch (bundleErr: any) {
-          // Video created but bundle link failed — warn user but don't block
-          toast({
-            title: "Video dibuat, tapi gagal ditambahkan ke bundle",
-            description: bundleErr.message,
-            variant: "destructive",
-          });
-          setIsSubmitting(false);
-          return;
-        }
-      }
 
       toast({ title: "🎉 Video berhasil dipublikasi!" });
       setLocation("/admin/videos");
@@ -480,8 +465,8 @@ export default function AdminUploadVideo() {
                               type="button"
                               onClick={() => {
                                 field.onChange(opt.value);
-                                // Reset bundle when switching away
-                                if (opt.value !== "hidden_bundle") form.setValue("bundleId", "");
+                                // Clear category when switching to home_video
+                                if (opt.value === "home_video") form.setValue("categoryId", "");
                               }}
                               className={`flex flex-col items-center text-center gap-1.5 py-4 px-2 rounded-xl border-2 transition-all font-medium text-sm
                                 ${isSelected ? opt.color + " shadow-sm scale-[1.02]" : "border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300"}`}
@@ -498,54 +483,8 @@ export default function AdminUploadVideo() {
                   </FormItem>
                 )} />
 
-                {/* Bundle selector (only when hidden_bundle) */}
-                {visibility === "hidden_bundle" && (
-                  <FormField control={form.control} name="bundleId" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-gray-700 font-semibold">
-                        Bundle Tujuan <span className="text-red-500">*</span>
-                      </FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value || undefined}
-                        disabled={isLoadingBundles}
-                      >
-                        <FormControl>
-                          <SelectTrigger className="bg-purple-50/40 border-purple-200 focus:border-purple-400">
-                            {isLoadingBundles
-                              ? <span className="text-muted-foreground flex items-center gap-2"><Loader2 className="h-3 w-3 animate-spin" /> Memuat bundle…</span>
-                              : <SelectValue placeholder="Pilih bundle tujuan" />
-                            }
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {bundles.length === 0 && !isLoadingBundles ? (
-                            <div className="py-3 px-4 text-sm text-muted-foreground text-center">
-                              Belum ada bundle. Buat bundle dulu di menu Bundles.
-                            </div>
-                          ) : (
-                            bundles.map((b: any) => (
-                              <SelectItem key={b.id} value={b.id}>
-                                <div className="flex items-center gap-2">
-                                  <Package className="h-3.5 w-3.5 text-purple-500 shrink-0" />
-                                  <span>{b.title}</span>
-                                  <span className="text-xs text-muted-foreground">({b.videoCount ?? 0} video)</span>
-                                </div>
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                      <FormDescription className="text-purple-600 text-xs font-medium">
-                        Video ini akan otomatis masuk ke bundle yang dipilih dan tidak akan muncul di Home, Explore, atau Search.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                )}
-
-                {/* Price (premium/hidden_bundle only) */}
-                {(visibility === "premium" || visibility === "hidden_bundle") && (
+                {/* Price (premium only) */}
+                {visibility === "premium" && (
                   <FormField control={form.control} name="price" render={({ field }) => (
                     <FormItem>
                       <FormLabel className="text-gray-700 font-semibold">Harga Pembelian Satuan (Rp)</FormLabel>
@@ -558,9 +497,7 @@ export default function AdminUploadVideo() {
                         />
                       </FormControl>
                       <FormDescription>
-                        {visibility === "hidden_bundle"
-                          ? "Opsional: Jika diisi, pengguna bisa membeli video ini langsung selain via bundle."
-                          : "Pengguna bisa membeli video ini tanpa langganan."}
+                        Pengguna bisa membeli video ini tanpa langganan.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -803,7 +740,8 @@ export default function AdminUploadVideo() {
                   </FormItem>
                 )} />
 
-                {/* Category */}
+                {/* Category (hidden for home_video) */}
+                {visibility !== "home_video" && (
                 <FormField control={form.control} name="categoryId" render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-gray-700 font-semibold">
@@ -846,8 +784,10 @@ export default function AdminUploadVideo() {
                     <FormMessage />
                   </FormItem>
                 )} />
+                )}
 
-                {/* Downloadable */}
+                {/* Downloadable (hidden for home_video) */}
+                {visibility !== "home_video" && (
                 <FormField control={form.control} name="downloadable" render={({ field }) => (
                   <FormItem className="flex flex-row items-center justify-between rounded-xl border border-amber-100 bg-amber-50/40 p-4">
                     <div className="space-y-0.5">
@@ -859,6 +799,7 @@ export default function AdminUploadVideo() {
                     </FormControl>
                   </FormItem>
                 )} />
+                )}
               </SectionCard>
 
               {/* ── Actions ── */}

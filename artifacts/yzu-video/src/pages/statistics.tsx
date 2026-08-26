@@ -6,7 +6,7 @@
 
 import { ProtectedRoute } from "@/lib/protected-route";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { useGamificationProfile, useExpHistory } from "@/lib/gamification-api";
+import { useGamificationProfile, useExpHistory, useAchievements } from "@/lib/gamification-api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from "framer-motion";
 import {
@@ -37,6 +37,7 @@ function StatBox({ icon: Icon, label, value, color, delay }: {
 export default function StatisticsPage() {
   const { data: gamification, isLoading } = useGamificationProfile();
   const { data: expHistory } = useExpHistory(30);
+  const { data: achievementsData } = useAchievements();
 
   if (isLoading || !gamification) {
     return (
@@ -193,6 +194,30 @@ export default function StatisticsPage() {
               </motion.div>
             </Link>
           </div>
+
+          {/* Earned achievements list */}
+          {(achievementsData?.achievements ?? []).filter(a => a.unlocked).length > 0 && (
+            <div className="px-4 mt-3">
+              <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wide mb-2 px-1">Pencapaian Diraih</p>
+              <div className="grid grid-cols-4 gap-2">
+                {(achievementsData!.achievements.filter(a => a.unlocked)).map((ach, i) => (
+                  <motion.div
+                    key={ach.id}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: i * 0.04, duration: 0.2 }}
+                    className="flex flex-col items-center gap-1 p-2 rounded-xl bg-white border border-slate-100"
+                    style={{ boxShadow: "0 2px 8px rgba(139, 92, 246, 0.08)" }}
+                  >
+                    <div className="h-10 w-10 rounded-xl bg-purple-50 flex items-center justify-center text-xl">
+                      {ach.icon}
+                    </div>
+                    <span className="text-[8px] font-bold text-slate-500 text-center truncate w-full">{ach.name}</span>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Stats grid */}
           <div className="px-4 mt-3">
