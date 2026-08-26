@@ -121,7 +121,7 @@ export function FeedVideo({ video, isActive, preload, onStatsChange }: FeedVideo
 
   return (
     <section
-      className="relative h-[100dvh] w-full snap-start snap-always overflow-hidden bg-black"
+      className="relative h-[100dvh] w-full snap-start snap-always overflow-hidden bg-slate-100"
     >
       {/* Video / placeholder */}
       {preload ? (
