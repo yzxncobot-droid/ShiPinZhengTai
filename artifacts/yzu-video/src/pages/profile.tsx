@@ -15,7 +15,10 @@ import {
   Loader2, Camera, Wallet, ChevronRight, LogOut, Settings,
   Bell, Shield, HelpCircle, Heart, Video, Star, Users, Gift,
   History, User, Lock, Moon, Sun, Award, Plus, Minus,
+  TrendingUp, Trophy, Flame, MessageCircle, Upload,
 } from "lucide-react";
+import { useGamificationProfile } from "@/lib/gamification-api";
+import { ProfileBadges } from "@/components/gamification/ProfileBadges";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const ROLE_STYLE: Record<string, { label: string; className: string }> = {
@@ -77,6 +80,7 @@ export default function ProfilePage() {
   const { toast } = useToast();
   const { data: freshUser, refetch } = useGetMe();
   const updateUser = useUpdateUser();
+  const { data: gamification } = useGamificationProfile();
 
   const currentUser = freshUser || authUser;
 
@@ -258,23 +262,70 @@ export default function ProfilePage() {
               </div>
             </motion.div>
 
-            {/* Stats */}
+            {/* Gamification Summary */}
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
-              className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100"
+              className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100"
             >
-              <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-4 px-1">Statistik</p>
-              <div className="flex gap-2 justify-around flex-wrap">
-                <StatCard icon={Video} label="Video" value={0} color="bg-purple-500" />
-                <StatCard icon={Heart} label="Like" value={0} color="bg-pink-500" />
-                <StatCard icon={Star} label="Favorit" value={0} color="bg-amber-500" />
-                <StatCard icon={Users} label="Follower" value={0} color="bg-blue-500" />
-                <StatCard icon={Gift} label="Shop" value={0} color="bg-emerald-500" />
-                <StatCard icon={Award} label="Badge" value={0} color="bg-orange-500" />
+              <div className="flex items-center gap-2 mb-4">
+                <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-purple-500 to-violet-500 flex items-center justify-center shadow-sm">
+                  <TrendingUp className="h-5 w-5 text-white" />
+                </div>
+                <p className="text-xs font-extrabold text-slate-700">Progres Saya</p>
+                <Link href="/statistics" className="ml-auto text-[10px] font-bold text-purple-500 hover:text-purple-600">
+                  Detail →
+                </Link>
               </div>
+              {gamification ? (
+                <>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div
+                      className="h-12 w-12 rounded-2xl flex items-center justify-center text-2xl shadow-sm shrink-0"
+                      style={{ backgroundColor: `${gamification.levelBadge.color}20` }}
+                    >
+                      {gamification.levelBadge.icon}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">{gamification.levelBadge.name}</p>
+                      <p className="text-lg font-extrabold text-slate-800">Level {gamification.level}</p>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <div className="h-1.5 flex-1 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full transition-all duration-500"
+                            style={{ width: `${gamification.nextLevelExp > 0 ? Math.min(100, (gamification.currentLevelExp / gamification.nextLevelExp) * 100) : 0}%` }}
+                          />
+                        </div>
+                        <span className="text-[9px] font-bold text-slate-400 shrink-0">
+                          {gamification.currentLevelExp}/{gamification.nextLevelExp}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Total EXP</p>
+                      <p className="text-base font-extrabold text-purple-600">{gamification.lifetimeExp.toLocaleString()}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 justify-around flex-wrap pt-3 border-t border-slate-50">
+                    <StatCard icon={Video} label="Ditonton" value={gamification.statistics.videosWatched} color="bg-purple-500" />
+                    <StatCard icon={Heart} label="Like" value={gamification.statistics.videosLiked} color="bg-pink-500" />
+                    <StatCard icon={Trophy} label="Achievement" value={gamification.achievementCount} color="bg-amber-500" />
+                    <StatCard icon={Flame} label="Streak" value={`${gamification.streakDays}h`} color="bg-orange-500" />
+                  </div>
+                </>
+              ) : (
+                <div className="flex gap-2 justify-around flex-wrap">
+                  <StatCard icon={Video} label="Video" value={0} color="bg-purple-500" />
+                  <StatCard icon={Heart} label="Like" value={0} color="bg-pink-500" />
+                  <StatCard icon={Trophy} label="Badge" value={0} color="bg-amber-500" />
+                  <StatCard icon={Flame} label="Streak" value={0} color="bg-orange-500" />
+                </div>
+              )}
             </motion.div>
+
+            {/* Badge System */}
+            <ProfileBadges />
 
             {/* Menu */}
             <motion.div
@@ -297,6 +348,8 @@ export default function ProfilePage() {
                 <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Lainnya</p>
               </div>
               <div className="divide-y divide-slate-50">
+                <MenuItem icon={TrendingUp} label="Statistik Saya" href="/statistics" iconBg="bg-gradient-to-br from-purple-500 to-violet-400" />
+                <MenuItem icon={Trophy} label="Achievement" href="/achievements" iconBg="bg-gradient-to-br from-amber-500 to-orange-400" />
                 <MenuItem icon={Award} label="Leaderboard" href="/leaderboard" iconBg="bg-gradient-to-br from-yellow-500 to-amber-400" />
                 <MenuItem icon={Bell} label="Notifikasi" href="/notifications" iconBg="bg-gradient-to-br from-red-500 to-pink-400" />
                 <MenuItem icon={Shield} label="Keamanan" onClick={() => setShowEdit(true)} iconBg="bg-gradient-to-br from-slate-500 to-slate-400" />

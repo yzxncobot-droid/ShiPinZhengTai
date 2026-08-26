@@ -143,6 +143,10 @@ router.post("/home-feed/:id/like", authenticate, async (req, res) => {
     // Insert; on unique violation → unlike (toggle behaviour, same as Shop).
     try {
       await db.insert(homeFeedLikesTable).values({ videoId: id, userId });
+      // ── Gamification: award like EXP (idempotent per video, daily-limited) ──
+      import("../lib/gamification").then(({ awardExp }) =>
+        awardExp(userId, "like_video", `hf_like_${id}`, undefined, { videoId: id }).catch(() => {}),
+      );
       res.json({ liked: true });
     } catch (err: any) {
       const pgCode = err?.code ?? err?.cause?.code;
@@ -213,6 +217,11 @@ router.post("/home-feed/:id/comments", authenticate, async (req, res) => {
       .from(usersTable)
       .where(eq(usersTable.id, userId))
       .limit(1);
+
+    // ── Gamification: award comment EXP (idempotent per comment, daily-limited) ─
+    import("../lib/gamification").then(({ awardExp }) =>
+      awardExp(userId, "comment", `hf_comment_${comment.id}`, undefined, { videoId: id, commentId: comment.id }).catch(() => {}),
+    );
 
     res.status(201).json({ ...comment, user });
   } catch (err) {

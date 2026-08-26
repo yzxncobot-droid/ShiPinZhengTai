@@ -32,7 +32,7 @@ export function BottomNav() {
     >
       <div className="mx-3 mb-3">
         <nav
-          className="relative flex items-end justify-around rounded-[28px] bg-black/55 backdrop-blur-xl border border-white/15 shadow-[0_8px_40px_rgba(0,0,0,0.35)]"
+          className="relative flex items-end justify-around rounded-[28px] bg-white/85 backdrop-blur-xl border border-slate-200 shadow-[0_8px_40px_rgba(0,0,0,0.08)]"
           style={{ height: "68px" }}
         >
           {/* Home */}
@@ -64,7 +64,7 @@ export function BottomNav() {
               </div>
               <span
                 className={`text-[10px] font-extrabold mt-1 transition-all duration-300 ${
-                  topupActive ? "text-amber-400" : "text-white/70"
+                  topupActive ? "text-amber-500" : "text-slate-400"
                 }`}
               >
                 Top Up
@@ -103,13 +103,13 @@ function SideLink({
           }`}
         >
           <item.icon
-            className={`h-5 w-5 transition-all duration-300 ${active ? "text-white" : "text-white/70"}`}
+            className={`h-5 w-5 transition-all duration-300 ${active ? "text-white" : "text-slate-400"}`}
             strokeWidth={active ? 2.5 : 2}
           />
         </div>
         <span
           className={`text-[10px] font-extrabold transition-all duration-300 ${
-            active ? "text-purple-300" : "text-white/60"
+            active ? "text-purple-600" : "text-slate-400"
           }`}
         >
           {item.label}

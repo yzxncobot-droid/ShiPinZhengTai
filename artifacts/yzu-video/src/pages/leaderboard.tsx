@@ -1,4 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+/**
+ * Leaderboard page — light-themed redesign with podium, category tabs,
+ * time filter, and rankings list. Accessible to all users (no auth required).
+ */
+
+import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { useQuery } from "@tanstack/react-query";
@@ -9,11 +14,10 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Trophy, Crown, Medal, Star, Search, Bell, ChevronRight,
-  ArrowLeft, RefreshCw, Flame, TrendingUp, Eye, Upload, Zap,
+  Trophy, Star, ChevronRight, ArrowLeft, Eye, Upload, Flame, Zap,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface LeaderboardEntry {
@@ -31,11 +35,11 @@ type Category = "all" | "viewer" | "uploader" | "activity" | "badge";
 type Period = "weekly" | "monthly" | "alltime";
 
 const CATEGORIES: { id: Category; label: string; icon: React.ReactNode }[] = [
-  { id: "all",      label: "Semua",        icon: <Trophy className="h-3.5 w-3.5" /> },
-  { id: "viewer",   label: "Viewer",       icon: <Eye className="h-3.5 w-3.5" /> },
-  { id: "uploader", label: "Uploader",     icon: <Upload className="h-3.5 w-3.5" /> },
-  { id: "activity", label: "Top Aktivitas",icon: <Flame className="h-3.5 w-3.5" /> },
-  { id: "badge",    label: "Badge",        icon: <Star className="h-3.5 w-3.5" /> },
+  { id: "all",      label: "Semua",         icon: <Trophy className="h-3.5 w-3.5" /> },
+  { id: "viewer",   label: "Viewer",        icon: <Eye className="h-3.5 w-3.5" /> },
+  { id: "uploader", label: "Uploader",      icon: <Upload className="h-3.5 w-3.5" /> },
+  { id: "activity", label: "Top Aktivitas", icon: <Flame className="h-3.5 w-3.5" /> },
+  { id: "badge",    label: "Badge",         icon: <Star className="h-3.5 w-3.5" /> },
 ];
 
 const PERIODS: { id: Period; label: string }[] = [
@@ -44,93 +48,89 @@ const PERIODS: { id: Period; label: string }[] = [
   { id: "alltime", label: "Semua Waktu" },
 ];
 
-// ── Confetti ──────────────────────────────────────────────────────────────────
-function Confetti() {
-  const colors = ["#a855f7","#ec4899","#f59e0b","#10b981","#3b82f6","#f97316"];
-  const pieces = Array.from({ length: 40 }, (_, i) => i);
-  return (
-    <div className="pointer-events-none fixed inset-0 overflow-hidden z-0">
-      {pieces.map((i) => (
-        <motion.div
-          key={i}
-          className="absolute w-2 h-2 rounded-sm"
-          style={{
-            left: `${Math.random() * 100}%`,
-            backgroundColor: colors[i % colors.length],
-          }}
-          initial={{ y: -20, opacity: 1, rotate: 0 }}
-          animate={{
-            y: typeof window !== "undefined" ? window.innerHeight + 40 : 900,
-            opacity: [1, 1, 0],
-            rotate: Math.random() * 720 - 360,
-            x: (Math.random() - 0.5) * 200,
-          }}
-          transition={{
-            duration: 3 + Math.random() * 2,
-            delay: Math.random() * 1.5,
-            ease: "easeIn",
-          }}
-        />
-      ))}
-    </div>
-  );
-}
+const POINT_TABLE = [
+  { activity: "Menonton video sampai selesai", points: "+10" },
+  { activity: "Like video", points: "+2" },
+  { activity: "Komentar", points: "+5" },
+  { activity: "Upload video", points: "+25" },
+  { activity: "Video mendapat Like", points: "+3" },
+  { activity: "Video ditonton orang lain", points: "+1" },
+  { activity: "Mendapat Badge", points: "+100" },
+];
+
+// ── Podium config ─────────────────────────────────────────────────────────────
+const PODIUM_CONFIG = {
+  1: {
+    bg: "bg-amber-50",
+    border: "border-amber-200",
+    medal: "🥇",
+    medalSize: "text-3xl",
+    avatarSize: "h-16 w-16",
+    cardHeight: "pt-5 pb-4",
+    order: "order-2",
+    label: "text-amber-700",
+  },
+  2: {
+    bg: "bg-blue-50",
+    border: "border-blue-200",
+    medal: "🥈",
+    medalSize: "text-2xl",
+    avatarSize: "h-14 w-14",
+    cardHeight: "pt-4 pb-3",
+    order: "order-1",
+    label: "text-blue-700",
+  },
+  3: {
+    bg: "bg-orange-50",
+    border: "border-orange-200",
+    medal: "🥉",
+    medalSize: "text-2xl",
+    avatarSize: "h-14 w-14",
+    cardHeight: "pt-4 pb-3",
+    order: "order-3",
+    label: "text-orange-700",
+  },
+} as const;
 
 // ── Podium card ───────────────────────────────────────────────────────────────
 function PodiumCard({ entry, pos, isCurrentUser }: { entry: LeaderboardEntry; pos: 1 | 2 | 3; isCurrentUser: boolean }) {
-  const configs = {
-    1: { height: "h-36 md:h-40", crown: "🥇", gradient: "from-yellow-400/30 to-amber-500/20", glow: "shadow-yellow-400/40", border: "border-yellow-400/60", crownSize: "text-4xl", order: "order-2" },
-    2: { height: "h-28 md:h-32", crown: "🥈", gradient: "from-slate-300/30 to-slate-400/20", glow: "shadow-slate-300/40", border: "border-slate-300/60", crownSize: "text-3xl", order: "order-1" },
-    3: { height: "h-24 md:h-28", crown: "🥉", gradient: "from-amber-700/30 to-orange-700/20", glow: "shadow-amber-700/40", border: "border-amber-600/60", crownSize: "text-3xl", order: "order-3" },
-  };
-  const c = configs[pos];
+  const c = PODIUM_CONFIG[pos];
 
   return (
     <motion.div
-      className={`flex flex-col items-center ${c.order}`}
+      className={`flex flex-col items-center ${c.order} flex-1 max-w-[120px]`}
       initial={{ opacity: 0, y: 40 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: pos * 0.15, duration: 0.5 }}
+      transition={{ delay: pos * 0.15, duration: 0.4 }}
     >
-      {/* Crown + Avatar */}
       <motion.div
-        animate={{ y: [0, -6, 0] }}
-        transition={{ duration: 3 + pos * 0.5, repeat: Infinity, ease: "easeInOut" }}
-        className="flex flex-col items-center mb-2"
+        animate={{ y: [0, -5, 0] }}
+        transition={{ duration: 2.5 + pos * 0.3, repeat: Infinity, ease: "easeInOut" }}
+        className="flex flex-col items-center"
       >
-        <span className={c.crownSize}>{c.crown}</span>
+        <span className={c.medalSize}>{c.medal}</span>
         <div className="relative mt-1">
-          <motion.div
-            className={`rounded-full p-0.5 bg-gradient-to-br ${c.gradient} border ${c.border} shadow-xl ${c.glow}`}
-            animate={pos === 1 ? { boxShadow: ["0 0 15px 2px rgba(250,204,21,0.3)", "0 0 30px 8px rgba(250,204,21,0.5)", "0 0 15px 2px rgba(250,204,21,0.3)"] } : {}}
-            transition={{ duration: 2, repeat: Infinity }}
-          >
-            <Avatar className={pos === 1 ? "h-16 w-16 md:h-20 md:w-20" : "h-14 w-14 md:h-16 md:w-16"}>
+          <div className={`rounded-full p-0.5 bg-gradient-to-br from-purple-400 to-pink-400 shadow-md`}>
+            <Avatar className={c.avatarSize}>
               <AvatarImage src={entry.avatar || ""} />
-              <AvatarFallback className="bg-purple-100 text-purple-700 font-bold text-lg">
+              <AvatarFallback className="bg-purple-100 text-purple-700 font-bold">
                 {entry.username.charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
-          </motion.div>
+          </div>
           {isCurrentUser && (
             <div className="absolute -top-1 -right-1 h-4 w-4 bg-green-400 rounded-full border-2 border-white" />
           )}
         </div>
       </motion.div>
 
-      {/* Info */}
-      <p className={`font-extrabold truncate max-w-[80px] md:max-w-[100px] text-center text-sm ${pos === 1 ? "text-yellow-300" : "text-white/90"}`}>
-        {entry.username}
-      </p>
-      <p className="text-white/60 text-xs">Lv.{entry.level}</p>
-      <div className="flex items-center gap-1 mt-1">
-        <Star className="h-3 w-3 text-yellow-400" />
-        <span className="text-white font-bold text-xs">{entry.points.toLocaleString("id-ID")}</span>
-      </div>
-
-      {/* Podium base */}
-      <div className={`w-20 md:w-24 ${c.height} mt-3 rounded-t-xl bg-gradient-to-b ${c.gradient} border-t border-x ${c.border} flex items-start justify-center pt-2`}>
-        <span className="text-white/80 font-black text-2xl md:text-3xl">#{pos}</span>
+      <div className={`mt-2 rounded-2xl ${c.bg} border ${c.border} ${c.cardHeight} px-2 w-full flex flex-col items-center gap-1`}>
+        <p className="font-extrabold text-slate-800 text-xs text-center truncate max-w-full">{entry.username}</p>
+        <div className="flex items-center gap-0.5">
+          <Star className="h-3 w-3 text-amber-400" fill="currentColor" />
+          <span className="font-bold text-slate-700 text-xs">{entry.points.toLocaleString("id-ID")}</span>
+        </div>
+        <span className={`text-[10px] font-bold ${c.label}`}>Level {entry.level}</span>
       </div>
     </motion.div>
   );
@@ -142,21 +142,19 @@ function RankRow({ entry, isCurrentUser, index }: { entry: LeaderboardEntry; isC
     <motion.div
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: index * 0.04, duration: 0.3 }}
+      transition={{ delay: index * 0.04, duration: 0.25 }}
       className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all hover:scale-[1.01] cursor-pointer ${
         isCurrentUser
-          ? "bg-purple-500/10 border border-purple-400/30"
-          : "bg-white/5 hover:bg-white/10 border border-white/5"
+          ? "bg-purple-50 border border-purple-200"
+          : "bg-white border border-slate-100 hover:border-purple-100 hover:shadow-sm"
       }`}
     >
-      {/* Rank number */}
       <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-sm font-black ${
-        entry.rank <= 10 ? "bg-purple-500/30 text-purple-300" : "bg-white/10 text-white/60"
+        entry.rank <= 10 ? "bg-purple-100 text-purple-600" : "bg-slate-100 text-slate-500"
       }`}>
         {entry.rank}
       </div>
 
-      {/* Avatar */}
       <div className="relative">
         <Avatar className="h-10 w-10">
           <AvatarImage src={entry.avatar || ""} />
@@ -165,35 +163,28 @@ function RankRow({ entry, isCurrentUser, index }: { entry: LeaderboardEntry; isC
           </AvatarFallback>
         </Avatar>
         {isCurrentUser && (
-          <div className="absolute -bottom-0.5 -right-0.5 h-3 w-3 bg-green-400 rounded-full border-2 border-[#1a0a2e]" />
+          <div className="absolute -bottom-0.5 -right-0.5 h-3 w-3 bg-green-400 rounded-full border-2 border-white" />
         )}
       </div>
 
-      {/* Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
-          <p className={`font-bold truncate text-sm ${isCurrentUser ? "text-purple-300" : "text-white/90"}`}>
+          <p className={`font-bold truncate text-sm ${isCurrentUser ? "text-purple-700" : "text-slate-800"}`}>
             {entry.username}
           </p>
           {isCurrentUser && <Badge className="text-[9px] bg-purple-500 text-white border-none px-1.5 py-0 h-4 shrink-0">Kamu</Badge>}
-          {entry.rankBadge && entry.rank <= 10 && (
-            <Badge className="text-[9px] bg-amber-500/20 text-amber-300 border-amber-500/30 px-1.5 py-0 h-4 hidden sm:flex shrink-0">
-              {entry.rankBadge}
-            </Badge>
-          )}
         </div>
-        <p className="text-white/40 text-xs">Level {entry.level}</p>
+        <p className="text-slate-400 text-xs">Level {entry.level}</p>
       </div>
 
-      {/* Points */}
       <div className="text-right shrink-0">
         <div className="flex items-center gap-1 justify-end">
-          <Star className="h-3 w-3 text-yellow-400" />
-          <span className="font-bold text-sm text-white">{entry.points.toLocaleString("id-ID")}</span>
+          <Star className="h-3 w-3 text-amber-400" fill="currentColor" />
+          <span className="font-bold text-sm text-slate-700">{entry.points.toLocaleString("id-ID")}</span>
         </div>
       </div>
 
-      <ChevronRight className="h-4 w-4 text-white/20 shrink-0" />
+      <ChevronRight className="h-4 w-4 text-slate-300 shrink-0" />
     </motion.div>
   );
 }
@@ -203,30 +194,19 @@ function LeaderboardSkeleton() {
   return (
     <div className="space-y-2">
       {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/5">
-          <Skeleton className="w-8 h-8 rounded-full bg-white/10" />
-          <Skeleton className="w-10 h-10 rounded-full bg-white/10" />
+        <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white border border-slate-100">
+          <Skeleton className="w-8 h-8 rounded-full" />
+          <Skeleton className="w-10 h-10 rounded-full" />
           <div className="flex-1 space-y-1.5">
-            <Skeleton className="h-3.5 w-32 rounded bg-white/10" />
-            <Skeleton className="h-2.5 w-16 rounded bg-white/10" />
+            <Skeleton className="h-3.5 w-32 rounded" />
+            <Skeleton className="h-2.5 w-16 rounded" />
           </div>
-          <Skeleton className="h-4 w-16 rounded bg-white/10" />
+          <Skeleton className="h-4 w-16 rounded" />
         </div>
       ))}
     </div>
   );
 }
-
-// ── Point system info ─────────────────────────────────────────────────────────
-const POINT_TABLE = [
-  { activity: "Menonton video sampai selesai", points: "+10" },
-  { activity: "Like video", points: "+2" },
-  { activity: "Komentar", points: "+5" },
-  { activity: "Upload video", points: "+25" },
-  { activity: "Video mendapat Like", points: "+3" },
-  { activity: "Video ditonton orang lain", points: "+1" },
-  { activity: "Mendapat Badge", points: "+100" },
-];
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function LeaderboardPage() {
@@ -235,26 +215,13 @@ export default function LeaderboardPage() {
   const [category, setCategory] = useState<Category>("all");
   const [period, setPeriod] = useState<Period>("weekly");
   const [showPointInfo, setShowPointInfo] = useState(false);
-  const [showConfetti, setShowConfetti] = useState(false);
 
   const { data: entries = [], isLoading, refetch } = useQuery<LeaderboardEntry[]>({
     queryKey: ["leaderboard", category, period],
     queryFn: () => adminFetch(`/leaderboard?category=${category}&period=${period}`),
-    refetchInterval: 10 * 60 * 1000, // 10 minutes
+    refetchInterval: 10 * 60 * 1000,
     staleTime: 5 * 60 * 1000,
   });
-
-  // Show confetti if current user is in top 3
-  useEffect(() => {
-    if (!user || entries.length === 0) return undefined;
-    const userEntry = entries.find(e => e.userId === user.id);
-    if (userEntry && userEntry.rank <= 3) {
-      setShowConfetti(true);
-      const t = setTimeout(() => setShowConfetti(false), 5000);
-      return () => clearTimeout(t);
-    }
-    return undefined;
-  }, [entries, user]);
 
   const top3 = entries.slice(0, 3);
   const rest = entries.slice(3);
@@ -262,22 +229,200 @@ export default function LeaderboardPage() {
 
   return (
     <AppLayout>
-      {/* Confetti for top-3 users */}
-      {showConfetti && <Confetti />}
+      <div className="max-w-2xl mx-auto px-4 pb-8">
+        {/* ── Header ── */}
+        <div className="flex items-center gap-3 pt-4 pb-2">
+          <button onClick={() => setLocation("/")} className="text-slate-400 hover:text-purple-600 transition-colors">
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <h1 className="text-xl font-extrabold text-slate-800">Leaderboard</h1>
+        </div>
 
-      {/* Point Info Modal */}
+        {/* ── Category tabs ── */}
+        <div className="mt-2 overflow-x-auto scrollbar-hide">
+          <div className="flex gap-2 pb-1 min-w-max">
+            {CATEGORIES.map((cat) => (
+              <motion.button
+                key={cat.id}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setCategory(cat.id)}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all ${
+                  category === cat.id
+                    ? "bg-purple-600 text-white shadow-md shadow-purple-500/20"
+                    : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                }`}
+              >
+                {cat.icon}
+                {cat.label}
+              </motion.button>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Banner ── */}
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-4 rounded-3xl bg-gradient-to-r from-purple-500 to-violet-700 p-5 relative overflow-hidden"
+        >
+          <div className="absolute inset-0 overflow-hidden">
+            <div className="absolute -top-4 -right-4 w-32 h-32 bg-yellow-400/20 rounded-full blur-2xl" />
+            <div className="absolute -bottom-4 -left-4 w-24 h-24 bg-pink-500/20 rounded-full blur-2xl" />
+          </div>
+          <div className="relative flex items-center justify-between">
+            <div className="flex-1">
+              <h2 className="text-white font-extrabold text-lg leading-tight">
+                Jadilah yang terbaik
+              </h2>
+              <p className="text-white/80 text-sm mt-0.5">dan memenangkan badge eksklusif!</p>
+              <button
+                onClick={() => setShowPointInfo(true)}
+                className="mt-3 bg-white text-purple-700 text-xs font-bold px-4 py-1.5 rounded-full shadow-sm hover:shadow-md transition-shadow"
+              >
+                Lihat Hadiah →
+              </button>
+            </div>
+            <div className="text-5xl ml-3 shrink-0">🏆</div>
+          </div>
+        </motion.div>
+
+        {/* ── Time filter ── */}
+        <div className="mt-4 flex items-center justify-between">
+          <div className="flex gap-1 bg-slate-100 p-1 rounded-2xl">
+            {PERIODS.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setPeriod(p.id)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  period === p.id
+                    ? "bg-purple-600 text-white shadow-sm"
+                    : "text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <span className="text-[10px] text-slate-400">Update setiap 10 menit</span>
+        </div>
+
+        {/* ── Current user position ── */}
+        <AnimatePresence>
+          {userEntry && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              className="mt-4 rounded-2xl bg-purple-50 border border-purple-200 px-4 py-3 flex items-center gap-3"
+            >
+              <div className="h-8 w-8 rounded-full bg-purple-500 flex items-center justify-center text-xs font-black text-white">
+                #{userEntry.rank}
+              </div>
+              <div className="flex-1">
+                <p className="text-slate-700 text-sm font-bold">Posisi kamu saat ini</p>
+                <p className="text-purple-600 text-xs">{userEntry.points.toLocaleString("id-ID")} poin · Level {userEntry.level}</p>
+              </div>
+              {userEntry.rankBadge && (
+                <Badge className="bg-purple-100 text-purple-700 border-purple-200 text-xs">
+                  {userEntry.rankBadge}
+                </Badge>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ── Top 3 Podium ── */}
+        {isLoading ? (
+          <div className="mt-6 flex justify-center gap-3">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="flex flex-col items-center gap-2 flex-1 max-w-[120px]">
+                <Skeleton className="w-16 h-16 rounded-full" />
+                <Skeleton className="w-full h-20 rounded-2xl" />
+              </div>
+            ))}
+          </div>
+        ) : top3.length >= 3 ? (
+          <div className="mt-6">
+            <div className="flex items-end justify-center gap-3">
+              <PodiumCard entry={top3[1]} pos={2} isCurrentUser={user?.id === top3[1]?.userId} />
+              <PodiumCard entry={top3[0]} pos={1} isCurrentUser={user?.id === top3[0]?.userId} />
+              <PodiumCard entry={top3[2]} pos={3} isCurrentUser={user?.id === top3[2]?.userId} />
+            </div>
+          </div>
+        ) : top3.length > 0 ? (
+          <div className="mt-4 space-y-2">
+            {top3.map((entry, i) => (
+              <RankRow key={entry.userId} entry={entry} isCurrentUser={user?.id === entry.userId} index={i} />
+            ))}
+          </div>
+        ) : (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="mt-12 text-center"
+          >
+            <Trophy className="h-12 w-12 text-slate-200 mx-auto mb-3" />
+            <p className="text-slate-400 font-medium">Belum ada data untuk periode ini.</p>
+            <p className="text-slate-300 text-sm mt-1">Mulai aktivitas untuk masuk leaderboard!</p>
+          </motion.div>
+        )}
+
+        {/* ── Rankings from #4 ── */}
+        {rest.length > 0 && (
+          <div className="mt-6 space-y-2">
+            {isLoading ? (
+              <LeaderboardSkeleton />
+            ) : (
+              rest.map((entry, i) => (
+                <RankRow
+                  key={entry.userId}
+                  entry={entry}
+                  isCurrentUser={user?.id === entry.userId}
+                  index={i}
+                />
+              ))
+            )}
+          </div>
+        )}
+
+        {/* ── Point info section ── */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+          className="mt-8 rounded-3xl bg-white border border-slate-100 p-5 shadow-sm"
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <Zap className="h-4 w-4 text-amber-400" />
+            <h3 className="text-slate-800 font-extrabold text-sm">Cara Dapat Poin</h3>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {POINT_TABLE.map((row) => (
+              <div key={row.activity} className="flex items-center justify-between gap-2 bg-slate-50 rounded-xl px-3 py-2">
+                <span className="text-slate-500 text-xs truncate">{row.activity}</span>
+                <span className="text-purple-600 font-bold text-xs shrink-0">{row.points}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-slate-300 text-xs mt-3 text-center">
+            Leaderboard diperbarui otomatis setiap 10 menit
+          </p>
+        </motion.div>
+      </div>
+
+      {/* ── Point Info Modal ── */}
       <Dialog open={showPointInfo} onOpenChange={setShowPointInfo}>
-        <DialogContent className="max-w-sm rounded-3xl bg-gradient-to-b from-[#2d1060] to-[#1a0a2e] border border-purple-500/30 text-white">
+        <DialogContent className="max-w-sm rounded-3xl bg-white border border-slate-100">
           <DialogHeader>
-            <DialogTitle className="text-center text-lg font-black text-white flex items-center justify-center gap-2">
-              <Star className="h-5 w-5 text-yellow-400" /> Sistem Poin
+            <DialogTitle className="text-center text-lg font-extrabold text-slate-800 flex items-center justify-center gap-2">
+              <Star className="h-5 w-5 text-amber-400" fill="currentColor" /> Sistem Poin
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-2 mt-2">
             {POINT_TABLE.map((row) => (
-              <div key={row.activity} className="flex justify-between items-center py-2 border-b border-white/10">
-                <span className="text-white/70 text-sm">{row.activity}</span>
-                <span className="font-black text-purple-300 text-sm">{row.points}</span>
+              <div key={row.activity} className="flex justify-between items-center py-2 border-b border-slate-100">
+                <span className="text-slate-600 text-sm">{row.activity}</span>
+                <span className="font-bold text-purple-600 text-sm">{row.points}</span>
               </div>
             ))}
           </div>
@@ -286,212 +431,6 @@ export default function LeaderboardPage() {
           </Button>
         </DialogContent>
       </Dialog>
-
-      {/* Dark background page */}
-      <div className="min-h-screen bg-gradient-to-b from-[#0f0520] via-[#1a0a2e] to-[#0f0520]">
-        {/* ── Header ── */}
-        <div className="sticky top-0 z-10 bg-[#0f0520]/90 backdrop-blur-xl border-b border-white/5 px-4 py-3">
-          <div className="max-w-2xl mx-auto flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => setLocation("/")} className="text-white/70 hover:text-white hover:bg-white/10 rounded-full h-9 w-9 shrink-0">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <h1 className="text-white font-black text-lg flex-1 text-center">Leaderboard</h1>
-            <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" className="text-white/70 hover:text-white hover:bg-white/10 rounded-full h-9 w-9" onClick={() => setShowPointInfo(true)}>
-                <Star className="h-4 w-4" />
-              </Button>
-              <Link href="/notifications">
-                <Button variant="ghost" size="icon" className="text-white/70 hover:text-white hover:bg-white/10 rounded-full h-9 w-9">
-                  <Bell className="h-4 w-4" />
-                </Button>
-              </Link>
-              {user && (
-                <Avatar className="h-8 w-8 border border-purple-400/40">
-                  <AvatarImage src={user.avatar || ""} />
-                  <AvatarFallback className="bg-purple-600 text-white text-xs font-bold">{user.username.charAt(0).toUpperCase()}</AvatarFallback>
-                </Avatar>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="max-w-2xl mx-auto px-4 pb-20">
-          {/* ── Hero Banner ── */}
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-4 rounded-3xl bg-gradient-to-r from-purple-700 via-violet-600 to-purple-800 p-5 relative overflow-hidden"
-          >
-            {/* Background decoration */}
-            <div className="absolute inset-0 overflow-hidden">
-              <div className="absolute -top-4 -right-4 w-32 h-32 bg-yellow-400/20 rounded-full blur-2xl" />
-              <div className="absolute -bottom-4 -left-4 w-24 h-24 bg-pink-500/20 rounded-full blur-2xl" />
-            </div>
-            <div className="relative">
-              <p className="text-purple-200 text-xs font-semibold uppercase tracking-widest mb-1">FUN+ Leaderboard</p>
-              <h2 className="text-white font-black text-lg md:text-xl leading-tight">
-                Jadilah yang terbaik dan<br />menangkan badge eksklusif!
-              </h2>
-            </div>
-          </motion.div>
-
-          {/* ── Current user position ── */}
-          <AnimatePresence>
-            {userEntry && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0 }}
-                className="mt-4 rounded-2xl bg-purple-500/15 border border-purple-400/30 px-4 py-3 flex items-center gap-3"
-              >
-                <div className="h-8 w-8 rounded-full bg-purple-500/30 flex items-center justify-center text-xs font-black text-purple-300">
-                  #{userEntry.rank}
-                </div>
-                <div className="flex-1">
-                  <p className="text-white/80 text-sm font-bold">Posisi kamu saat ini</p>
-                  <p className="text-purple-300 text-xs">{userEntry.points.toLocaleString("id-ID")} poin · Level {userEntry.level}</p>
-                </div>
-                {userEntry.rankBadge && (
-                  <Badge className="bg-purple-500/30 text-purple-200 border-purple-400/40 text-xs">
-                    {userEntry.rankBadge}
-                  </Badge>
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* ── Category tabs ── */}
-          <div className="mt-4 overflow-x-auto scrollbar-hide">
-            <div className="flex gap-2 pb-1 min-w-max">
-              {CATEGORIES.map((cat) => (
-                <motion.button
-                  key={cat.id}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setCategory(cat.id)}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all ${
-                    category === cat.id
-                      ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30"
-                      : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/80"
-                  }`}
-                >
-                  {cat.icon}
-                  {cat.label}
-                </motion.button>
-              ))}
-            </div>
-          </div>
-
-          {/* ── Period filter ── */}
-          <div className="mt-3 flex items-center justify-between">
-            <div className="flex gap-1.5 bg-white/5 p-1 rounded-2xl">
-              {PERIODS.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setPeriod(p.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                    period === p.id
-                      ? "bg-white/15 text-white"
-                      : "text-white/40 hover:text-white/60"
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => refetch()}
-              className="text-white/40 hover:text-white hover:bg-white/10 rounded-full h-8 w-8 p-0"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-
-          {/* ── Top 3 Podium ── */}
-          {isLoading ? (
-            <div className="mt-6 flex justify-center gap-4">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="flex flex-col items-center gap-2">
-                  <Skeleton className="w-16 h-16 rounded-full bg-white/10" />
-                  <Skeleton className="w-16 h-3 rounded bg-white/10" />
-                  <Skeleton className="w-20 h-24 rounded-t-xl bg-white/10" />
-                </div>
-              ))}
-            </div>
-          ) : top3.length >= 3 ? (
-            <div className="mt-6 px-2">
-              <div className="flex items-end justify-center gap-3 md:gap-6">
-                <PodiumCard entry={top3[1]} pos={2} isCurrentUser={user?.id === top3[1]?.userId} />
-                <PodiumCard entry={top3[0]} pos={1} isCurrentUser={user?.id === top3[0]?.userId} />
-                <PodiumCard entry={top3[2]} pos={3} isCurrentUser={user?.id === top3[2]?.userId} />
-              </div>
-            </div>
-          ) : top3.length > 0 ? (
-            <div className="mt-4 space-y-2">
-              {top3.map((entry, i) => (
-                <RankRow key={entry.userId} entry={entry} isCurrentUser={user?.id === entry.userId} index={i} />
-              ))}
-            </div>
-          ) : (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="mt-12 text-center"
-            >
-              <Trophy className="h-12 w-12 text-white/20 mx-auto mb-3" />
-              <p className="text-white/40 font-medium">Belum ada data untuk periode ini.</p>
-              <p className="text-white/25 text-sm mt-1">Mulai aktivitas untuk masuk leaderboard!</p>
-            </motion.div>
-          )}
-
-          {/* ── Rankings from #4 ── */}
-          {rest.length > 0 && (
-            <div className="mt-6 space-y-2">
-              <div className="flex items-center gap-2 mb-3">
-                <TrendingUp className="h-4 w-4 text-purple-400" />
-                <h3 className="text-white/60 text-sm font-bold uppercase tracking-wider">Ranking Berikutnya</h3>
-              </div>
-              {isLoading ? (
-                <LeaderboardSkeleton />
-              ) : (
-                rest.map((entry, i) => (
-                  <RankRow
-                    key={entry.userId}
-                    entry={entry}
-                    isCurrentUser={user?.id === entry.userId}
-                    index={i}
-                  />
-                ))
-              )}
-            </div>
-          )}
-
-          {/* ── Info section ── */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.5 }}
-            className="mt-8 rounded-3xl bg-white/5 border border-white/10 p-5"
-          >
-            <div className="flex items-center gap-2 mb-4">
-              <Zap className="h-4 w-4 text-yellow-400" />
-              <h3 className="text-white font-black text-sm">Cara Dapat Poin</h3>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {POINT_TABLE.map((row) => (
-                <div key={row.activity} className="flex items-center justify-between gap-2 bg-white/5 rounded-xl px-3 py-2">
-                  <span className="text-white/60 text-xs truncate">{row.activity}</span>
-                  <span className="text-purple-300 font-black text-xs shrink-0">{row.points}</span>
-                </div>
-              ))}
-            </div>
-            <p className="text-white/30 text-xs mt-3 text-center">
-              Leaderboard diperbarui otomatis setiap 10 menit
-            </p>
-          </motion.div>
-        </div>
-      </div>
     </AppLayout>
   );
 }

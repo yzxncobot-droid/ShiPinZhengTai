@@ -59,6 +59,9 @@ import RedeemPage from "@/pages/redeem";
 import AdminRedeemPage from "@/pages/admin/redeem";
 import AdminBuatQris from "@/pages/admin/buatqris";
 import AdminHomeFeed from "@/pages/admin/home-feed";
+import StatisticsPage from "@/pages/statistics";
+import AchievementsPage from "@/pages/achievements";
+import AdminGamificationPage from "@/pages/admin/gamification";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -109,6 +112,8 @@ function AppRouter() {
       <Route path="/debug-upload" component={DebugUploadPage} />
       <Route path="/upload" component={CreatorUploadPage} />
       <Route path="/my-video" component={MyVideoPage} />
+      <Route path="/statistics" component={StatisticsPage} />
+      <Route path="/achievements" component={AchievementsPage} />
 
       {/* Unified Admin / Owner Panel */}
       <Route path="/admin" component={AdminDashboard} />
@@ -138,6 +143,7 @@ function AppRouter() {
       <Route path="/admin/badge-roles" component={AdminBadgeRolesPage} />
       <Route path="/admin/buatqris" component={AdminBuatQris} />
       <Route path="/admin/home-feed" component={AdminHomeFeed} />
+      <Route path="/admin/gamification" component={AdminGamificationPage} />
       <Route path="/admin/maintenance" component={AdminMaintenancePage} />
 
       {/* Maintenance page — always accessible */}

@@ -376,6 +376,11 @@ router.post("/chat/rooms/:id/join", authenticate, async (req, res) => {
     await db.insert(chatRoomMembersTable).values({ roomId, userId })
       .onConflictDoNothing();
 
+    // ── Gamification: award join group EXP (idempotent per room) ──────────────
+    import("../lib/gamification").then(({ awardExp }) =>
+      awardExp(userId, "join_group", `join_${roomId}`, undefined, { roomId }).catch(() => {}),
+    );
+
     res.json({ message: "Joined" });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -541,6 +546,11 @@ router.post("/chat/rooms/:id/messages", authenticate, async (req, res) => {
     const [author] = await db
       .select({ username: usersTable.username, avatar: usersTable.avatar, role: usersTable.role, subscriptionStatus: usersTable.subscriptionStatus, verificationBadge: usersTable.verificationBadge })
       .from(usersTable).where(eq(usersTable.id, userId));
+
+    // ── Gamification: award message EXP (idempotent per message, daily-limited) ─
+    import("../lib/gamification").then(({ awardExp }) =>
+      awardExp(userId, "send_message", `chat_${created.id}`, undefined, { roomId }).catch(() => {}),
+    );
 
     res.status(201).json({ ...created, authorUsername: author.username, authorAvatar: author.avatar, authorRole: author.role, authorSubscriptionStatus: author.subscriptionStatus, authorVerificationBadge: author.verificationBadge ?? null, reactions: [], myReactions: [] });
   } catch (err: any) {

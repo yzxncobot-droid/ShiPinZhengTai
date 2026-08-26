@@ -77,7 +77,7 @@ export default function Home() {
   }, [queryClient]);
 
   return (
-    <div className="relative h-[100dvh] w-full overflow-hidden bg-black">
+    <div className="relative h-[100dvh] w-full overflow-hidden bg-slate-50">
       {/* ── Header overlay ── */}
       <header
         className="absolute top-0 inset-x-0 z-30 flex items-center justify-between px-4"
@@ -101,16 +101,16 @@ export default function Home() {
 
         {/* Icons */}
         <div className="flex items-center gap-2.5">
-          <button onClick={() => setLocation("/search")} className="h-9 w-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white">
+          <button onClick={() => setLocation("/search")} className="h-9 w-9 rounded-full bg-white/70 backdrop-blur shadow-sm border border-slate-200 flex items-center justify-center text-slate-700">
             <Search className="h-4.5 w-4.5" />
           </button>
           {user && (
-            <button onClick={() => setLocation("/notifications")} className="relative h-9 w-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white">
+            <button onClick={() => setLocation("/notifications")} className="relative h-9 w-9 rounded-full bg-white/70 backdrop-blur shadow-sm border border-slate-200 flex items-center justify-center text-slate-700">
               <Bell className="h-4.5 w-4.5" />
               <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-orange-500" />
             </button>
           )}
-          <button onClick={() => setLocation(user ? "/profile" : "/login")} className="h-9 w-9 rounded-full overflow-hidden border-2 border-white/40 bg-black/40">
+          <button onClick={() => setLocation(user ? "/profile" : "/login")} className="h-9 w-9 rounded-full overflow-hidden border-2 border-purple-200 bg-white/70 shadow-sm">
             <Avatar className="h-full w-full">
               <AvatarImage src={user?.avatar ?? undefined} />
               <AvatarFallback className="h-full w-full text-xs font-bold text-white" style={{ backgroundColor: "#7C3AED" }}>
@@ -129,17 +129,17 @@ export default function Home() {
       >
         {isLoading ? (
           <div className="h-full flex items-center justify-center">
-            <div className="text-center text-white/70">
-              <div className="mx-auto h-10 w-10 rounded-full border-4 border-white/20 border-t-white animate-spin" />
+            <div className="text-center text-slate-500">
+              <div className="mx-auto h-10 w-10 rounded-full border-4 border-slate-200 border-t-purple-500 animate-spin" />
               <p className="mt-3 text-sm font-bold">Memuat video...</p>
             </div>
           </div>
         ) : renderList.length === 0 ? (
           <div className="h-full flex items-center justify-center px-8">
-            <div className="text-center text-white">
+            <div className="text-center text-slate-700">
               <span className="text-5xl block mb-3">🎬</span>
               <p className="text-lg font-extrabold">Selamat Datang di FUN+!</p>
-              <p className="text-sm text-white/70 mt-1">Video akan segera hadir. Nantikan ya! 🌟</p>
+              <p className="text-sm text-slate-500 mt-1">Video akan segera hadir. Nantikan ya! 🌟</p>
             </div>
           </div>
         ) : (
