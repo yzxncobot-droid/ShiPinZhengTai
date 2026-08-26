@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
-  Loader2, UploadCloud, Video as VideoIcon, Image as ImageIcon,
+  Loader2, UploadCloud, Video as VideoIcon,
   Link as LinkIcon, CheckCircle2, Globe, Sparkles, Package, ShieldAlert,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -113,8 +113,7 @@ function NotAuthorized({ currentRole }: { currentRole?: { name: string; emoji?: 
         </div>
         <h2 className="text-xl font-heading font-extrabold text-slate-800">Akses Ditolak</h2>
         <p className="text-slate-500 text-sm max-w-sm">
-          Role kamu belum memiliki permission <strong>Upload</strong>.
-          Hubungi admin untuk mendapatkan akses.
+          Halaman upload video hanya bisa digunakan oleh <strong>Owner</strong>.
         </p>
         {currentRole && (
           <div className="flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-full text-sm font-semibold text-slate-600">
@@ -150,21 +149,17 @@ export default function CreatorUploadPage() {
   const bundles: any[] = Array.isArray(bundlesRaw) ? bundlesRaw : (bundlesRaw as any)?.data ?? [];
 
   const [isUploadingVideo, setIsUploadingVideo] = useState(false);
-  const [isUploadingThumb, setIsUploadingThumb] = useState(false);
   const [isSubmitting, setIsSubmitting]         = useState(false);
   const [uploadProgress, setUploadProgress]     = useState(0);
-  const [thumbProgress, setThumbProgress]       = useState(0);
   const [xhrRef] = useState<{ current: XMLHttpRequest | null }>({ current: null });
 
   // Storage metadata returned from upload endpoints — forwarded to POST /creator/videos
   const [uploadMeta, setUploadMeta] = useState<{
     videoStorageFolder?: string;
-    thumbnailPath?: string;
     bucketName?: string;
   }>({});
 
   const videoInputRef = useRef<HTMLInputElement>(null);
-  const thumbInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<UploadForm>({
     resolver: zodResolver(uploadSchema),
@@ -178,21 +173,13 @@ export default function CreatorUploadPage() {
   const visibility      = form.watch("visibility");
   const videoSourceType = form.watch("videoSourceType");
   const videoUrl        = form.watch("videoUrl");
-  const thumbnail       = form.watch("thumbnail");
 
   // ── File upload ──────────────────────────────────────────────────────────────
-  const handleFileUpload = async (file: File, type: "video" | "image") => {
-    const isVid      = type === "video";
-    const setUpl     = isVid ? setIsUploadingVideo : setIsUploadingThumb;
-    const setProgress = isVid ? setUploadProgress : setThumbProgress;
-    const endpoint   = isVid ? "/api/upload/video" : "/api/upload/thumbnail";
-    const urlField   = isVid ? "videoUrl" : "thumbnail";
-    const formKey    = isVid ? "video" : "thumbnail";
-
-    setUpl(true);
-    setProgress(0);
+  const handleFileUpload = async (file: File) => {
+    setIsUploadingVideo(true);
+    setUploadProgress(0);
     const fd = new FormData();
-    fd.append(formKey, file);
+    fd.append("video", file);
 
     // The backend resolves uploaderType from the user's custom role permissions.
     // We do not send uploaderType from the frontend — the server decides storage routing.
@@ -202,9 +189,9 @@ export default function CreatorUploadPage() {
         url: string; path?: string; storageFolder?: string; bucketName?: string;
       }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        if (isVid) xhrRef.current = xhr;
+        xhrRef.current = xhr;
         xhr.upload.addEventListener("progress", (e) => {
-          if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
+          if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100));
         });
         xhr.addEventListener("load", () => {
           let parsed: any = null;
@@ -219,36 +206,28 @@ export default function CreatorUploadPage() {
           }
         });
         xhr.addEventListener("error", () => reject(new Error("Tidak dapat terhubung ke server. Periksa koneksi internet.")));
-        xhr.open("POST", endpoint);
+        xhr.open("POST", "/api/upload/video");
         xhr.setRequestHeader("Authorization", `Bearer ${token}`);
         xhr.send(fd);
       });
 
-      form.setValue(urlField as keyof UploadForm, data.url, { shouldValidate: true });
-      if (isVid && data.path) form.setValue("videoFilePath", data.path);
+      form.setValue("videoUrl", data.url, { shouldValidate: true });
+      if (data.path) form.setValue("videoFilePath", data.path);
 
       // Capture storage metadata to forward when creating the video record
-      if (isVid) {
-        setUploadMeta(prev => ({
-          ...prev,
-          videoStorageFolder: data.storageFolder,
-          bucketName: data.bucketName ?? undefined,
-        }));
-      } else {
-        setUploadMeta(prev => ({
-          ...prev,
-          thumbnailPath: data.path,
-          bucketName: data.bucketName ?? prev.bucketName,
-        }));
-      }
+      setUploadMeta(prev => ({
+        ...prev,
+        videoStorageFolder: data.storageFolder,
+        bucketName: data.bucketName ?? undefined,
+      }));
 
-      toast({ title: `${isVid ? "Video" : "Thumbnail"} berhasil diupload! ✅` });
+      toast({ title: "Video berhasil diupload! ✅" });
     } catch (err: any) {
       toast({ title: "Upload gagal", description: err.message, variant: "destructive" });
     } finally {
-      setUpl(false);
-      setProgress(0);
-      if (isVid) xhrRef.current = null;
+      setIsUploadingVideo(false);
+      setUploadProgress(0);
+      xhrRef.current = null;
     }
   };
 
@@ -280,7 +259,6 @@ export default function CreatorUploadPage() {
           thumbnail:     values.thumbnail || null,
           // Forward storage metadata captured from upload endpoints
           storageFolder: uploadMeta.videoStorageFolder || null,
-          thumbnailPath: uploadMeta.thumbnailPath      || null,
           bucketName:    uploadMeta.bucketName         || null,
         }),
       });
@@ -331,19 +309,15 @@ export default function CreatorUploadPage() {
     return null;
   }
 
-  // Permission check: base roles (user/meril) can upload by default,
-  // or via an active custom role with permUploadVideo (never badge flags)
-  const isAdminOrOwner = user?.role === "admin" || user?.role === "owner";
-  const isBaseUser = user?.role === "user" || user?.role === "meril";
-  const hasUploadPermission = isAdminOrOwner || isBaseUser || (customRoles?.some((r: any) => r.permUploadVideo) ?? false);
+  // Only the owner can use the home video upload.
+  const isOwner = user?.role === "owner";
 
-  // Admin/Owner always redirect to their dedicated upload pages
-  if (isAdminOrOwner) {
-    const adminPath = user?.role === "owner" ? "/owner" : "/admin";
-    setLocation(adminPath);
+  // Admin keeps its own dedicated upload page.
+  if (user?.role === "admin") {
+    setLocation("/admin");
     return null;
   }
-  if (!hasUploadPermission) {
+  if (!isOwner) {
     const topRole = customRoles?.[0] ?? null;
     return <NotAuthorized currentRole={topRole} />;
   }
@@ -497,7 +471,7 @@ export default function CreatorUploadPage() {
                           type="file"
                           accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
                           className="hidden" ref={videoInputRef}
-                          onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], "video")}
+                          onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
                         />
                         {field.value ? (
                           <div className="border-2 border-sky-200 bg-sky-50 rounded-xl p-4 flex flex-col items-center gap-2">
@@ -555,52 +529,6 @@ export default function CreatorUploadPage() {
                   </FormItem>
                 )} />
               )}
-            </SectionCard>
-
-            {/* ── Thumbnail ── */}
-            <SectionCard icon={<ImageIcon className="h-4 w-4" />} title="Thumbnail" gradient="bg-gradient-to-r from-violet-500 to-purple-600">
-              <FormField control={form.control} name="thumbnail" render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="font-semibold">Gambar Thumbnail</FormLabel>
-                  <FormControl>
-                    <div>
-                      <input
-                        type="file" accept="image/jpeg,image/png,image/webp"
-                        className="hidden" ref={thumbInputRef}
-                        onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], "image")}
-                      />
-                      {field.value ? (
-                        <div className="relative rounded-xl overflow-hidden border-2 border-violet-200 group w-full h-44">
-                          <img src={field.value} alt="Thumbnail" className="w-full h-full object-cover" />
-                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                            <Button type="button" variant="secondary" size="sm" onClick={() => thumbInputRef.current?.click()}>Ganti Gambar</Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div
-                          onClick={() => !isUploadingThumb && thumbInputRef.current?.click()}
-                          className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer h-44 transition-colors
-                            ${isUploadingThumb ? "border-violet-300 bg-violet-50 pointer-events-none" : "border-slate-200 bg-slate-50 hover:border-violet-300 hover:bg-violet-50"}`}
-                        >
-                          {isUploadingThumb ? (
-                            <div className="text-center space-y-2">
-                              <Loader2 className="h-8 w-8 animate-spin text-violet-500 mx-auto" />
-                              <p className="text-sm font-semibold text-violet-700">Mengupload… {thumbProgress}%</p>
-                            </div>
-                          ) : (
-                            <>
-                              <ImageIcon className="h-9 w-9 text-violet-400 mb-2" />
-                              <p className="text-sm font-semibold text-slate-700">Pilih Thumbnail</p>
-                              <p className="text-xs text-slate-400 mt-1">JPG, PNG, WebP • Opsional</p>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
             </SectionCard>
 
             {/* ── Video Details ── */}
@@ -668,7 +596,7 @@ export default function CreatorUploadPage() {
             {/* Submit */}
             <Button
               type="submit"
-              disabled={isSubmitting || isUploadingVideo || isUploadingThumb}
+              disabled={isSubmitting || isUploadingVideo}
               className="w-full h-12 rounded-full font-extrabold bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white shadow-lg shadow-purple-500/30 gap-2"
             >
               {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Mempublikasi...</> : "🚀 Publikasikan Video"}
