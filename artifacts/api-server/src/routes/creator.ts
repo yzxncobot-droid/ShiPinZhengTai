@@ -100,6 +100,15 @@ router.post("/creator/videos", authenticate, requirePermission("permUploadVideo"
       return;
     }
 
+    // ── Premium video must have a positive price ──────────────────────────────
+    if (visibility === "premium") {
+      const numPrice = Number(price);
+      if (!Number.isFinite(numPrice) || numPrice <= 0) {
+        res.status(400).json({ error: "Video premium wajib memiliki harga (harus lebih dari 0)" });
+        return;
+      }
+    }
+
     // Derive storage_type server-side — never trust client value.
     // Admin/owner use their dedicated upload flow (explicit uploaderType via admin page).
     // All other users (custom-role creators) → PUBLIC Supabase.
@@ -133,6 +142,12 @@ router.post("/creator/videos", authenticate, requirePermission("permUploadVideo"
     }).returning();
 
     logger.info({ videoId: video.id, creatorId: userId }, "Creator uploaded video");
+
+    // ── Gamification: award upload EXP + check creator achievements ──────────
+    import("../lib/gamification").then(({ awardExp }) =>
+      awardExp(userId, "upload_video", `upload_${video.id}`, undefined, { videoId: video.id }).catch(() => {}),
+    );
+
     res.status(201).json(video);
   } catch (err: any) {
     const pgCode   = err?.code   ?? err?.cause?.code;

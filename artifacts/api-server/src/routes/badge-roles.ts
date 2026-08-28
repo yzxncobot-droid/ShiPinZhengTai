@@ -69,6 +69,7 @@ router.post(
       const {
         name, emoji, color, description, isActive, priority,
         permDashboard, permUploadVideo, permMyVideo, permLeaderboard, permCreatorDashboard,
+        permVideoFullAccess,
         uploadTypes, creatorSharePercent,
       } = req.body as any;
 
@@ -92,6 +93,7 @@ router.post(
         permMyVideo: Boolean(permMyVideo),
         permLeaderboard: permLeaderboard !== false,
         permCreatorDashboard: Boolean(permCreatorDashboard),
+        permVideoFullAccess: Boolean(permVideoFullAccess),
         uploadTypes: serializeUploadTypes(Array.isArray(uploadTypes) ? uploadTypes : ["free"]),
         creatorSharePercent: creatorPct,
         platformSharePercent: platformPct,
@@ -152,6 +154,7 @@ router.put(
       const {
         name, emoji, color, description, isActive, priority,
         permDashboard, permUploadVideo, permMyVideo, permLeaderboard, permCreatorDashboard,
+        permVideoFullAccess,
         uploadTypes, creatorSharePercent,
       } = req.body as any;
 
@@ -171,6 +174,7 @@ router.put(
           ...(permMyVideo !== undefined ? { permMyVideo: Boolean(permMyVideo) } : {}),
           ...(permLeaderboard !== undefined ? { permLeaderboard: Boolean(permLeaderboard) } : {}),
           ...(permCreatorDashboard !== undefined ? { permCreatorDashboard: Boolean(permCreatorDashboard) } : {}),
+          ...(permVideoFullAccess !== undefined ? { permVideoFullAccess: Boolean(permVideoFullAccess) } : {}),
           ...(uploadTypes !== undefined ? { uploadTypes: serializeUploadTypes(uploadTypes) } : {}),
           ...(creatorSharePercent !== undefined ? {
             creatorSharePercent: creatorPct,

@@ -311,15 +311,18 @@ export default function ProfilePage() {
                     <StatCard icon={Video} label="Ditonton" value={gamification.statistics.videosWatched} color="bg-purple-500" />
                     <StatCard icon={Heart} label="Like" value={gamification.statistics.videosLiked} color="bg-pink-500" />
                     <StatCard icon={Trophy} label="Achievement" value={gamification.achievementCount} color="bg-amber-500" />
-                    <StatCard icon={Flame} label="Streak" value={`${gamification.streakDays}h`} color="bg-orange-500" />
+                    <StatCard icon={Award} label="Badge" value={gamification.specialBadges?.length ?? 0} color="bg-indigo-500" />
                   </div>
+                  <Link href="/achievements" className="mt-3 flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-extrabold shadow-sm hover:opacity-90 transition-opacity">
+                    <Trophy className="h-3.5 w-3.5" /> Lihat Achievements
+                  </Link>
                 </>
               ) : (
                 <div className="flex gap-2 justify-around flex-wrap">
                   <StatCard icon={Video} label="Video" value={0} color="bg-purple-500" />
                   <StatCard icon={Heart} label="Like" value={0} color="bg-pink-500" />
-                  <StatCard icon={Trophy} label="Badge" value={0} color="bg-amber-500" />
-                  <StatCard icon={Flame} label="Streak" value={0} color="bg-orange-500" />
+                  <StatCard icon={Trophy} label="Achievement" value={0} color="bg-amber-500" />
+                  <StatCard icon={Award} label="Badge" value={0} color="bg-indigo-500" />
                 </div>
               )}
             </motion.div>

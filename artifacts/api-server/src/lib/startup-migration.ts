@@ -280,6 +280,12 @@ export async function runBestEffortStartupMigration(): Promise<void> {
       CREATE INDEX IF NOT EXISTS users_custom_role_id_idx ON users(custom_role_id);
     `);
 
+    // ── 5b. custom_roles: perm_video_full_access column ──────────────────────
+    await runStep(client, "custom_roles: perm_video_full_access column", `
+      ALTER TABLE custom_roles
+        ADD COLUMN IF NOT EXISTS perm_video_full_access boolean NOT NULL DEFAULT false;
+    `);
+
     // ── 6. Automatic top-up fee config columns on settings ───────────────────
     await runStep(client, "settings automatic fee columns", `
       ALTER TABLE settings ADD COLUMN IF NOT EXISTS automatic_fee_type text DEFAULT 'percentage';

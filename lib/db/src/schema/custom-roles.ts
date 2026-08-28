@@ -26,6 +26,8 @@ export const customRolesTable = pgTable(
     permMyVideo:          boolean("perm_my_video").notNull().default(false),
     permLeaderboard:      boolean("perm_leaderboard").notNull().default(true),
     permCreatorDashboard: boolean("perm_creator_dashboard").notNull().default(false),
+    /** Full access to all videos (including premium) without purchase. */
+    permVideoFullAccess:  boolean("perm_video_full_access").notNull().default(false),
 
     // ── Upload type access (comma-separated: "free,premium,bundle") ──────────
     uploadTypes: text("upload_types").notNull().default("free"),

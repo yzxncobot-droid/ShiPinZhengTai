@@ -46,6 +46,29 @@ async function formatVideo(v: any, userId?: string) {
 }
 
 /**
+ * Check if a user has the `video_full_access` permission.
+ * Admin/owner always have it. Custom roles with permVideoFullAccess grant it.
+ */
+async function hasVideoFullAccess(userId: string): Promise<boolean> {
+  // Admin/owner always have full access
+  const [user] = await db.select({ role: usersTable.role })
+    .from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  if (!user) return false;
+  if (user.role === "admin" || user.role === "owner") return true;
+
+  // Check custom roles for permVideoFullAccess
+  const rows = await db
+    .select({ perm: customRolesTable.permVideoFullAccess })
+    .from(userCustomRolesTable)
+    .innerJoin(customRolesTable, eq(userCustomRolesTable.roleId, customRolesTable.id))
+    .where(and(
+      eq(userCustomRolesTable.userId, userId),
+      eq(customRolesTable.isActive, true),
+    ));
+  return rows.some((r: any) => r.perm === true);
+}
+
+/**
  * Determine if a user has access to a given video.
  */
 async function checkAccess(userId: string | undefined, video: any): Promise<boolean> {
@@ -53,6 +76,9 @@ async function checkAccess(userId: string | undefined, video: any): Promise<bool
 
   if (visibility === "public") return true;
   if (!userId) return false;
+
+  // ── video_full_access permission: grants access to ALL videos including premium ──
+  if (await hasVideoFullAccess(userId)) return true;
 
   if (visibility === "premium") {
     const now = new Date();
@@ -502,9 +528,13 @@ router.post("/videos/:id/like", authenticate, async (req, res) => {
     await db.update(videosTable).set({ likes: sql`${videosTable.likes} + 1` }).where(eq(videosTable.id, id));
 
     // ── Gamification: award like EXP (idempotent per video, daily-limited) ───
-    import("../lib/gamification").then(({ awardExp }) =>
-      awardExp(userId, "like_video", `like_${id}`, undefined, { videoId: id }).catch(() => {}),
-    );
+    import("../lib/gamification").then(({ awardExp, checkAchievements }) => {
+      awardExp(userId, "like_video", `like_${id}`, undefined, { videoId: id }).catch(() => {});
+      // Also check creator achievements for the video's creator (e.g. Rising Creator)
+      if (video.creatorId && video.creatorId !== userId) {
+        checkAchievements(video.creatorId, "video_liked").catch(() => {});
+      }
+    });
 
     res.json({ liked: true });
   } catch (err: any) {
@@ -705,6 +735,13 @@ router.post("/videos/:id/purchase", authenticate, async (req, res) => {
 
       return purchase;
     });
+
+    // ── Gamification: check creator achievements (premium sale, revenue) ────
+    if (isCreatorUpload && video.creatorId) {
+      import("../lib/gamification").then(({ checkAchievements }) =>
+        checkAchievements(video.creatorId!, "video_purchased").catch(() => {}),
+      );
+    }
 
     res.json({ purchase: result, hasAccess: true, newBalance });
   } catch (err: any) {

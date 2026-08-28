@@ -26,6 +26,7 @@ interface Props {
   authorRole?: string;
   authorSubscriptionStatus?: string;
   authorVerificationBadge?: string | null;
+  authorBadgeInfo?: any | null;
   createdAt: string | Date;
   editedAt?: string | Date | null;
   isPinned?: boolean;
@@ -55,6 +56,24 @@ function Avatar({ username, avatar, size = "sm" }: { username: string; avatar?: 
     <div className={`${sz} rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold shrink-0`}>
       {username[0]?.toUpperCase()}
     </div>
+  );
+}
+
+function BadgeChips({ badgeInfo }: { badgeInfo?: any | null }) {
+  if (!badgeInfo?.displayBadges?.length) return null;
+  return (
+    <>
+      {badgeInfo.displayBadges.slice(0, 2).map((badge: any, i: number) => (
+        <span
+          key={i}
+          className="flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none shrink-0"
+          style={{ backgroundColor: `${badge.color}18`, color: badge.color }}
+          title={badge.name}
+        >
+          {badge.icon} {badge.name}
+        </span>
+      ))}
+    </>
   );
 }
 
@@ -111,6 +130,7 @@ function MediaContent({ fileUrl, fileName, messageType }: { fileUrl: string; fil
 export function MessageBubble({
   id, content, messageType = "text", fileUrl, fileName,
   authorId, authorUsername, authorAvatar, authorRole, authorSubscriptionStatus, authorVerificationBadge,
+  authorBadgeInfo,
   createdAt, editedAt, isPinned, isDeleted, isMine = false,
   reactions = [], myReactions = [], replyToId,
   showAvatar = true, onReact, onReply, onEdit, onDelete, onDeleteForAll, onPin, onClickUser, canModerate, canPin,
@@ -160,6 +180,7 @@ export function MessageBubble({
             </button>
             <VerificationBadge verificationBadge={authorVerificationBadge} size="xs" showTooltip={false} />
             <RoleBadge role={authorRole} subscriptionStatus={authorSubscriptionStatus} />
+            <BadgeChips badgeInfo={authorBadgeInfo} />
             <span className="text-[10px] text-slate-400">{timeStr}</span>
           </div>
         )}
