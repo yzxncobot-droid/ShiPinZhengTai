@@ -52,6 +52,7 @@ interface CustomRole {
   permMyVideo: boolean;
   permLeaderboard: boolean;
   permCreatorDashboard: boolean;
+  permVideoFullAccess: boolean;
   uploadTypes: string[];
   creatorSharePercent: number;
   platformSharePercent: number;
@@ -87,6 +88,7 @@ const EMPTY_FORM: Omit<CustomRole, "id" | "createdAt" | "updatedAt"> = {
   permMyVideo: false,
   permLeaderboard: true,
   permCreatorDashboard: false,
+  permVideoFullAccess: false,
   uploadTypes: ["free"],
   creatorSharePercent: 50,
   platformSharePercent: 50,
@@ -263,6 +265,7 @@ function RoleFormDialog({
                 { key: "permMyVideo" as const, label: "My Video", icon: Video },
                 { key: "permLeaderboard" as const, label: "Leaderboard", icon: BarChart3 },
                 { key: "permCreatorDashboard" as const, label: "Creator Dashboard", icon: ChevronRight },
+                { key: "permVideoFullAccess" as const, label: "Akses Penuh Semua Video", icon: ShieldCheck },
               ].map(({ key, label, icon: Icon }) => (
                 <label
                   key={key}
@@ -687,6 +690,9 @@ export default function AdminBadgeRolesPage() {
                     {role.permCreatorDashboard && (
                       <span className="text-[10px] rounded px-1.5 py-0.5 bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300">Creator Dash</span>
                     )}
+                    {role.permVideoFullAccess && (
+                      <span className="text-[10px] rounded px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300">Full Video Access</span>
+                    )}
                     {role.uploadTypes.map((t) => (
                       <span key={t} className="text-[10px] rounded px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
                         {t}
@@ -747,6 +753,7 @@ export default function AdminBadgeRolesPage() {
                             { label: "My Video", v: detailRole.permMyVideo },
                             { label: "Leaderboard", v: detailRole.permLeaderboard },
                             { label: "Creator Dashboard", v: detailRole.permCreatorDashboard },
+                            { label: "Akses Penuh Semua Video", v: detailRole.permVideoFullAccess },
                           ].map(({ label, v }) => (
                             <TableRow key={label}>
                               <TableCell className="text-sm">{label}</TableCell>

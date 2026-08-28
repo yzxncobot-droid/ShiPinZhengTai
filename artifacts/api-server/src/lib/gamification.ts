@@ -365,8 +365,11 @@ export async function checkAchievements(userId: string, source: string): Promise
       comment: ["comment_count"],
       send_message: ["message_count"],
       join_group: ["group_count"],
-      upload_video: ["upload_count"],
+      upload_video: ["upload_count", "first_upload"],
       login: ["streak"],
+      // Creator-specific sources (triggered for the CREATOR, not the actor)
+      video_liked: ["creator_likes"],
+      video_purchased: ["premium_sale", "creator_revenue"],
     };
     const reqTypes = sourceToReqType[source] ?? [];
     if (reqTypes.length === 0) return [];
@@ -402,9 +405,28 @@ export async function checkAchievements(userId: string, source: string): Promise
       upload_count: stats?.videosUploaded ?? 0,
       first_watch: stats?.videosWatched ?? 0,
       first_like: stats?.videosLiked ?? 0,
+      first_upload: stats?.videosUploaded ?? 0,
       level: ul?.currentLevel ?? 1,
       streak: ul?.streakDays ?? 0,
     };
+
+    // ── Creator-specific stat values (require DB queries) ───────────────────
+    if (reqTypes.includes("creator_likes")) {
+      const { rows } = await pool.query(
+        `SELECT COALESCE(SUM(v.likes), 0) AS total FROM videos v WHERE v.creator_id = $1 AND v.deleted_at IS NULL`,
+        [userId],
+      );
+      statValues.creator_likes = parseInt(rows[0]?.total ?? "0", 10);
+    }
+    if (reqTypes.includes("premium_sale") || reqTypes.includes("creator_revenue")) {
+      const { rows } = await pool.query(
+        `SELECT COUNT(*) AS sale_count, COALESCE(SUM(creator_share), 0) AS total_revenue
+         FROM revenue_shares WHERE creator_id = $1 AND payout_status = 'paid'`,
+        [userId],
+      );
+      statValues.premium_sale = parseInt(rows[0]?.sale_count ?? "0", 10);
+      statValues.creator_revenue = parseInt(rows[0]?.total_revenue ?? "0", 10);
+    }
 
     const newlyUnlocked: any[] = [];
 
@@ -759,10 +781,18 @@ export async function seedDefaultGamification(): Promise<void> {
     ]).onConflictDoNothing();
   }
 
-  // Default achievements
-  const existingAch = await db.select().from(achievementsTable).limit(1);
-  if (existingAch.length === 0) {
-    await db.insert(achievementsTable).values([
+  // Default achievements — seed any that don't exist yet (by name)
+  const allAchNames = [
+    "First Watch", "First Like", "Chatter", "7 Day Streak", "Creator", "Video Master",
+    "Legend", "Early Member", "Social Butterfly", "Comment Pro",
+    "First Upload", "Rising Creator", "Premium Creator", "Top Creator",
+  ];
+  const existingAch = await db.select({ name: achievementsTable.name }).from(achievementsTable);
+  const existingNames = new Set(existingAch.map((a: any) => a.name));
+  const toInsert = allAchNames.filter(n => !existingNames.has(n));
+
+  if (toInsert.length > 0) {
+    const allAchievements = [
       { name: "First Watch", description: "Tonton video pertamamu", icon: "🎬", rarity: "COMMON", requirementType: "first_watch", requirementValue: 1, expReward: 10 },
       { name: "First Like", description: "Berikan like pertamamu", icon: "❤️", rarity: "COMMON", requirementType: "first_like", requirementValue: 1, expReward: 10 },
       { name: "Chatter", description: "Kirim 100 pesan", icon: "💬", rarity: "RARE", requirementType: "message_count", requirementValue: 100, expReward: 100 },
@@ -773,7 +803,14 @@ export async function seedDefaultGamification(): Promise<void> {
       { name: "Early Member", description: "Anggota awal platform", icon: "🏆", rarity: "SPECIAL", requirementType: "first_watch", requirementValue: 0, expReward: 50, isHidden: true },
       { name: "Social Butterfly", description: "Bergabung dengan 10 grup", icon: "🦋", rarity: "RARE", requirementType: "group_count", requirementValue: 10, expReward: 100 },
       { name: "Comment Pro", description: "Posting 50 komentar", icon: "💭", rarity: "RARE", requirementType: "comment_count", requirementValue: 50, expReward: 75 },
-    ]).onConflictDoNothing();
+      { name: "First Upload", description: "Upload video pertama", icon: "🎬", rarity: "COMMON", requirementType: "first_upload", requirementValue: 1, expReward: 15 },
+      { name: "Rising Creator", description: "Mendapatkan 100 total Like", icon: "⭐", rarity: "EPIC", requirementType: "creator_likes", requirementValue: 100, expReward: 200, badgeReward: "creative" },
+      { name: "Premium Creator", description: "Mendapatkan penjualan premium pertama", icon: "💎", rarity: "EPIC", requirementType: "premium_sale", requirementValue: 1, expReward: 150 },
+      { name: "Top Creator", description: "Mencapai Rp100.000 pendapatan creator", icon: "💰", rarity: "LEGENDARY", requirementType: "creator_revenue", requirementValue: 100000, expReward: 500, badgeReward: "top_creator" },
+    ];
+    await db.insert(achievementsTable).values(
+      allAchievements.filter(a => toInsert.includes(a.name)),
+    );
   }
 
   // Default special badges

@@ -8,8 +8,28 @@ import { eq, desc, asc, and, sql, inArray, gt, lt, lte, ilike, or } from "drizzl
 import { usersTable } from "@workspace/db";
 import { authenticate, optionalAuth, requireRole } from "../middlewares/auth";
 import { logger } from "../lib/logger";
+import { getUserBadgeInfo } from "../lib/gamification";
 
 const router = Router();
+
+// ── Helper: batch-fetch badge/role info for chat message authors ─────────────
+async function enrichWithBadgeInfo(messages: any[]): Promise<any[]> {
+  const authorIds = [...new Set(messages.map((m: any) => m.authorId ?? m.userId))];
+  const badgeMap: Record<string, any> = {};
+  await Promise.all(
+    authorIds.map(async (uid: string) => {
+      try {
+        badgeMap[uid] = await getUserBadgeInfo(uid);
+      } catch {
+        badgeMap[uid] = null;
+      }
+    }),
+  );
+  return messages.map((m: any) => ({
+    ...m,
+    authorBadgeInfo: badgeMap[m.authorId ?? m.userId] ?? null,
+  }));
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -483,9 +503,12 @@ router.get("/chat/rooms/:id/messages", optionalAuth, async (req, res) => {
       myReactions: myReactions.filter((r: any) => r.messageId === m.id).map((r: any) => r.emoji),
     }));
 
+    // Enrich with badge/role info for each author
+    const withBadges = await enrichWithBadgeInfo(enriched);
+
     // Return oldest-first
-    logger.info({ roomId, userId, count: enriched.length }, "[get-messages] success");
-    res.json(enriched.reverse());
+    logger.info({ roomId, userId, count: withBadges.length }, "[get-messages] success");
+    res.json(withBadges.reverse());
   } catch (err: any) {
     const pgErr = err.cause ?? err;
     logger.error({ roomId, userId, code: pgErr.code, message: pgErr.message, stack: err.stack }, "[get-messages] database error");
@@ -552,7 +575,11 @@ router.post("/chat/rooms/:id/messages", authenticate, async (req, res) => {
       awardExp(userId, "send_message", `chat_${created.id}`, undefined, { roomId }).catch(() => {}),
     );
 
-    res.status(201).json({ ...created, authorUsername: author.username, authorAvatar: author.avatar, authorRole: author.role, authorSubscriptionStatus: author.subscriptionStatus, authorVerificationBadge: author.verificationBadge ?? null, reactions: [], myReactions: [] });
+    // ── Enrich with badge/role info for real-time chat display ────────────────
+    let authorBadgeInfo: any = null;
+    try { authorBadgeInfo = await getUserBadgeInfo(userId); } catch {}
+
+    res.status(201).json({ ...created, authorUsername: author.username, authorAvatar: author.avatar, authorRole: author.role, authorSubscriptionStatus: author.subscriptionStatus, authorVerificationBadge: author.verificationBadge ?? null, authorBadgeInfo, reactions: [], myReactions: [] });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

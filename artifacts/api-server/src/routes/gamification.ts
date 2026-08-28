@@ -79,8 +79,36 @@ router.get("/gamification/achievements", authenticate, async (req, res) => {
       first_like: stats.videosLiked, like_count: stats.videosLiked,
       comment_count: stats.commentsPosted, message_count: stats.messagesSent,
       group_count: stats.groupsJoined, upload_count: stats.videosUploaded,
+      first_upload: stats.videosUploaded,
       level, streak: gamification.streakDays,
     };
+
+    // ── Creator-specific stat values (require DB queries) ───────────────────
+    const creatorAchTypes = all.filter(a =>
+      ["creator_likes", "premium_sale", "creator_revenue"].includes(a.requirementType)
+    );
+    if (creatorAchTypes.length > 0) {
+      const { pool } = await import("@workspace/db");
+      if (creatorAchTypes.some(a => a.requirementType === "creator_likes")) {
+        const { rows } = await pool.query(
+          `SELECT COALESCE(SUM(v.likes), 0) AS total FROM videos v WHERE v.creator_id = $1 AND v.deleted_at IS NULL`,
+          [req.user!.userId],
+        );
+        statValues.creator_likes = parseInt(rows[0]?.total ?? "0", 10);
+      }
+      const revenueTypes = creatorAchTypes.filter(a =>
+        ["premium_sale", "creator_revenue"].includes(a.requirementType)
+      );
+      if (revenueTypes.length > 0) {
+        const { rows } = await pool.query(
+          `SELECT COUNT(*) AS sale_count, COALESCE(SUM(creator_share), 0) AS total_revenue
+           FROM revenue_shares WHERE creator_id = $1 AND payout_status = 'paid'`,
+          [req.user!.userId],
+        );
+        statValues.premium_sale = parseInt(rows[0]?.sale_count ?? "0", 10);
+        statValues.creator_revenue = parseInt(rows[0]?.total_revenue ?? "0", 10);
+      }
+    }
 
     const result = all
       .filter(a => !a.isHidden || unlockedMap.has(a.id))

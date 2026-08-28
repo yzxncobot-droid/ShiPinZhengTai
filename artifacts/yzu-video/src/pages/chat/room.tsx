@@ -29,6 +29,7 @@ interface Message {
   createdAt: string; authorId: string; authorUsername: string;
   authorAvatar?: string; authorRole: string; authorSubscriptionStatus?: string;
   authorVerificationBadge?: string | null;
+  authorBadgeInfo?: any | null;
   reactions: { emoji: string; count: number }[];
   myReactions: string[];
 }
@@ -706,6 +707,7 @@ export default function ChatRoomPage() {
                       authorRole={msg.authorRole ?? "meril"}
                       authorSubscriptionStatus={msg.authorSubscriptionStatus}
                       authorVerificationBadge={msg.authorVerificationBadge}
+                      authorBadgeInfo={msg.authorBadgeInfo}
                       createdAt={msg.createdAt}
                       editedAt={msg.editedAt}
                       isPinned={msg.isPinned ?? false}
