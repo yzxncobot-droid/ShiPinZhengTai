@@ -1,18 +1,19 @@
 import { logger } from "./logger";
-import { cloudflareKV, isCloudflareKVAvailable } from "./cloudflare-kv";
+import { layerbaseKV, isLayerbaseKVAvailable } from "./layerbase-kv";
 
 // ── Availability flags ─────────────────────────────────────────────────────────
 
 /**
- * True when Cloudflare KV credentials are present.
+ * True when Layerbase Valkey credentials are present.
  * Used by the auth middleware to skip session-store checks when KV is
  * not configured (so the server degrades gracefully instead of crashing).
  */
-export const isRedisAvailable = isCloudflareKVAvailable;
+export const isRedisAvailable = isLayerbaseKVAvailable;
 
 /**
- * Cloudflare KV does not support atomic INCR/EXPIRE, so rate limits and
- * view counters are always disabled.
+ * Atomic operations (INCR/EXPIRE) are disabled to preserve the same behavior
+ * as the previous Cloudflare KV backend (which did not support them).
+ * Rate limiting and view-buffer counters remain no-ops.
  */
 export const isAtomicRedisAvailable = false;
 
@@ -44,24 +45,16 @@ const noopRedis: RedisLike = {
   ping:   async () => "PONG",
 };
 
-// ── Real client (Cloudflare KV) ───────────────────────────────────────────────
+// ── Real client (Layerbase Valkey) ───────────────────────────────────────────
 
 let _client: RedisLike = noopRedis;
 
-if (isCloudflareKVAvailable) {
-  _client = {
-    get:    cloudflareKV.get,
-    setex:  cloudflareKV.setex,
-    del:    cloudflareKV.del,
-    incr:   async () => { throw new Error("Cloudflare KV does not support atomic increment"); },
-    expire: async () => 0,
-    ttl:    async () => -1,
-    ping:   cloudflareKV.ping,
-  };
-  logger.info("Cloudflare KV connected for sessions/cache");
+if (isLayerbaseKVAvailable && layerbaseKV) {
+  _client = layerbaseKV as unknown as RedisLike;
+  logger.info("Layerbase Valkey connected for sessions/cache");
 } else {
   logger.warn(
-    "CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN / CLOUDFLARE_KV_NAMESPACE_ID not set — " +
+    "KV_REST_API_URL / KV_REST_API_TOKEN not set — " +
     "running without KV. Session invalidation, caching, and view " +
     "buffering are disabled. All other features work normally.",
   );

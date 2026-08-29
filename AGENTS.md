@@ -53,7 +53,7 @@ The app has **two payment methods**, both crediting the wallet through a single
 
 ## Secrets
 
-External credentials (Neon DB, BuatQris, Supabase ×3, Cloudflare KV) are
+External credentials (Neon DB, BuatQris, Supabase ×3, Layerbase Valkey) are
 **optional for boot** — the app degrades gracefully without them. They are
 delivered via `/run/base44/app.env` (last `env_file` entry, always wins over
 `.env.base44-defaults`).
@@ -66,7 +66,11 @@ delivered via `/run/base44/app.env` (last `env_file` entry, always wins over
   callback URL (`PUBLIC_BASE_URL + /api/webhooks/buatqris`). Falls back to
   `BASE44_PUBLIC_HOST_SUFFIX` when not set. The callback URL is shown on the
   admin BuatQris config page (`/admin/buatqris`).
-- Supabase / Upstash — see above. Without them, uploads/payments-cache are
+- `KV_REST_API_URL` / `KV_REST_API_TOKEN` — Layerbase Valkey (Redis-compatible
+  REST API) used for sessions, caching, and view buffering. Optional — without
+  them the app degrades gracefully (no session invalidation or caching).
+  Token is server-only, never sent to the frontend or logged.
+- Supabase — see above. Without them, uploads/payments-cache are
   disabled but the UI renders.
 
 ## Notes / quirks
