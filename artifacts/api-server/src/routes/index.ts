@@ -33,6 +33,7 @@ import badgeRolesRouter from "./badge-roles";
 import homeFeedRouter from "./home-feed";
 import gamificationRouter from "./gamification";
 import adminGamificationRouter from "./admin-gamification";
+import layerbaseHeartbeatRouter from "./layerbase-heartbeat";
 
 const router: IRouter = Router();
 
@@ -70,6 +71,7 @@ router.use(badgeRolesRouter);
 router.use(homeFeedRouter);
 router.use(gamificationRouter);
 router.use(adminGamificationRouter);
+router.use(layerbaseHeartbeatRouter);
 
 
 export default router;
