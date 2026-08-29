@@ -78,8 +78,8 @@ Both services start automatically via their configured workflows:
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `UPSTASH_REDIS_REST_URL` | ⚠️ Optional | Upstash Redis URL — sessions/caching disabled without it |
-| `UPSTASH_REDIS_REST_TOKEN` | ⚠️ Optional | Upstash Redis token |
+| `KV_REST_API_URL` | ⚠️ Optional | Layerbase Valkey-compatible REST URL — sessions/caching disabled without it |
+| `KV_REST_API_TOKEN` | ⚠️ Optional | Layerbase Valkey-compatible REST token |
 
 > **Database note:** This project connects to an **external database** via `NEON_DATABASE_URL` to preserve existing data.
 > The Replit-managed `DATABASE_URL` is intentionally not used. Connection string is set as a Replit Secret.
