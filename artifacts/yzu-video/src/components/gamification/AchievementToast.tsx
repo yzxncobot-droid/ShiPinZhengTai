@@ -5,7 +5,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect } from "react";
-import { useNavigate } from "wouter";
+import { useLocation } from "wouter";
 
 interface AchievementToastProps {
   open: boolean;
@@ -67,4 +67,6 @@ export function AchievementToast({ open, achievement, onClose }: AchievementToas
       )}
     </AnimatePresence>
   );
+}
+;
 }

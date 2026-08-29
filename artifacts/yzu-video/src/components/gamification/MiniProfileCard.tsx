@@ -19,7 +19,7 @@ interface MiniProfileCardProps {
 
 export function MiniProfileCard({ userId, username, avatar, onClose }: MiniProfileCardProps) {
   const { data: gamification, isLoading } = usePublicGamification(userId);
-  const navigate = useNavigate();
+  const [, navigate] = useLocation();
 
   return (
     <div

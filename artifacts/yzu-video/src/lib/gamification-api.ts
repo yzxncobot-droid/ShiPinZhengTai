@@ -5,7 +5,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
-const TOKEN_KEY = "funplus_token";
+import { TOKEN_KEY } from "./auth";
 
 function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
