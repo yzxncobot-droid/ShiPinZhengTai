@@ -5,7 +5,7 @@
  */
 
 import { useState } from "react";
-import { useNavigate } from "wouter";
+import { useLocation } from "wouter";
 import { usePublicGamification } from "@/lib/gamification-api";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Loader2 } from "lucide-react";
@@ -19,7 +19,7 @@ interface MiniProfileCardProps {
 
 export function MiniProfileCard({ userId, username, avatar, onClose }: MiniProfileCardProps) {
   const { data: gamification, isLoading } = usePublicGamification(userId);
-  const navigate = useNavigate();
+  const [, navigate] = useLocation();
 
   return (
     <div

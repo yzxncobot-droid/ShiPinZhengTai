@@ -26,6 +26,10 @@ export type UserRole = typeof UserRole[keyof typeof UserRole];
 
 export const UserRole = {
   user: 'user',
+  meril: 'meril',
+  moderator: 'moderator',
+  creator: 'creator',
+  verified_creator: 'verified_creator',
   admin: 'admin',
   owner: 'owner',
 } as const;
@@ -208,6 +212,7 @@ export interface VideoDetail {
   /** @nullable */
   videoUrl?: string | null;
   type: VideoDetailType;
+  visibility?: string;
   /** @nullable */
   price?: number | null;
   views: number;

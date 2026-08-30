@@ -5,7 +5,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect } from "react";
-import { useNavigate } from "wouter";
+import { useLocation } from "wouter";
 
 interface AchievementToastProps {
   open: boolean;
@@ -19,7 +19,7 @@ interface AchievementToastProps {
 }
 
 export function AchievementToast({ open, achievement, onClose }: AchievementToastProps) {
-  const navigate = useNavigate();
+  const [, navigate] = useLocation();
 
   useEffect(() => {
     if (!open) return;

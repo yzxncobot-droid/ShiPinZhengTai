@@ -16,7 +16,7 @@ import { Link } from "wouter";
 
 // ─── API helpers ───────────────────────────────────────────────────────────────
 
-const TOKEN_KEY = "funplus_token";
+import { TOKEN_KEY } from "@/lib/auth";
 function getToken() { return localStorage.getItem(TOKEN_KEY); }
 
 async function adminFetch(path: string, options?: RequestInit) {

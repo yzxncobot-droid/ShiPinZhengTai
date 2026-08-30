@@ -38,7 +38,7 @@ const fmtRp = (n: number) => `Rp ${n.toLocaleString("id-ID")}`;
 
 export default function TopupPage() {
   const { user } = useAuth();
-  const { data: topupsData } = useListMyTopups({ limit: "5" });
+  const { data: topupsData } = useListMyTopups({ limit: 5 });
 
   const [selected, setSelected] = useState<number | null>(null);
   const [custom, setCustom] = useState<string>("");

@@ -579,6 +579,7 @@ router.post("/videos/:id/purchase", authenticate, async (req, res) => {
   const [creator] = video.creatorId
     ? await db.select({
         id: usersTable.id,
+        role: usersTable.role,
         creatorBadge: usersTable.creatorBadge,
         verifiedCreator: usersTable.verifiedCreator,
         walletBalance: usersTable.walletBalance,
