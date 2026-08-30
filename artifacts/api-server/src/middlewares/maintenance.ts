@@ -60,6 +60,9 @@ export function maintenanceGuard() {
 
     // Always allow these paths regardless of maintenance state
     const allowed =
+      path === "/" ||
+      path === "/readyz" ||
+      path === "/healthz" ||
       path.startsWith("/auth/") ||
       path === "/auth" ||
       path === "/health" ||
