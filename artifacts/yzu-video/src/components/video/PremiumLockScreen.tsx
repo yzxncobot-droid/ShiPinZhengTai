@@ -9,12 +9,12 @@ import { useQueryClient } from "@tanstack/react-query";
 
 interface PremiumLockScreenProps {
   video: {
-    id: number;
+    id: string;
     title: string;
     description?: string | null;
     price?: number | null;
     bundleExclusive?: boolean;
-    bundles?: { id: number; title: string }[];
+    bundles?: { id: string; title: string }[];
   };
 }
 

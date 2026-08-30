@@ -1327,7 +1327,7 @@ components:
           type: string
         role:
           type: string
-          enum: [user, admin, owner]
+          enum: [user, meril, moderator, creator, verified_creator, admin, owner]
         avatar:
           type: ["string", "null"]
         isBanned:
@@ -1388,7 +1388,7 @@ components:
       properties:
         role:
           type: string
-          enum: [user, admin, owner]
+          enum: [user, meril, moderator, creator, verified_creator, admin, owner]
 
     WalletAdjustInput:
       type: object
@@ -1508,6 +1508,9 @@ components:
         type:
           type: string
           enum: [free, premium]
+        visibility:
+          type: string
+          enum: [public, premium, hidden_bundle]
         price:
           type: ["number", "null"]
         views:

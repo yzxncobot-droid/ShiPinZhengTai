@@ -28,11 +28,11 @@ export default function VideoDetailPage() {
   });
   
   const { data: relatedVideos } = useGetRelatedVideos(id, {
-    query: { enabled: !!id }
+    query: { enabled: !!id, queryKey: getGetRelatedVideosQueryKey(id) }
   });
 
   const { data: comments } = useFetchVideoComments(id, {
-    query: { enabled: !!id }
+    query: { enabled: !!id, queryKey: getFetchVideoCommentsQueryKey(id) }
   });
 
   const recordView = useRecordView();
