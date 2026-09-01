@@ -18,7 +18,7 @@ import {
   ArrowUpFromLine, TrendingUp, Star, BarChart3, FileBarChart, Bell,
   Settings, ShieldCheck, Server, Upload, LogOut, Home, ChevronLeft,
   ChevronRight, Menu, PlaySquare, Search, User as UserIcon, X, Gift,
-  CheckCircle2, Wrench, Award, QrCode,
+  CheckCircle2, Wrench, Award, QrCode, Send,
 } from "lucide-react";
 
 // ── Navigation Config ──────────────────────────────────────────────────────────
@@ -97,6 +97,7 @@ const useNavGroups = (pendingPayments: number = 0, unreadNotifs: number = 0): Na
     items: [
       { label: "Pengaturan", href: "/admin/settings", icon: Settings },
       { label: "BuatQris", href: "/admin/buatqris", icon: QrCode },
+      { label: "Telegram Storage", href: "/admin/telegram-sources", icon: Send },
       { label: "Maintenance", href: "/admin/maintenance", icon: Wrench },
       { label: "Audit Log", href: "/admin/audit-logs", icon: ShieldCheck },
       { label: "Sistem", href: "/admin/system", icon: Server },

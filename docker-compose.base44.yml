@@ -90,6 +90,7 @@ services:
       DATABASE_URL: postgresql://yzu:yzu_pass@db:5432/yzu
       NODE_ENV: development
       BASE44_PUBLIC_HOST_SUFFIX: "${BASE44_PUBLIC_HOST_SUFFIX}"
+      TELEGRAM_SYNC_INTERVAL_MS: "300000"
     env_file:
       - ./.env.base44-defaults
       - /run/base44/app.env

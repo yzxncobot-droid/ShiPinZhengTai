@@ -20,6 +20,45 @@ docker compose -f docker-compose.base44.yml up -d --build
 4. `api` — `pnpm --filter @workspace/api-server run dev` (esbuild bundle once → `node dist/index.mjs`). **No file watcher** — restart the `api` service after backend edits, then `reload_preview`.
 5. `web` — `pnpm --filter @workspace/yzu-video run dev` (Vite HMR, live reload).
 
+## Telegram Video Storage & Streaming (isolated module)
+
+An **additive, isolated module** — no existing video system, schema, API, or UI
+was changed. Adds Telegram channels/groups as video sources with on-demand
+streaming (HTTP Range / 206 Partial Content) via GramJS MTProto.
+
+### Architecture
+- **DB**: 3 new tables — `telegram_sources`, `telegram_videos`, `telegram_sync_logs`.
+  Relational (source → many videos). No limit on source count. `telegram_videos`
+  stores metadata only — video binary stays in Telegram.
+- **Backend**: `src/lib/telegram/{client,indexer,streamer}.ts` + `src/routes/telegram.ts`.
+  GramJS (`telegram` npm package, externalized in `build.mjs`) provides MTProto
+  access for historical indexing and large-file streaming.
+- **Frontend**: `src/pages/admin/telegram-sources.tsx` (admin dashboard),
+  `src/pages/telegram-videos.tsx` (catalog), `src/pages/telegram-video-detail.tsx`
+  (player), `src/lib/telegram-api.ts` (API helper).
+- **Single-origin wiring**: streaming goes through `/api/telegram-videos/:id/stream`,
+  proxied by Vite to the Express API — credentials never reach the frontend.
+
+### Secrets (all optional for boot)
+- `TELEGRAM_BOT_TOKEN` — Bot token from @BotFather (server-only).
+- `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` — MTProto credentials from my.telegram.org.
+- `TELEGRAM_SESSION` — Optional saved GramJS StringSession for persistence.
+- `TELEGRAM_SYNC_INTERVAL_MS` — Auto-sync interval (default 300000 = 5 min).
+
+### API endpoints (all new, namespaced)
+- Admin: `/api/admin/telegram/sources` (CRUD), `/:id/test`, `/:id/sync`, `/health`
+- Public: `/api/telegram-videos` (list), `/:id` (detail), `/:id/stream` (Range streaming)
+
+### How to verify
+1. Admin → Telegram Storage → Add Source (chat ID) → Test Connection → Sync Now.
+2. Browse `/telegram-videos` → open a video → native `<video>` player streams via Range.
+3. Existing features (login, videos, payments, etc.) must remain unaffected.
+
+### External Telegram limits (not application-imposed)
+- Bot API `getFile`: 20 MB (not used for streaming — GramJS MTProto handles large files).
+- GramJS chunk size: 512 KB per MTProto request (configurable in streamer).
+- Telegram itself may rate-limit; the indexer handles errors per-message.
+
 ## Payment system (BuatQris + Manual)
 
 The app has **two payment methods**, both crediting the wallet through a single
