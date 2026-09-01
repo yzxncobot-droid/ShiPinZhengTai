@@ -177,6 +177,8 @@ export interface WebhookInfo {
   lastErrorDate?: number;
   lastErrorMessage?: string;
   maxConnections?: number;
+  allowedUpdates?: string[];
+  hasCustomCertificate?: boolean;
 }
 
 export async function setWebhook(url: string, secretToken?: string): Promise<boolean> {
@@ -193,6 +195,33 @@ export async function getWebhookInfo(): Promise<WebhookInfo> {
 
 export async function deleteWebhook(): Promise<boolean> {
   return botApiCall<boolean>("deleteWebhook", { drop_pending_updates: true });
+}
+
+// ── Send message (bot reply to users) ────────────────────────────────────────
+
+/**
+ * Send a text message to a chat. Used by the webhook handler to reply to
+ * users who send/forward videos to the bot. Never logs the bot token.
+ */
+export async function sendMessage(
+  chatId: string | number,
+  text: string,
+  params?: Record<string, any>,
+): Promise<boolean> {
+  try {
+    await botApiCall("sendMessage", {
+      chat_id: chatId,
+      text,
+      ...params,
+    });
+    return true;
+  } catch (err) {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err), chatId },
+      "[TELEGRAM] sendMessage failed",
+    );
+    return false;
+  }
 }
 
 // ── Message forwarding (for file_id refresh) ────────────────────────────────

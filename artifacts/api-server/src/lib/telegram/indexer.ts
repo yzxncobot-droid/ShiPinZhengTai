@@ -16,6 +16,7 @@ import {
 } from "@workspace/db";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { logger } from "../logger";
+import { sendMessage, isTelegramConfigured } from "./client";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,6 +34,16 @@ export interface VideoMetadata {
   telegramMessageId: string;
   effectiveChatId: string;
   sourceId: string;
+  /** Chat ID where the bot received the message — used to reply to the user. */
+  replyChatId: string;
+  /** Telegram update_id for audit logging. */
+  updateId: number | null;
+  /** Whether the message was forwarded from another chat. */
+  isForwarded: boolean;
+  /** Original chat ID from forward_origin, if available. */
+  forwardOriginChatId: string | null;
+  /** Message type: VIDEO, ANIMATION, or DOCUMENT. */
+  videoType: string;
 }
 
 export interface QueueStats {
@@ -58,14 +69,18 @@ export function extractVideoMetadata(update: any): Omit<VideoMetadata, "sourceId
   const video = message.video || message.animation;
   if (!video) return null;
 
+  const videoType = message.video ? "VIDEO" : message.animation ? "ANIMATION" : "DOCUMENT";
+
   // Determine the effective chat ID (where the video originally lives).
   let effectiveChatId = "";
+  let forwardOriginChatId: string | null = null;
 
   // For forwarded messages, prefer the forward origin chat ID.
   if (message.forward_origin) {
     const origin = message.forward_origin;
     if ((origin.type === "channel" || origin.type === "chat") && origin.chat) {
       effectiveChatId = String(origin.chat.id);
+      forwardOriginChatId = effectiveChatId;
     }
   }
 
@@ -75,6 +90,9 @@ export function extractVideoMetadata(update: any): Omit<VideoMetadata, "sourceId
   }
 
   if (!effectiveChatId) return null;
+
+  // replyChatId is always the chat where the bot received the message.
+  const replyChatId = message.chat ? String(message.chat.id) : effectiveChatId;
 
   return {
     fileId: video.file_id || "",
@@ -89,34 +107,87 @@ export function extractVideoMetadata(update: any): Omit<VideoMetadata, "sourceId
     telegramDate: new Date(message.date * 1000).toISOString(),
     telegramMessageId: String(message.message_id),
     effectiveChatId,
+    replyChatId,
+    updateId: update.update_id ?? null,
+    isForwarded: !!message.forward_origin,
+    forwardOriginChatId,
+    videoType,
+  };
+}
+
+/**
+ * Detect if an update is a text command (e.g. /start) that the bot should
+ * respond to. Returns the message + text, or null for non-text updates.
+ */
+export function extractTextMessage(update: any): { chatId: string; text: string; messageId: string } | null {
+  const message = update.message || update.channel_post;
+  if (!message?.text && !message?.caption) return null;
+  const text = message.text || message.caption || "";
+  if (!text.startsWith("/")) return null;
+  return {
+    chatId: String(message.chat?.id || ""),
+    text,
+    messageId: String(message.message_id),
   };
 }
 
 // ── Source matching ──────────────────────────────────────────────────────────
 
 /**
- * Find a source by chat ID, or auto-create one for forwarded/manual imports.
- * Returns the source ID. Never throws — creates a "Manual Import" fallback.
+ * Result of source matching: either a source was found/created, or the chat
+ * is not registered (and should be rejected with a clear message).
  */
-async function findOrCreateSource(chatId: string): Promise<string> {
-  // 1. Try to find an existing source with this chat ID.
+interface SourceMatchResult {
+  sourceId: string | null;
+  /** When null, the chat is not registered and `rejectChatId` holds the ID. */
+  rejectChatId: string | null;
+  /** Whether a new "Manual Import" source was auto-created. */
+  autoCreated: boolean;
+  /** Whether the matched source is disabled. */
+  disabled: boolean;
+}
+
+/**
+ * Find a registered source by chat ID.
+ *
+ * - If a registered source is found → use it.
+ * - If NOT found and the chat ID is a private chat (positive number, i.e. a
+ *   direct send to the bot) → auto-create a "Manual Import" source.
+ * - If NOT found and the chat ID is a group/channel (negative number) →
+ *   reject: return rejectChatId so the caller can log + reply to the user.
+ */
+async function matchSource(chatId: string): Promise<SourceMatchResult> {
+  // 1. Try to find an existing registered source with this chat ID.
   const [existing] = await db.select().from(telegramSourcesTable)
     .where(eq(telegramSourcesTable.chatId, chatId)).limit(1);
-  if (existing) return existing.id;
 
-  // 2. Auto-create a source for this chat ID.
-  const isManual = !chatId.startsWith("-100");
-  const [source] = await db.insert(telegramSourcesTable).values({
-    name: isManual ? `Manual Import` : `Auto: ${chatId}`,
-    chatId,
-    type: "GROUP",
-    description: isManual ? "Auto-created from forwarded video imports" : "Auto-created from webhook",
-    enabled: true,
-    status: "UNKNOWN",
-  }).returning();
+  if (existing) {
+    return {
+      sourceId: existing.id,
+      rejectChatId: existing.enabled ? null : chatId,
+      autoCreated: false,
+      disabled: !existing.enabled,
+    };
+  }
 
-  logger.info({ sourceId: source.id, chatId }, "[TELEGRAM] Auto-created source");
-  return source.id;
+  // 2. Private chat (positive number) → auto-create a "Manual Import" source.
+  //    This handles direct video sends to the bot (Test 2/3).
+  const isPrivateChat = !chatId.startsWith("-");
+  if (isPrivateChat) {
+    const [source] = await db.insert(telegramSourcesTable).values({
+      name: "Manual Import",
+      chatId,
+      type: "GROUP",
+      description: "Auto-created from direct video send to bot",
+      enabled: true,
+      status: "UNKNOWN",
+    }).returning();
+    logger.info({ sourceId: source.id, chatId }, "[TELEGRAM] Auto-created Manual Import source");
+    return { sourceId: source.id, rejectChatId: null, autoCreated: true, disabled: false };
+  }
+
+  // 3. Group/channel not registered → reject.
+  return { sourceId: null, rejectChatId: chatId, autoCreated: false, disabled: false };
 }
 
 // ── Webhook entry point ───────────────────────────────────────────────────────
@@ -130,28 +201,97 @@ async function findOrCreateSource(chatId: string): Promise<string> {
  * source + message, skip (Telegram retries updates if 200 is slow).
  */
 export async function processIncomingUpdate(update: any): Promise<{ processed: boolean; reason?: string }> {
+  // ── Handle text commands (e.g. /start) ────────────────────────────────────
+  const textMsg = extractTextMessage(update);
+  if (textMsg) {
+    if (isTelegramConfigured()) {
+      const command = textMsg.text.split(/\s+/)[0].toLowerCase();
+      if (command === "/start") {
+        await sendMessage(textMsg.chatId,
+          "👋 Halo! Saya adalah bot untuk mengindex video.\n\n" +
+          "Kirim atau forward video ke saya, dan video akan otomatis muncul di website.\n\n" +
+          "Untuk import video lama, forward video dari group/channel ke bot ini.");
+      }
+    }
+    return { processed: true, reason: "command" };
+  }
+
+  // ── Handle video messages ──────────────────────────────────────────────────
   const metadata = extractVideoMetadata(update);
   if (!metadata) return { processed: false, reason: "no_video" };
 
   try {
-    // Find or create the source for this chat ID.
-    const sourceId = await findOrCreateSource(metadata.effectiveChatId);
+    // Match the source by effective chat ID.
+    const match = await matchSource(metadata.effectiveChatId);
 
-    // Check for duplicate pending/processing entry (Telegram retry protection).
+    // ── Source not registered (group/channel not in admin list) ─────────────
+    if (match.sourceId === null && match.rejectChatId) {
+      logger.warn(
+        { chatId: match.rejectChatId, messageId: metadata.telegramMessageId },
+        "[TELEGRAM] ⚠️ Source not registered",
+      );
+
+      // Create a failed import log so the admin can see the unregistered chat ID.
+      // Set attempts to max so the queue processor does NOT retry this entry.
+      await db.insert(telegramImportLogsTable).values({
+        telegramSourceId: null,
+        telegramMessageId: metadata.telegramMessageId,
+        status: "failed",
+        errorMessage: `Source not registered (Chat ID: ${match.rejectChatId})`,
+        attempts: 999,
+        metadata: JSON.stringify({ ...metadata, sourceId: null, rejectChatId: match.rejectChatId }),
+      }).catch(() => {});
+
+      // Reply to the user with the unregistered chat ID.
+      if (isTelegramConfigured()) {
+        await sendMessage(metadata.replyChatId,
+          `❌ Source tidak terdaftar.\n\n` +
+          `Chat ID: ${match.rejectChatId}\n\n` +
+          `Admin perlu menambahkan Chat ID ini di Telegram Video Storage → Add Source.`);
+      }
+      return { processed: false, reason: "source_not_registered" };
+    }
+
+    // ── Source found but disabled ─────────────────────────────────────────────
+    if (match.disabled && match.sourceId) {
+      logger.warn(
+        { sourceId: match.sourceId, chatId: metadata.effectiveChatId },
+        "[TELEGRAM] Source disabled",
+      );
+
+      await db.insert(telegramImportLogsTable).values({
+        telegramSourceId: match.sourceId,
+        telegramMessageId: metadata.telegramMessageId,
+        status: "failed",
+        errorMessage: "Source is disabled",
+        attempts: 999,
+        metadata: JSON.stringify({ ...metadata, sourceId: match.sourceId }),
+      }).catch(() => {});
+
+      if (isTelegramConfigured()) {
+        await sendMessage(metadata.replyChatId,
+          "❌ Source ini sedang dinonaktifkan oleh admin.");
+      }
+      return { processed: false, reason: "source_disabled" };
+    }
+
+    const sourceId = match.sourceId!;
+
+    // ── Duplicate check (Telegram retry protection) ──────────────────────────
     const [existing] = await db.select({ id: telegramImportLogsTable.id })
       .from(telegramImportLogsTable)
       .where(and(
         eq(telegramImportLogsTable.telegramSourceId, sourceId),
         eq(telegramImportLogsTable.telegramMessageId, metadata.telegramMessageId),
-        inArray(telegramImportLogsTable.status, ["pending", "processing"]),
+        inArray(telegramImportLogsTable.status, ["pending", "processing", "completed"]),
       ))
       .limit(1);
 
     if (existing) {
-      return { processed: false, reason: "duplicate_pending" };
+      return { processed: false, reason: "duplicate" };
     }
 
-    // Create import log entry with metadata as JSON.
+    // ── Create import log entry (pending) ─────────────────────────────────────
     await db.insert(telegramImportLogsTable).values({
       telegramSourceId: sourceId,
       telegramMessageId: metadata.telegramMessageId,
@@ -160,9 +300,21 @@ export async function processIncomingUpdate(update: any): Promise<{ processed: b
     });
 
     logger.info(
-      { chatId: metadata.effectiveChatId, messageId: metadata.telegramMessageId },
+      { chatId: metadata.effectiveChatId, messageId: metadata.telegramMessageId, sourceId },
       "[TELEGRAM] Import queued",
     );
+
+    // ── Send immediate bot reply: "Video diterima, processing..." ─────────────
+    if (isTelegramConfigured()) {
+      const title = metadata.caption || metadata.fileName || "Video";
+      const sizeStr = metadata.fileSize > 0
+        ? formatBytes(metadata.fileSize)
+        : "Unknown";
+      await sendMessage(metadata.replyChatId,
+        `✅ Video diterima\n\nJudul: ${title}\nUkuran: ${sizeStr}\nStatus: Processing...`,
+      );
+    }
+
     return { processed: true };
   } catch (err) {
     logger.error(
@@ -171,6 +323,15 @@ export async function processIncomingUpdate(update: any): Promise<{ processed: b
     );
     return { processed: false, reason: "error" };
   }
+}
+
+/** Format bytes into a human-readable string. */
+function formatBytes(bytes: number): string {
+  if (!bytes) return "Unknown";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 // ── Queue processor ──────────────────────────────────────────────────────────
@@ -247,18 +408,32 @@ async function processQueueItem(log: typeof telegramImportLogsTable.$inferSelect
       status: "completed",
       processedAt: new Date(),
     }).where(eq(telegramImportLogsTable.id, log.id));
+
+    // ── Send success reply to the user ───────────────────────────────────────
+    if (isTelegramConfigured() && metadata.replyChatId) {
+      const title = metadata.caption || metadata.fileName || `Video ${metadata.telegramMessageId}`;
+      await sendMessage(metadata.replyChatId,
+        `✅ Video berhasil ditambahkan ke website.\n\nJudul: ${title}`,
+      ).catch(() => {});
+    }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message.substring(0, 500) : "Unknown error";
     logger.error({ err: errMsg, logId: log.id }, "[TELEGRAM] Queue item failed");
 
     const attempts = log.attempts + 1;
-    const status = attempts >= MAX_ATTEMPTS ? "failed" : "failed";
 
     await db.update(telegramImportLogsTable).set({
       status: attempts >= MAX_ATTEMPTS ? "failed" : "failed",
       errorMessage: errMsg,
       processedAt: new Date(),
     }).where(eq(telegramImportLogsTable.id, log.id));
+
+    // ── Send failure reply to the user (only on final failure) ────────────────
+    if (attempts >= MAX_ATTEMPTS && isTelegramConfigured() && metadata.replyChatId) {
+      await sendMessage(metadata.replyChatId,
+        "❌ Video gagal diproses.\n\nSilakan cek Telegram Video Storage → Logs.",
+      ).catch(() => {});
+    }
   }
 }
 
@@ -283,6 +458,8 @@ export function startQueueProcessor(): void {
         .limit(BATCH_SIZE);
 
       for (const entry of entries) {
+        // Skip rejected entries (null source = unregistered/disabled).
+        if (!entry.telegramSourceId) continue;
         // For failed entries, check backoff.
         if (entry.status === "failed" && entry.attempts >= MAX_ATTEMPTS) continue;
         if (entry.status === "failed" && entry.processedAt) {

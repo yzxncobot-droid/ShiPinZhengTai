@@ -83,7 +83,13 @@ function SourceModal({
         description: source.description || "", enabled: source.enabled,
       });
     } else {
-      setForm({ name: "", chatId: "", type: "CHANNEL", description: "", enabled: true });
+      const prefillChatId = (window as any).__tgPrefillChatId || "";
+      if (prefillChatId) (window as any).__tgPrefillChatId = "";
+      setForm({
+        name: "", chatId: prefillChatId, type: "CHANNEL",
+        description: prefillChatId ? "Added from unregistered webhook update" : "",
+        enabled: true,
+      });
     }
   }, [source, open]);
 
@@ -350,7 +356,7 @@ function SummaryCards({ health }: { health: TelegramHealth | null }) {
 }
 
 // ── Import Queue Section ─────────────────────────────────────────────────────
-function ImportQueueSection({ onRefresh }: { onRefresh: () => void }) {
+function ImportQueueSection({ onRefresh, onAddChatId }: { onRefresh: () => void; onAddChatId: (chatId: string) => void }) {
   const { toast } = useToast();
   const [stats, setStats] = useState({ pending: 0, processing: 0, completed: 0, failed: 0, total: 0 });
   const [entries, setEntries] = useState<ImportLogEntry[]>([]);
@@ -418,17 +424,36 @@ function ImportQueueSection({ onRefresh }: { onRefresh: () => void }) {
         <div className="space-y-1.5 max-h-64 overflow-y-auto">
           {entries.map((entry) => {
             const cfg = statusConfig[entry.log.status] || statusConfig.pending;
+            const isUnregistered = entry.log.errorMessage?.includes("Source not registered");
             return (
               <div key={entry.log.id} className="flex items-center justify-between gap-2 text-sm py-1.5 px-2 rounded hover:bg-muted/50">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <span>{cfg.icon}</span>
-                  <span className="text-xs text-muted-foreground truncate">
-                    {entry.sourceName || "Unknown"} · msg #{entry.log.telegramMessageId}
-                  </span>
+                  <div className="text-xs text-muted-foreground truncate">
+                    <span>{entry.sourceName || "Unknown"} · msg #{entry.log.telegramMessageId}</span>
+                    {entry.log.chatId && (
+                      <span className="text-muted-foreground/70"> · chat: {entry.log.chatId}</span>
+                    )}
+                    {entry.log.videoType && (
+                      <span className="text-muted-foreground/70"> · {entry.log.videoType}</span>
+                    )}
+                    {entry.log.errorMessage && (
+                      <span className="text-red-500"> · {entry.log.errorMessage}</span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className={`text-xs ${cfg.color}`}>{cfg.label}</span>
-                  {entry.log.status === "failed" && (
+                  {isUnregistered && entry.log.chatId && (
+                    <Button
+                      size="sm" variant="outline"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => onAddChatId(entry.log.chatId!)}
+                    >
+                      <Plus className="h-3 w-3 mr-1" /> Add Chat ID
+                    </Button>
+                  )}
+                  {entry.log.status === "failed" && !isUnregistered && (
                     <Button size="sm" variant="ghost" className="h-6 px-2" onClick={() => handleRetry(entry.log.id)}>
                       <RotateCcw className="h-3 w-3" />
                     </Button>
@@ -514,14 +539,24 @@ function WebhookSection({ onRefresh }: { onRefresh: () => void }) {
         <div className="space-y-1 text-sm">
           <div className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-green-500" />
-            <span className="text-green-600 font-medium">Active</span>
+            <span className="text-green-600 font-medium">🟢 Webhook Connected</span>
           </div>
           <p className="text-xs text-muted-foreground truncate">{webhookInfo.url}</p>
+          {webhookInfo.allowedUpdates && (
+            <p className="text-xs text-muted-foreground">
+              Allowed: {webhookInfo.allowedUpdates.join(", ")}
+            </p>
+          )}
           {webhookInfo.pendingUpdateCount > 0 && (
             <p className="text-xs text-yellow-600">{webhookInfo.pendingUpdateCount} pending updates</p>
           )}
           {webhookInfo.lastErrorMessage && (
-            <p className="text-xs text-red-500">Last error: {webhookInfo.lastErrorMessage}</p>
+            <p className="text-xs text-red-500">🔴 Last error: {webhookInfo.lastErrorMessage}</p>
+          )}
+          {webhookInfo.lastErrorDate && (
+            <p className="text-xs text-muted-foreground">
+              Last error date: {new Date(webhookInfo.lastErrorDate * 1000).toLocaleString()}
+            </p>
           )}
         </div>
       ) : (
@@ -534,31 +569,55 @@ function WebhookSection({ onRefresh }: { onRefresh: () => void }) {
 }
 
 // ── Health Check ─────────────────────────────────────────────────────────────
-function HealthCheck({ health }: { health: TelegramHealth | null }) {
+function HealthCheck({ health, onTest, testing, testResults }: {
+  health: TelegramHealth | null;
+  onTest: () => void;
+  testing: boolean;
+  testResults: Record<string, { status: "ok" | "error"; detail?: string }> | null;
+}) {
   if (!health) return null;
   const items = [
-    { label: "Telegram Bot API", status: health.components.telegramApi, icon: Bot },
-    { label: "Database", status: health.components.database, icon: Database },
-    { label: "Queue Processor", status: health.components.indexer, icon: RefreshCw },
-    { label: "Streaming Engine", status: health.components.streaming, icon: Server },
+    { label: "Bot API", key: "telegramApi", icon: Bot },
+    { label: "Webhook", key: "webhook", icon: Webhook },
+    { label: "Database", key: "database", icon: Database },
+    { label: "Sources", key: "sources", icon: Activity },
+    { label: "Indexer", key: "indexer", icon: RefreshCw },
+    { label: "Streaming", key: "streaming", icon: Server },
   ];
   return (
-    <Card className="p-3">
-      <div className="flex flex-wrap gap-4">
-      {items.map((item) => {
-        const ok = item.status === "ok";
-        return (
-          <div key={item.label} className="flex items-center gap-1.5 text-sm">
-            <item.icon className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-muted-foreground">{item.label}</span>
-            <span className={`h-2 w-2 rounded-full ${ok ? "bg-green-500" : "bg-gray-400"}`} />
-            <span className={ok ? "text-green-600 text-xs font-medium" : "text-muted-foreground text-xs"}>
-              {ok ? "🟢" : "⚪"}
-            </span>
-          </div>
-        );
-      })}
+    <Card className="p-3 space-y-2">
+      <div className="flex flex-wrap items-center gap-4">
+        {items.map((item) => {
+          const status = testResults?.[item.key]?.status ?? (health.components as any)[item.key] ?? "not_configured";
+          const ok = status === "ok";
+          const detail = testResults?.[item.key]?.detail;
+          return (
+            <div key={item.label} className="flex items-center gap-1.5 text-sm" title={detail}>
+              <item.icon className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-muted-foreground">{item.label}</span>
+              <span className={`h-2 w-2 rounded-full ${ok ? "bg-green-500" : status === "not_configured" ? "bg-gray-400" : "bg-red-500"}`} />
+              <span className="text-xs font-medium">
+                {ok ? "🟢" : status === "not_configured" ? "⚪" : "🔴"}
+              </span>
+            </div>
+          );
+        })}
+        <Button size="sm" variant="outline" onClick={onTest} disabled={testing} className="ml-auto">
+          {testing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Activity className="h-3.5 w-3.5 mr-1" />}
+          Test Telegram
+        </Button>
       </div>
+      {testResults && (
+        <div className="space-y-1 text-xs border-t pt-2">
+          {Object.entries(testResults).map(([key, val]) => (
+            <div key={key} className="flex items-start gap-2">
+              <span>{val.status === "ok" ? "✅" : "❌"}</span>
+              <span className="font-medium capitalize">{key}:</span>
+              <span className="text-muted-foreground">{val.detail || val.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }
@@ -571,6 +630,8 @@ export default function AdminTelegramSources() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editSource, setEditSource] = useState<TelegramSource | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResults, setTestResults] = useState<Record<string, { status: "ok" | "error"; detail?: string }> | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -591,6 +652,32 @@ export default function AdminTelegramSources() {
 
   const handleAdd = () => { setEditSource(null); setModalOpen(true); };
   const handleEdit = (s: TelegramSource) => { setEditSource(s); setModalOpen(true); };
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const result = await tgApi.testTelegram();
+      setTestResults(result.results);
+      const allOk = Object.values(result.results).every((r) => r.status === "ok");
+      toast({
+        title: allOk ? "All checks passed" : "Some checks failed",
+        variant: allOk ? "default" : "destructive",
+      });
+      load();
+    } catch (err: any) {
+      toast({ title: "Test failed", description: err.message, variant: "destructive" });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleAddChatId = (chatId: string) => {
+    setEditSource(null);
+    setModalOpen(true);
+    // Pre-fill the chat ID in the modal via a hack: set editSource to a partial
+    // object that the modal will pick up. We use a custom approach below.
+    (window as any).__tgPrefillChatId = chatId;
+  };
 
   return (
     <AdminLayout>
@@ -617,7 +704,7 @@ export default function AdminTelegramSources() {
         <SummaryCards health={health} />
 
         {/* Health Check */}
-        <HealthCheck health={health} />
+        <HealthCheck health={health} onTest={handleTest} testing={testing} testResults={testResults} />
 
         {/* Credentials Warning */}
         {health && health.components.telegramApi === "not_configured" && (
@@ -638,7 +725,7 @@ export default function AdminTelegramSources() {
         {/* Webhook + Import Queue */}
         <div className="grid md:grid-cols-2 gap-4">
           <WebhookSection onRefresh={load} />
-          <ImportQueueSection onRefresh={load} />
+          <ImportQueueSection onRefresh={load} onAddChatId={handleAddChatId} />
         </div>
 
         {/* Sources List */}

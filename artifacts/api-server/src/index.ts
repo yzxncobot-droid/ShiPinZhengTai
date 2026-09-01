@@ -106,6 +106,37 @@ async function initDatabase(): Promise<void> {
         ),
       );
 
+      // ── Auto-register Telegram webhook (best-effort) ───────────────────────
+      // If TELEGRAM_BOT_TOKEN is set, register the webhook so Telegram starts
+      // sending updates to this server immediately on startup.
+      try {
+        const { isTelegramConfigured, setWebhook, getBotInfo } = await import("./lib/telegram/client");
+        if (isTelegramConfigured()) {
+          const suffix = process.env.BASE44_PUBLIC_HOST_SUFFIX;
+          const publicBaseUrl = process.env.PUBLIC_BASE_URL;
+          const webhookUrl = publicBaseUrl
+            ? `${publicBaseUrl}/api/telegram/webhook`
+            : (suffix ? `https://3000-${suffix}/api/telegram/webhook` : null);
+
+          if (webhookUrl) {
+            const secretToken = process.env.TELEGRAM_WEBHOOK_SECRET;
+            await setWebhook(webhookUrl, secretToken);
+            const bot = await getBotInfo();
+            logger.info(
+              { webhookUrl, bot: bot?.username },
+              "[TELEGRAM] Webhook auto-registered on startup",
+            );
+          } else {
+            logger.warn("[TELEGRAM] Cannot auto-register webhook — no public URL configured");
+          }
+        }
+      } catch (e) {
+        logger.warn(
+          { err: e instanceof Error ? e.message : String(e) },
+          "[TELEGRAM] Auto webhook registration failed (non-fatal)",
+        );
+      }
+
       // ── Mark ready ──
       app.set("isReady", true);
       logger.info("[SERVER] Initialization complete — ready");
