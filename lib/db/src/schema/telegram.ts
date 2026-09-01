@@ -111,6 +111,38 @@ export const telegramSyncLogsTable = pgTable(
   }),
 );
 
+// ── telegram_import_logs ──────────────────────────────────────────────────────
+// Import queue entries — one per video received via webhook/forward.
+// The queue processor picks up "pending" entries, upserts the video, and
+// updates the status. Failed entries are retried with exponential backoff.
+
+export const telegramImportStatusEnum = pgEnum("telegram_import_status", [
+  "pending", "processing", "completed", "failed",
+]);
+
+export const telegramImportLogsTable = pgTable(
+  "telegram_import_logs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    telegramSourceId: uuid("telegram_source_id").references(
+      () => telegramSourcesTable.id, { onDelete: "cascade" },
+    ),
+    telegramMessageId: text("telegram_message_id").notNull(),
+    status: telegramImportStatusEnum("status").notNull().default("pending"),
+    errorMessage: text("error_message"),
+    /** Extracted video metadata stored as JSON — consumed by the queue processor. */
+    metadata: text("metadata"),
+    attempts: integer("attempts").notNull().default(0),
+    processedAt: timestamp("processed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    sourceIdx: index("telegram_import_logs_source_idx").on(t.telegramSourceId),
+    statusIdx: index("telegram_import_logs_status_idx").on(t.status),
+  }),
+);
+
 export type TelegramSource = typeof telegramSourcesTable.$inferSelect;
 export type TelegramVideo = typeof telegramVideosTable.$inferSelect;
 export type TelegramSyncLog = typeof telegramSyncLogsTable.$inferSelect;
+export type TelegramImportLog = typeof telegramImportLogsTable.$inferSelect;

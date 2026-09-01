@@ -48,6 +48,13 @@ export interface TelegramHealth {
     syncing: number;
   };
   totalVideos: number;
+  importQueue: {
+    pending: number;
+    processing: number;
+    completed: number;
+    failed: number;
+    total: number;
+  };
   components: {
     telegramApi: string;
     database: string;
@@ -58,12 +65,35 @@ export interface TelegramHealth {
 
 export interface SyncResult {
   message: string;
-  syncType: string;
-  newVideos?: number;
-  updatedVideos?: number;
-  skippedVideos?: number;
-  errorsCount?: number;
+  connected?: boolean;
   totalVideos?: number;
+}
+
+export interface ImportLogEntry {
+  log: {
+    id: string;
+    telegramSourceId: string | null;
+    telegramMessageId: string;
+    status: "pending" | "processing" | "completed" | "failed";
+    errorMessage: string | null;
+    attempts: number;
+    processedAt: string | null;
+    createdAt: string;
+  };
+  sourceName: string | null;
+}
+
+export interface WebhookInfo {
+  configured: boolean;
+  url: string;
+  pendingUpdateCount: number;
+  lastErrorDate: number | null;
+  lastErrorMessage: string | null;
+}
+
+export interface BotInfo {
+  configured: boolean;
+  username: string | null;
 }
 
 async function tgFetch<T = any>(path: string, options?: RequestInit): Promise<T> {
@@ -95,11 +125,31 @@ export const tgApi = {
     tgFetch<{ success: boolean; title?: string; type?: string; errorMessage?: string }>(
       `/admin/telegram/sources/${id}/test`, { method: "POST" },
     ),
-  syncSource: (id: string, wait = false) =>
-    tgFetch<SyncResult>(`/admin/telegram/sources/${id}/sync${wait ? "?wait=true" : ""}`, { method: "POST" }),
+  syncSource: (id: string) =>
+    tgFetch<SyncResult>(`/admin/telegram/sources/${id}/sync`, { method: "POST" }),
   getLogs: (id: string) =>
     tgFetch<any[]>(`/admin/telegram/sources/${id}/logs`),
   getHealth: () => tgFetch<TelegramHealth>("/admin/telegram/health"),
+
+  // ── Webhook management ────────────────────────────────────────────────────
+  setupWebhook: (url?: string) =>
+    tgFetch<{ success: boolean; webhookUrl: string; botUsername: string | null }>(
+      "/admin/telegram/webhook/setup", { method: "POST", body: JSON.stringify({ url }) },
+    ),
+  getWebhookInfo: () => tgFetch<WebhookInfo>("/admin/telegram/webhook/info"),
+  deleteWebhook: () =>
+    tgFetch<{ success: boolean }>("/admin/telegram/webhook", { method: "DELETE" }),
+  getBotInfo: () => tgFetch<BotInfo>("/admin/telegram/bot-info"),
+
+  // ── Import queue ────────────────────────────────────────────────────────────
+  getImportQueue: (status?: string) =>
+    tgFetch<ImportLogEntry[]>(`/admin/telegram/import-queue${status ? `?status=${status}` : ""}`),
+  getQueueStats: () =>
+    tgFetch<{ pending: number; processing: number; completed: number; failed: number; total: number }>(
+      "/admin/telegram/import-queue/stats",
+    ),
+  retryImport: (id: string) =>
+    tgFetch<{ success: boolean; message: string }>(`/admin/telegram/import-queue/${id}/retry`, { method: "POST" }),
 
   // ── Public video catalog ──────────────────────────────────────────────────
   listVideos: (params?: { page?: number; limit?: number; sourceId?: string; search?: string }) => {

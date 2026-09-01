@@ -98,6 +98,7 @@ const useNavGroups = (pendingPayments: number = 0, unreadNotifs: number = 0): Na
       { label: "Pengaturan", href: "/admin/settings", icon: Settings },
       { label: "BuatQris", href: "/admin/buatqris", icon: QrCode },
       { label: "Telegram Storage", href: "/admin/telegram-sources", icon: Send },
+      { label: "Telegram Import", href: "/admin/telegram-import", icon: Send },
       { label: "Maintenance", href: "/admin/maintenance", icon: Wrench },
       { label: "Audit Log", href: "/admin/audit-logs", icon: ShieldCheck },
       { label: "Sistem", href: "/admin/system", icon: Server },

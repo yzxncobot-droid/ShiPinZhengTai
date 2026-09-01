@@ -1,96 +1,91 @@
 /**
- * Telegram (GramJS) client management.
+ * Telegram Bot API client — HTTP-based, uses ONLY TELEGRAM_BOT_TOKEN.
  *
- * Lazily creates and caches a singleton TelegramClient using the bot token +
- * MTProto API credentials from environment variables. The `telegram` package
- * is dynamically imported so the API server boots even when credentials or
- * the package are absent — Telegram endpoints simply return "not configured".
+ * No MTProto, no GramJS, no API ID / API Hash / String Session.
+ * All calls go to https://api.telegram.org/bot<token>/<method>.
  *
- * Credentials are NEVER sent to the frontend. Only the streaming endpoint
- * and metadata are exposed.
+ * The bot token is NEVER sent to the frontend, logged, or exposed in API
+ * responses. It stays server-side in process.env.
  */
 import { logger } from "../logger";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _client: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _connecting: Promise<any> | null = null;
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const API_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
+const FILE_BASE = `https://api.telegram.org/file/bot${BOT_TOKEN}`;
 
 export function isTelegramConfigured(): boolean {
-  return !!(
-    process.env.TELEGRAM_API_ID &&
-    process.env.TELEGRAM_API_HASH &&
-    process.env.TELEGRAM_BOT_TOKEN
-  );
+  return !!process.env.TELEGRAM_BOT_TOKEN;
+}
+
+/** Telegram Bot API error. */
+export class TelegramBotApiError extends Error {
+  errorCode: number;
+  constructor(description: string, errorCode: number) {
+    super(description);
+    this.name = "TelegramBotApiError";
+    this.errorCode = errorCode;
+  }
 }
 
 /**
- * Return the cached GramJS client, or create one if needed.
- * Returns `null` when credentials are not configured.
- * Throws on connection failure.
+ * Generic Bot API call. Returns `result` on success, throws on error.
+ * Never logs the bot token or request body (may contain file_id).
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function getTelegramClient(): Promise<any | null> {
-  if (_client && _client.connected) return _client;
-  if (_connecting) return _connecting;
+export async function botApiCall<T = any>(
+  method: string,
+  params?: Record<string, any>,
+): Promise<T> {
+  if (!isTelegramConfigured()) {
+    throw new Error("Telegram bot token not configured");
+  }
 
+  const url = `${API_BASE}/${method}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params ?? {}),
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!data) {
+    throw new Error(`Telegram API returned non-JSON (HTTP ${res.status})`);
+  }
+
+  if (!data.ok) {
+    throw new TelegramBotApiError(
+      data.description || `Telegram API error: ${data.error_code}`,
+      data.error_code || res.status,
+    );
+  }
+
+  return data.result as T;
+}
+
+// ── Bot info ─────────────────────────────────────────────────────────────────
+
+interface BotInfo {
+  id: number;
+  username: string;
+  firstName: string;
+}
+
+let cachedBotInfo: BotInfo | null = null;
+
+export async function getBotInfo(): Promise<BotInfo | null> {
+  if (cachedBotInfo) return cachedBotInfo;
   if (!isTelegramConfigured()) return null;
-
-  _connecting = (async () => {
-    try {
-      const { TelegramClient, StringSession } = await import("telegram");
-
-      const apiId = Number(process.env.TELEGRAM_API_ID);
-      const apiHash = process.env.TELEGRAM_API_HASH!;
-      const botToken = process.env.TELEGRAM_BOT_TOKEN!;
-
-      // Optional: reuse a saved session string to avoid re-auth on every restart.
-      const savedSession = process.env.TELEGRAM_SESSION || "";
-
-      const client = new TelegramClient(
-        new StringSession(savedSession),
-        apiId,
-        apiHash,
-        { connectionRetries: 5, autoReconnect: true },
-      );
-
-      await client.start({ botAuthToken: botToken });
-
-      logger.info("[TELEGRAM] Client connected successfully");
-      _client = client;
-      _connecting = null;
-      return client;
-    } catch (err) {
-      _connecting = null;
-      logger.error(
-        { err: err instanceof Error ? err.message : String(err) },
-        "[TELEGRAM] Failed to connect",
-      );
-      throw err;
-    }
-  })();
-
-  return _connecting;
+  try {
+    const me = await botApiCall<BotInfo>("getMe");
+    cachedBotInfo = me;
+    logger.info({ username: me.username }, "[TELEGRAM] Bot info retrieved");
+    return me;
+  } catch (err) {
+    logger.warn({ err: err instanceof Error ? err.message : String(err) }, "[TELEGRAM] getMe failed");
+    return null;
+  }
 }
 
-/**
- * Export the GramJS `Api` namespace for constructing TL objects
- * (e.g. InputMessagesFilterVideo, InputDocumentFileLocation).
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function getTelegramApi(): Promise<any> {
-  const mod = await import("telegram");
-  return mod.Api;
-}
-
-/** Sanitize an error message — never expose tokens, hashes, or session strings. */
-function sanitizeError(message: string): string {
-  return message
-    .replace(/\b\d{6,}\b/g, "***") // API IDs, hashes
-    .replace(/bot\d+:[\w-]+/gi, "***") // bot tokens
-    .replace(/[A-Za-z0-9+/_=]{40,}/g, "***") // long secrets
-    .substring(0, 500);
-}
+// ── Connection test ─────────────────────────────────────────────────────────
 
 export interface ConnectionTestResult {
   success: boolean;
@@ -100,38 +95,138 @@ export interface ConnectionTestResult {
   errorMessage?: string;
 }
 
+/** Sanitize an error message — never expose tokens, hashes, or secrets. */
+function sanitizeError(message: string): string {
+  return message
+    .replace(/bot\d+:[\w-]+/gi, "***") // bot tokens
+    .replace(/[A-Za-z0-9_-]{30,}/g, "***") // long secrets
+    .substring(0, 500);
+}
+
 /**
- * Test whether the Telegram bot can access a given chat.
+ * Test whether the bot can access a given chat via Bot API `getChat`.
  * Returns the chat title and type on success, or a sanitized error message.
  */
 export async function testConnection(chatId: string): Promise<ConnectionTestResult> {
   try {
-    const client = await getTelegramClient();
-    if (!client) {
-      return { success: false, errorMessage: "Telegram credentials not configured" };
+    if (!isTelegramConfigured()) {
+      return { success: false, errorMessage: "TELEGRAM_BOT_TOKEN not configured" };
     }
 
-    // Resolve the chat entity — this throws if the bot cannot access it.
-    const entity = await client.getEntity(chatId);
-    const title = entity.title || entity.firstName || entity.username || "Unknown";
-    const className = entity.className || "";
-    const type = className === "Channel" ? "CHANNEL" : "GROUP";
+    const chat = await botApiCall<{
+      id: number;
+      title?: string;
+      type: string;
+      username?: string;
+      first_name?: string;
+    }>("getChat", { chat_id: chatId });
+
+    const title = chat.title || chat.first_name || chat.username || "Unknown";
+    const type = chat.type === "channel" ? "CHANNEL" : "GROUP";
 
     logger.info({ chatId, title, type }, "[TELEGRAM] Connection test succeeded");
-
-    return { success: true, title, type, chatId };
+    return { success: true, title, type, chatId: String(chat.id) };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const safe = sanitizeError(message);
     logger.warn({ chatId, err: safe }, "[TELEGRAM] Connection test failed");
-    return { success: false, errorMessage: safe || "Telegram access denied" };
+    return { success: false, errorMessage: safe || "Bot does not have access to this chat" };
   }
 }
 
-/** Disconnect the client on shutdown. */
-export async function disconnectTelegram(): Promise<void> {
-  if (_client) {
-    try { await _client.disconnect(); } catch { /* ignore */ }
-    _client = null;
+// ── File download ───────────────────────────────────────────────────────────
+
+export interface TelegramFileInfo {
+  fileId: string;
+  fileUniqueId: string;
+  fileSize: number;
+  filePath: string;
+}
+
+/**
+ * Get the file path for a file_id via Bot API `getFile`.
+ * NOTE: Bot API `getFile` only works for files up to 20 MB — this is a
+ * Telegram-imposed external limitation, not an application limit.
+ */
+export async function getFileInfo(fileId: string): Promise<TelegramFileInfo> {
+  const result = await botApiCall<{
+    file_id: string;
+    file_unique_id: string;
+    file_size: number;
+    file_path: string;
+  }>("getFile", { file_id: fileId });
+
+  return {
+    fileId: result.file_id,
+    fileUniqueId: result.file_unique_id,
+    fileSize: result.file_size,
+    filePath: result.file_path,
+  };
+}
+
+/** Construct the download URL for a file_path returned by getFile. */
+export function getFileUrl(filePath: string): string {
+  return `${FILE_BASE}/${filePath}`;
+}
+
+// ── Webhook management ──────────────────────────────────────────────────────
+
+export interface WebhookInfo {
+  url: string;
+  pendingUpdateCount: number;
+  lastErrorDate?: number;
+  lastErrorMessage?: string;
+  maxConnections?: number;
+}
+
+export async function setWebhook(url: string, secretToken?: string): Promise<boolean> {
+  return botApiCall<boolean>("setWebhook", {
+    url,
+    ...(secretToken ? { secret_token: secretToken } : {}),
+    allowed_updates: ["message", "channel_post", "edited_message", "edited_channel_post"],
+  });
+}
+
+export async function getWebhookInfo(): Promise<WebhookInfo> {
+  return botApiCall<WebhookInfo>("getWebhookInfo");
+}
+
+export async function deleteWebhook(): Promise<boolean> {
+  return botApiCall<boolean>("deleteWebhook", { drop_pending_updates: true });
+}
+
+// ── Message forwarding (for file_id refresh) ────────────────────────────────
+
+/**
+ * Forward a message to the bot's own chat to get a fresh file_id.
+ * Returns the new file_id from the forwarded message.
+ */
+export async function refreshFileId(
+  fromChatId: string,
+  messageId: string,
+): Promise<string | null> {
+  try {
+    const botInfo = await getBotInfo();
+    if (!botInfo) return null;
+
+    const forwarded = await botApiCall<{
+      message_id: number;
+      video?: { file_id: string };
+      animation?: { file_id: string };
+      document?: { file_id: string };
+    }>("forwardMessage", {
+      chat_id: botInfo.id,
+      from_chat_id: fromChatId,
+      message_id: Number(messageId),
+    });
+
+    const fileId = forwarded.video?.file_id || forwarded.animation?.file_id || forwarded.document?.file_id;
+    return fileId ?? null;
+  } catch (err) {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err), fromChatId, messageId },
+      "[TELEGRAM] refreshFileId failed",
+    );
+    return null;
   }
 }
