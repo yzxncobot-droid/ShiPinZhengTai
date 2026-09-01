@@ -63,6 +63,7 @@ import StatisticsPage from "@/pages/statistics";
 import AchievementsPage from "@/pages/achievements";
 import AdminGamificationPage from "@/pages/admin/gamification";
 import AdminTelegramSources from "@/pages/admin/telegram-sources";
+import AdminTelegramImport from "@/pages/admin/telegram-import";
 import TelegramVideosPage from "@/pages/telegram-videos";
 import TelegramVideoDetailPage from "@/pages/telegram-video-detail";
 
@@ -150,6 +151,7 @@ function AppRouter() {
       <Route path="/admin/home-feed" component={AdminHomeFeed} />
       <Route path="/admin/gamification" component={AdminGamificationPage} />
       <Route path="/admin/telegram-sources" component={AdminTelegramSources} />
+      <Route path="/admin/telegram-import" component={AdminTelegramImport} />
       <Route path="/admin/maintenance" component={AdminMaintenancePage} />
 
       {/* Maintenance page — always accessible */}

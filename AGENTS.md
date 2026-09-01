@@ -23,41 +23,62 @@ docker compose -f docker-compose.base44.yml up -d --build
 ## Telegram Video Storage & Streaming (isolated module)
 
 An **additive, isolated module** — no existing video system, schema, API, or UI
-was changed. Adds Telegram channels/groups as video sources with on-demand
-streaming (HTTP Range / 206 Partial Content) via GramJS MTProto.
+was changed. Uses **Telegram Bot API only** (HTTP-based) with just
+`TELEGRAM_BOT_TOKEN` — **no MTProto, no GramJS, no API ID/API Hash, no Session**.
 
 ### Architecture
-- **DB**: 3 new tables — `telegram_sources`, `telegram_videos`, `telegram_sync_logs`.
-  Relational (source → many videos). No limit on source count. `telegram_videos`
-  stores metadata only — video binary stays in Telegram.
+- **DB**: 4 tables — `telegram_sources`, `telegram_videos`, `telegram_sync_logs`,
+  `telegram_import_logs`. Relational (source → many videos). No limit on source count.
+  `telegram_videos` stores metadata only — video binary stays in Telegram.
 - **Backend**: `src/lib/telegram/{client,indexer,streamer}.ts` + `src/routes/telegram.ts`.
-  GramJS (`telegram` npm package, externalized in `build.mjs`) provides MTProto
-  access for historical indexing and large-file streaming.
+  All Bot API calls go to `https://api.telegram.org/bot<token>/<method>` via `fetch`.
+  No native dependencies — the `telegram` (GramJS) package was removed.
 - **Frontend**: `src/pages/admin/telegram-sources.tsx` (admin dashboard),
+  `src/pages/admin/telegram-import.tsx` (import guide),
   `src/pages/telegram-videos.tsx` (catalog), `src/pages/telegram-video-detail.tsx`
   (player), `src/lib/telegram-api.ts` (API helper).
 - **Single-origin wiring**: streaming goes through `/api/telegram-videos/:id/stream`,
-  proxied by Vite to the Express API — credentials never reach the frontend.
+  proxied by Vite to the Express API — bot token never reaches the frontend.
+
+### Video ingestion — webhook + import queue (no history scanning)
+Bot API cannot read message history, so videos arrive via **webhook**:
+1. Admin sets up webhook (`POST /api/admin/telegram/webhook/setup` → `setWebhook`).
+2. Telegram sends updates to `POST /api/telegram/webhook` when the bot receives videos
+   (new messages in groups/channels, or forwarded videos for old imports).
+3. The webhook extracts metadata → creates an `telegram_import_logs` entry (pending) →
+   returns 200 immediately (async processing).
+4. A background **queue processor** (5 s poll) picks up pending entries, upserts the
+   video (duplicate-protected via `telegramSourceId + telegramMessageId` unique index),
+   and updates the log status. Failed entries retry with exponential backoff (max 5
+   attempts, max 60 s between retries).
+
+### Streaming — Bot API getFile + HTTP proxy
+- `GET /api/telegram-videos/:id/stream` → access check → `getFile(file_id)` → proxy
+  `https://api.telegram.org/file/bot<token>/<file_path>` with Range headers → 206 Partial Content.
+- File is **piped** (never loaded fully into RAM).
+- If `file_id` expired: tries `forwardMessage` to refresh it, then retries `getFile`.
+- **Bot API getFile limit: 20 MB** — a Telegram-imposed external limitation. Larger
+  files return a clear error explaining the limit (not an application limit).
 
 ### Secrets (all optional for boot)
-- `TELEGRAM_BOT_TOKEN` — Bot token from @BotFather (server-only).
-- `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` — MTProto credentials from my.telegram.org.
-- `TELEGRAM_SESSION` — Optional saved GramJS StringSession for persistence.
-- `TELEGRAM_SYNC_INTERVAL_MS` — Auto-sync interval (default 300000 = 5 min).
+- `TELEGRAM_BOT_TOKEN` — Bot token from @BotFather (server-only). The ONLY credential.
+- `TELEGRAM_WEBHOOK_SECRET` — Optional secret for webhook verification (server-only).
+- No `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, or `TELEGRAM_SESSION` needed.
 
 ### API endpoints (all new, namespaced)
-- Admin: `/api/admin/telegram/sources` (CRUD), `/:id/test`, `/:id/sync`, `/health`
+- Admin sources: `/api/admin/telegram/sources` (CRUD), `/:id/test`, `/:id/sync`, `/health`
+- Admin webhook: `/api/admin/telegram/webhook/setup` (POST), `/webhook/info` (GET), `/webhook` (DELETE)
+- Admin queue: `/api/admin/telegram/import-queue` (GET), `/import-queue/stats` (GET), `/import-queue/:id/retry` (POST)
+- Admin bot: `/api/admin/telegram/bot-info` (GET)
 - Public: `/api/telegram-videos` (list), `/:id` (detail), `/:id/stream` (Range streaming)
+- Webhook: `POST /api/telegram/webhook` (public, no auth)
 
 ### How to verify
-1. Admin → Telegram Storage → Add Source (chat ID) → Test Connection → Sync Now.
-2. Browse `/telegram-videos` → open a video → native `<video>` player streams via Range.
-3. Existing features (login, videos, payments, etc.) must remain unaffected.
-
-### External Telegram limits (not application-imposed)
-- Bot API `getFile`: 20 MB (not used for streaming — GramJS MTProto handles large files).
-- GramJS chunk size: 512 KB per MTProto request (configurable in streamer).
-- Telegram itself may rate-limit; the indexer handles errors per-message.
+1. Set `TELEGRAM_BOT_TOKEN` → Admin → Telegram Storage → Set Webhook.
+2. Admin → Add Source (chat ID) → Test Connection → 🟢 Connected.
+3. Forward a video to the bot → Import Queue shows it → video appears in `/telegram-videos`.
+4. Open video → native `<video>` player streams via Range (play/pause/seek).
+5. Existing features (login, videos, payments, etc.) must remain unaffected.
 
 ## Payment system (BuatQris + Manual)
 

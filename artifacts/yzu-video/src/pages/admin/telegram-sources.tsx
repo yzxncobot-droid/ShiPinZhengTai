@@ -2,15 +2,22 @@
  * Admin: Telegram Video Storage
  *
  * Isolated admin page for managing Telegram channels/groups as video sources.
- * Lists all sources with connection status, video count, and sync controls.
- * Add / edit / delete / test connection / sync now.
+ * Uses ONLY TELEGRAM_BOT_TOKEN (Bot API) — no API ID/Hash/Session needed.
+ *
+ * Features:
+ * - Add / edit / delete / test connection for sources
+ * - Webhook setup (setWebhook / getWebhookInfo / deleteWebhook)
+ * - Import queue display with retry
+ * - Health summary
  *
  * Does NOT touch any existing admin page or feature.
  */
 import { useState, useEffect, useCallback } from "react";
+import { Link } from "wouter";
 import {
   Plus, RefreshCw, Trash2, Settings, Wifi, WifiOff, AlertTriangle,
   Loader2, Send, X, CheckCircle2, Activity, Database, Film, Server,
+  Webhook, Inbox, RotateCcw, ExternalLink, Bot,
 } from "lucide-react";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Button } from "@/components/ui/button";
@@ -28,12 +35,11 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/lib/auth";
 import {
   tgApi, formatFileSize,
-  type TelegramSource, type TelegramHealth,
+  type TelegramSource, type TelegramHealth, type ImportLogEntry, type WebhookInfo,
 } from "@/lib/telegram-api";
-import { fmtDateTime, relativeTime } from "@/lib/admin-api";
+import { relativeTime } from "@/lib/admin-api";
 
 // ── Status badge ─────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
@@ -197,55 +203,16 @@ function TestResultModal({
           <div className="space-y-2 py-2 text-sm">
             <div className="flex justify-between"><span className="text-muted-foreground">Title</span><span className="font-medium">{result.title}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Type</span><span className="font-medium">{result.type}</span></div>
+            <div className="flex items-center gap-1.5 pt-1">
+              <CheckCircle2 className="h-4 w-4 text-green-500" />
+              <span className="text-sm font-medium text-green-600">Bot Access: Granted</span>
+            </div>
           </div>
         ) : (
           <div className="py-2">
-            <p className="text-sm text-muted-foreground">{result.errorMessage || "Bot/account cannot access this Telegram source."}</p>
+            <p className="text-sm text-muted-foreground">{result.errorMessage || "Bot does not have access to this group/channel."}</p>
           </div>
         )}
-        <DialogFooter>
-          <DialogClose asChild><Button>Close</Button></DialogClose>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ── Sync Result Modal ────────────────────────────────────────────────────────
-function SyncResultModal({
-  result, open, onClose,
-}: {
-  result: any | null;
-  open: boolean;
-  onClose: () => void;
-}) {
-  if (!result) return null;
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <CheckCircle2 className="h-5 w-5 text-green-500" />
-            {result.message || "Sync completed"}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-2 py-2 text-sm">
-          {result.newVideos !== undefined && (
-            <div className="flex justify-between"><span className="text-muted-foreground">New videos</span><span className="font-medium text-green-600">{result.newVideos}</span></div>
-          )}
-          {result.updatedVideos !== undefined && (
-            <div className="flex justify-between"><span className="text-muted-foreground">Updated</span><span className="font-medium">{result.updatedVideos}</span></div>
-          )}
-          {result.skippedVideos !== undefined && (
-            <div className="flex justify-between"><span className="text-muted-foreground">Skipped</span><span className="font-medium">{result.skippedVideos}</span></div>
-          )}
-          {result.errorsCount !== undefined && (
-            <div className="flex justify-between"><span className="text-muted-foreground">Errors</span><span className="font-medium">{result.errorsCount}</span></div>
-          )}
-          {result.totalVideos !== undefined && (
-            <div className="flex justify-between border-t pt-2 mt-2"><span className="text-muted-foreground">Total videos</span><span className="font-bold">{result.totalVideos}</span></div>
-          )}
-        </div>
         <DialogFooter>
           <DialogClose asChild><Button>Close</Button></DialogClose>
         </DialogFooter>
@@ -268,8 +235,6 @@ function SourceCard({
   const [deleting, setDeleting] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
   const [testOpen, setTestOpen] = useState(false);
-  const [syncResult, setSyncResult] = useState<any>(null);
-  const [syncOpen, setSyncOpen] = useState(false);
 
   const handleTest = async () => {
     setTesting(true);
@@ -288,16 +253,9 @@ function SourceCard({
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const result = await tgApi.syncSource(source.id, false);
-      if (result.message === "Sync started") {
-        toast({ title: "Sync started", description: "Check back in a moment for results." });
-        // Poll for completion.
-        setTimeout(() => onRefresh(), 3000);
-      } else {
-        setSyncResult(result);
-        setSyncOpen(true);
-        onRefresh();
-      }
+      const result = await tgApi.syncSource(source.id);
+      toast({ title: result.message, description: `${result.totalVideos ?? 0} videos` });
+      onRefresh();
     } catch (err: any) {
       toast({ title: "Sync failed", description: err.message, variant: "destructive" });
     } finally {
@@ -333,12 +291,8 @@ function SourceCard({
             </p>
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            <Button size="sm" variant="ghost" onClick={handleSync} disabled={syncing || source.status === "SYNCING"}>
-              {syncing || source.status === "SYNCING" ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
+            <Button size="sm" variant="ghost" onClick={handleSync} disabled={syncing}>
+              {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             </Button>
             <Button size="sm" variant="ghost" onClick={handleTest} disabled={testing}>
               {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wifi className="h-3.5 w-3.5" />}
@@ -367,7 +321,6 @@ function SourceCard({
       </Card>
 
       <TestResultModal result={testResult} open={testOpen} onClose={() => setTestOpen(false)} />
-      <SyncResultModal result={syncResult} open={syncOpen} onClose={() => setSyncOpen(false)} />
     </>
   );
 }
@@ -396,13 +349,197 @@ function SummaryCards({ health }: { health: TelegramHealth | null }) {
   );
 }
 
+// ── Import Queue Section ─────────────────────────────────────────────────────
+function ImportQueueSection({ onRefresh }: { onRefresh: () => void }) {
+  const { toast } = useToast();
+  const [stats, setStats] = useState({ pending: 0, processing: 0, completed: 0, failed: 0, total: 0 });
+  const [entries, setEntries] = useState<ImportLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      const [s, e] = await Promise.all([
+        tgApi.getQueueStats(),
+        tgApi.getImportQueue(),
+      ]);
+      setStats(s);
+      setEntries(e.slice(0, 20));
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 5000);
+    return () => clearInterval(interval);
+  }, [load]);
+
+  const handleRetry = async (id: string) => {
+    try {
+      await tgApi.retryImport(id);
+      toast({ title: "Import queued for retry" });
+      load();
+      onRefresh();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const statusConfig: Record<string, { icon: string; color: string; label: string }> = {
+    pending: { icon: "⏳", color: "text-gray-500", label: "Pending" },
+    processing: { icon: "🔄", color: "text-yellow-500", label: "Processing" },
+    completed: { icon: "✅", color: "text-green-500", label: "Completed" },
+    failed: { icon: "❌", color: "text-red-500", label: "Failed" },
+  };
+
+  return (
+    <Card className="p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold flex items-center gap-2">
+          <Inbox className="h-4 w-4" /> Import Queue
+        </h3>
+        <div className="flex gap-3 text-xs">
+          <span className="text-gray-500">⏳ {stats.pending}</span>
+          <span className="text-yellow-500">🔄 {stats.processing}</span>
+          <span className="text-green-500">✅ {stats.completed}</span>
+          <span className="text-red-500">❌ {stats.failed}</span>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-4">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : entries.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-2 text-center">
+          No imports yet. Forward videos to the bot to populate the queue.
+        </p>
+      ) : (
+        <div className="space-y-1.5 max-h-64 overflow-y-auto">
+          {entries.map((entry) => {
+            const cfg = statusConfig[entry.log.status] || statusConfig.pending;
+            return (
+              <div key={entry.log.id} className="flex items-center justify-between gap-2 text-sm py-1.5 px-2 rounded hover:bg-muted/50">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <span>{cfg.icon}</span>
+                  <span className="text-xs text-muted-foreground truncate">
+                    {entry.sourceName || "Unknown"} · msg #{entry.log.telegramMessageId}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`text-xs ${cfg.color}`}>{cfg.label}</span>
+                  {entry.log.status === "failed" && (
+                    <Button size="sm" variant="ghost" className="h-6 px-2" onClick={() => handleRetry(entry.log.id)}>
+                      <RotateCcw className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ── Webhook Section ──────────────────────────────────────────────────────────
+function WebhookSection({ onRefresh }: { onRefresh: () => void }) {
+  const { toast } = useToast();
+  const [webhookInfo, setWebhookInfo] = useState<WebhookInfo | null>(null);
+  const [setting, setSetting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const info = await tgApi.getWebhookInfo();
+      setWebhookInfo(info);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSetup = async () => {
+    setSetting(true);
+    try {
+      const result = await tgApi.setupWebhook();
+      toast({
+        title: "Webhook configured",
+        description: result.botUsername ? `Bot: @${result.botUsername}` : undefined,
+      });
+      load();
+    } catch (err: any) {
+      toast({ title: "Failed to set webhook", description: err.message, variant: "destructive" });
+    } finally {
+      setSetting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await tgApi.deleteWebhook();
+      toast({ title: "Webhook deleted" });
+      load();
+      onRefresh();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const isActive = webhookInfo?.configured && webhookInfo.url;
+
+  return (
+    <Card className="p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold flex items-center gap-2">
+          <Webhook className="h-4 w-4" /> Webhook
+        </h3>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={handleSetup} disabled={setting}>
+            {setting ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : null}
+            Set Webhook
+          </Button>
+          {isActive && (
+            <Button size="sm" variant="ghost" onClick={handleDelete} disabled={deleting}>
+              {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {isActive ? (
+        <div className="space-y-1 text-sm">
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-green-500" />
+            <span className="text-green-600 font-medium">Active</span>
+          </div>
+          <p className="text-xs text-muted-foreground truncate">{webhookInfo.url}</p>
+          {webhookInfo.pendingUpdateCount > 0 && (
+            <p className="text-xs text-yellow-600">{webhookInfo.pendingUpdateCount} pending updates</p>
+          )}
+          {webhookInfo.lastErrorMessage && (
+            <p className="text-xs text-red-500">Last error: {webhookInfo.lastErrorMessage}</p>
+          )}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Webhook not set. Click "Set Webhook" to configure Telegram to send updates here.
+        </p>
+      )}
+    </Card>
+  );
+}
+
 // ── Health Check ─────────────────────────────────────────────────────────────
 function HealthCheck({ health }: { health: TelegramHealth | null }) {
   if (!health) return null;
   const items = [
-    { label: "Telegram API", status: health.components.telegramApi, icon: Send },
+    { label: "Telegram Bot API", status: health.components.telegramApi, icon: Bot },
     { label: "Database", status: health.components.database, icon: Database },
-    { label: "Indexer", status: health.components.indexer, icon: RefreshCw },
+    { label: "Queue Processor", status: health.components.indexer, icon: RefreshCw },
     { label: "Streaming Engine", status: health.components.streaming, icon: Server },
   ];
   return (
@@ -428,7 +565,6 @@ function HealthCheck({ health }: { health: TelegramHealth | null }) {
 
 // ── Main Page ────────────────────────────────────────────────────────────────
 export default function AdminTelegramSources() {
-  const { user } = useAuth();
   const { toast } = useToast();
   const [sources, setSources] = useState<TelegramSource[]>([]);
   const [health, setHealth] = useState<TelegramHealth | null>(null);
@@ -463,11 +599,18 @@ export default function AdminTelegramSources() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold">Telegram Video Storage</h1>
-            <p className="text-sm text-muted-foreground">Manage Telegram channels/groups as video sources</p>
+            <p className="text-sm text-muted-foreground">Bot API only — no session/API ID/Hash needed</p>
           </div>
-          <Button onClick={handleAdd} size="sm">
-            <Plus className="h-4 w-4 mr-1" /> Add Source
-          </Button>
+          <div className="flex items-center gap-2">
+            <Link href="/admin/telegram-import">
+              <Button variant="outline" size="sm">
+                <ExternalLink className="h-4 w-4 mr-1" /> Import Guide
+              </Button>
+            </Link>
+            <Button onClick={handleAdd} size="sm">
+              <Plus className="h-4 w-4 mr-1" /> Add Source
+            </Button>
+          </div>
         </div>
 
         {/* Summary */}
@@ -482,17 +625,21 @@ export default function AdminTelegramSources() {
             <div className="flex items-start gap-2">
               <AlertTriangle className="h-5 w-5 text-orange-500 shrink-0 mt-0.5" />
               <div className="text-sm">
-                <p className="font-medium text-orange-600">Telegram credentials not configured</p>
+                <p className="font-medium text-orange-600">Telegram bot token not configured</p>
                 <p className="text-muted-foreground mt-1">
-                  Set <code className="text-xs bg-muted px-1 rounded">TELEGRAM_BOT_TOKEN</code>,{" "}
-                  <code className="text-xs bg-muted px-1 rounded">TELEGRAM_API_ID</code>, and{" "}
-                  <code className="text-xs bg-muted px-1 rounded">TELEGRAM_API_HASH</code> environment variables
-                  to enable Telegram video indexing and streaming.
+                  Set <code className="text-xs bg-muted px-1 rounded">TELEGRAM_BOT_TOKEN</code> environment variable
+                  to enable Telegram video indexing and streaming. Only the bot token is needed — no API ID, API Hash, or Session.
                 </p>
               </div>
             </div>
           </Card>
         )}
+
+        {/* Webhook + Import Queue */}
+        <div className="grid md:grid-cols-2 gap-4">
+          <WebhookSection onRefresh={load} />
+          <ImportQueueSection onRefresh={load} />
+        </div>
 
         {/* Sources List */}
         {loading ? (
