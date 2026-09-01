@@ -55,8 +55,14 @@ export interface TelegramHealth {
     failed: number;
     total: number;
   };
+  webhook: {
+    url: string;
+    pendingUpdateCount: number;
+    lastErrorMessage: string | null;
+  } | null;
   components: {
     telegramApi: string;
+    webhook: string;
     database: string;
     indexer: string;
     streaming: string;
@@ -79,6 +85,11 @@ export interface ImportLogEntry {
     attempts: number;
     processedAt: string | null;
     createdAt: string;
+    updateId: number | null;
+    chatId: string | null;
+    videoType: string | null;
+    fileSize: number | null;
+    title: string | null;
   };
   sourceName: string | null;
 }
@@ -89,6 +100,8 @@ export interface WebhookInfo {
   pendingUpdateCount: number;
   lastErrorDate: number | null;
   lastErrorMessage: string | null;
+  allowedUpdates: string[] | null;
+  hasCustomCertificate: boolean;
 }
 
 export interface BotInfo {
@@ -140,6 +153,10 @@ export const tgApi = {
   deleteWebhook: () =>
     tgFetch<{ success: boolean }>("/admin/telegram/webhook", { method: "DELETE" }),
   getBotInfo: () => tgFetch<BotInfo>("/admin/telegram/bot-info"),
+  testTelegram: () =>
+    tgFetch<{ results: Record<string, { status: "ok" | "error"; detail?: string }> }>(
+      "/admin/telegram/test", { method: "POST" },
+    ),
 
   // ── Import queue ────────────────────────────────────────────────────────────
   getImportQueue: (status?: string) =>
