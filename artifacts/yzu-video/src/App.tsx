@@ -114,6 +114,8 @@ function AppRouter() {
       <Route path="/my-video" component={MyVideoPage} />
       <Route path="/statistics" component={StatisticsPage} />
       <Route path="/achievements" component={AchievementsPage} />
+      <Route path="/telegram-videos" component={TelegramVideosPage} />
+      <Route path="/telegram-videos/:id" component={TelegramVideoDetailPage} />
 
       {/* Unified Admin / Owner Panel */}
       <Route path="/admin" component={AdminDashboard} />

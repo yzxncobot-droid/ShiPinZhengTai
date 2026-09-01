@@ -17,6 +17,10 @@
     { "name": "MEDIA_SUPABASE_SERVICE_KEY", "description": "Supabase MEDIA project service_role key.", "requiredAtBoot": false },
     { "name": "KV_REST_API_URL", "description": "Layerbase Valkey REST API URL (Redis-compatible). Optional — app runs without it (no session invalidation or caching).", "requiredAtBoot": false },
     { "name": "KV_REST_API_TOKEN", "description": "Layerbase Valkey REST API token (server-only, never sent to frontend). Optional.", "requiredAtBoot": false },
-    { "name": "CRON_HEARTBEAT_SECRET", "description": "Secret protecting the GET /api/health/layerbase heartbeat endpoint. The external cron job sends this as `Authorization: Bearer <secret>` or `X-Cron-Secret: <secret>`. Optional — a dev placeholder is used until provided.", "requiredAtBoot": false }
+    { "name": "CRON_HEARTBEAT_SECRET", "description": "Secret protecting the GET /api/health/layerbase heartbeat endpoint. The external cron job sends this as `Authorization: Bearer <secret>` or `X-Cron-Secret: <secret>`. Optional — a dev placeholder is used until provided.", "requiredAtBoot": false },
+    { "name": "TELEGRAM_BOT_TOKEN", "description": "Telegram Bot token (from @BotFather). Required for the Telegram Video Storage module — enables bot-based access to channels/groups for indexing and streaming. Server-only, never sent to frontend.", "requiredAtBoot": false },
+    { "name": "TELEGRAM_API_ID", "description": "Telegram API ID from https://my.telegram.org (MTProto API). Required for GramJS client to connect. Server-only.", "requiredAtBoot": false },
+    { "name": "TELEGRAM_API_HASH", "description": "Telegram API Hash from https://my.telegram.org (MTProto API). Required for GramJS client. Server-only, never sent to frontend.", "requiredAtBoot": false },
+    { "name": "TELEGRAM_SESSION", "description": "Optional: saved GramJS StringSession for connection persistence. If absent, a fresh bot session is created on each restart (fast for bots). Server-only.", "requiredAtBoot": false }
   ]
 }

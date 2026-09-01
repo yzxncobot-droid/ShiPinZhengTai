@@ -34,6 +34,7 @@ import homeFeedRouter from "./home-feed";
 import gamificationRouter from "./gamification";
 import adminGamificationRouter from "./admin-gamification";
 import layerbaseHeartbeatRouter from "./layerbase-heartbeat";
+import telegramRouter from "./telegram";
 
 const router: IRouter = Router();
 
@@ -72,6 +73,7 @@ router.use(homeFeedRouter);
 router.use(gamificationRouter);
 router.use(adminGamificationRouter);
 router.use(layerbaseHeartbeatRouter);
+router.use(telegramRouter);
 
 
 export default router;
