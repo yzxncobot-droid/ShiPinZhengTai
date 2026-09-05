@@ -125,6 +125,8 @@ export default function TelegramVideoDetailPage() {
           <video
             ref={videoRef}
             controls
+            playsInline
+            preload="metadata"
             className="w-full max-h-[70vh]"
             src={streamUrl}
             controlsList="nodownload"

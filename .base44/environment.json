@@ -19,6 +19,7 @@
     { "name": "KV_REST_API_TOKEN", "description": "Layerbase Valkey REST API token (server-only, never sent to frontend). Optional.", "requiredAtBoot": false },
     { "name": "CRON_HEARTBEAT_SECRET", "description": "Secret protecting the GET /api/health/layerbase heartbeat endpoint. The external cron job sends this as `Authorization: Bearer <secret>` or `X-Cron-Secret: <secret>`. Optional — a dev placeholder is used until provided.", "requiredAtBoot": false },
     { "name": "TELEGRAM_BOT_TOKEN", "description": "Telegram Bot token (from @BotFather). The ONLY credential needed for the Telegram Video Storage module — no API ID, API Hash, or Session required. Server-only, never sent to frontend.", "requiredAtBoot": false },
-    { "name": "TELEGRAM_WEBHOOK_SECRET", "description": "Optional secret token for the Telegram webhook (sent as X-Telegram-Bot-Api-Secret-Token header by Telegram). Server-only. If not set, the webhook URL itself is the secret.", "requiredAtBoot": false }
+    { "name": "TELEGRAM_WEBHOOK_SECRET", "description": "Optional secret token for the Telegram webhook (sent as X-Telegram-Bot-Api-Secret-Token header by Telegram). Server-only. If not set, the webhook URL itself is the secret.", "requiredAtBoot": false },
+    { "name": "TELEGRAM_API_BASE", "description": "Optional URL of a Telegram Local Bot API Server (e.g. http://localhost:8081). When set, the Telegram client uses it instead of api.telegram.org, lifting the getFile limit from 20 MB to 2 GB. No extra credentials needed — same bot token. Server-only.", "requiredAtBoot": false }
   ]
 }
