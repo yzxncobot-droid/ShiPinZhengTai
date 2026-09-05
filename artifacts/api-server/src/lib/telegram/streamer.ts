@@ -40,6 +40,10 @@ interface StreamParams {
  * Returns null for an unsatisfiable range.
  */
 function parseRange(rangeHeader: string, fileSize: number): { start: number; end: number } | null {
+  // Reject multi-range requests (e.g. "bytes=0-100,200-300"). We only support
+  // single ranges — multipart/byteranges is not implemented. Processing only
+  // the first range silently would be incorrect; return null → 416 instead.
+  if (rangeHeader.includes(",")) return null;
   const match = /bytes=(\d+)-(\d*)/.exec(rangeHeader);
   if (!match) return null;
   const start = parseInt(match[1], 10);
@@ -196,8 +200,7 @@ export async function streamTelegramVideo({
       // Verify the upstream Content-Range matches what we requested.
       const expectedRange = `bytes ${start}-${end}/${fileSize}`;
       const rangeMatches = upstreamContentRange === expectedRange ||
-        upstreamContentRange === `bytes ${start}-${end}/*` ||
-        upstreamContentRange === `bytes ${start}-${end}/${fileSize}`;
+        upstreamContentRange === `bytes ${start}-${end}/*`;
 
       if (!rangeMatches) {
         // Upstream returned a different range than requested — do NOT send a
@@ -233,51 +236,45 @@ export async function streamTelegramVideo({
         if (value) res.write(value);
       }
     } else if (requestedRange && upstreamStatus === 200) {
-      // ── Upstream ignored the Range (returned full file as 200) ───────────
-      // Do NOT send a fake 206. We already set 206 + Content-Range for the
-      // browser, and we will genuinely serve only bytes start–end by skipping
-      // the leading bytes and stopping after contentLength bytes. This is a
-      // REAL 206 — the bytes streamed match the Content-Range exactly.
-      logger.info(
-        { videoId, start, end, contentLength },
-        "[TELEGRAM] Upstream returned 200 for Range request — skipping to requested range",
-      );
-
-      let remaining = contentLength;
-      let skipped = 0;
-
-      while (!aborted) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!value) continue;
-
-        const chunk = value;
-
-        // Skip bytes before the requested start.
-        if (skipped < start) {
-          const skip = Math.min(chunk.length, start - skipped);
-          skipped += skip;
-          if (skip < chunk.length) {
-            const rest = chunk.subarray(skip);
-            const write = Math.min(rest.length, remaining);
-            if (write > 0) {
-              res.write(write === rest.length ? rest : rest.subarray(0, write));
-              remaining -= write;
-            }
-          }
-        } else {
-          const write = Math.min(chunk.length, remaining);
-          if (write > 0) {
-            res.write(write === chunk.length ? chunk : chunk.subarray(0, write));
-            remaining -= write;
-          }
+      // ── Upstream ignored the Range and returned the full file (200) ──────
+      // Do NOT skip gigabytes of leading bytes to serve only the requested
+      // range — that would download the entire file (up to 2 GB with Local
+      // Bot API) and discard most of it, wasting enormous bandwidth.
+      //
+      // If the Range starts at byte 0 (initial playback: "bytes=0-"), stream
+      // the full file as 200 — the browser gets a playable video and no bytes
+      // are wasted (we serve everything we download).
+      // If the Range starts beyond byte 0 (seeking), return 502 — seeking is
+      // not supported when the upstream endpoint ignores Range headers, and
+      // we refuse to download gigabytes just to discard them.
+      if (start === 0) {
+        logger.info(
+          { videoId, fileSize },
+          "[TELEGRAM] Upstream returned 200 for Range (start=0) — streaming full file as 200",
+        );
+        // Override the 206/Content-Range we set earlier — headers not flushed yet.
+        res.status(200);
+        res.removeHeader("Content-Range");
+        res.setHeader("Content-Length", fileSize.toString());
+        while (!aborted) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) res.write(value);
         }
-
-        if (remaining <= 0) {
-          // We've served the full requested range — stop.
-          reader.cancel().catch(() => {});
-          break;
+      } else {
+        logger.warn(
+          { videoId, start, end },
+          "[TELEGRAM] Upstream returned 200 for Range (start>0) — refusing to waste bandwidth, returning 502",
+        );
+        reader.cancel().catch(() => {});
+        if (!res.headersSent) {
+          res.removeHeader("Content-Range");
+          res.status(502).json({
+            error: "Range request tidak didukung oleh endpoint Telegram",
+            detail: "Endpoint file Telegram mengembalikan seluruh file (200) alih-alih range yang diminta. Seeking tidak didukung pada mode ini.",
+          });
         }
+        return;
       }
     } else {
       // ── No range requested, or upstream returned 200 for a full request ──
