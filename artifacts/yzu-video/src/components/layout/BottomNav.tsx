@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Home as HomeIcon, ShoppingBag, Compass, User, MessageCircle, Star } from "lucide-react";
+import { Home as HomeIcon, ShoppingBag, Wallet, User, MessageCircle, Star } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 
@@ -21,7 +21,7 @@ export function BottomNav() {
 
   const sideItems = [
     { href: "/shop", icon: ShoppingBag, label: "Shop" },
-    { href: "/search", icon: Compass, label: "Eksplore" },
+    { href: "/topup", icon: Wallet, label: "Top Up" },
     { href: "/chat", icon: MessageCircle, label: "Pesan" },
     { href: user ? "/profile" : "/login", icon: User, label: "Profil" },
   ];
