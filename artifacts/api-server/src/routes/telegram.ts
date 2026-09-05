@@ -19,7 +19,8 @@ import { eq, and, desc, ilike, sql, inArray } from "drizzle-orm";
 import { authenticate, optionalAuth, requireRole } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 import {
-  isTelegramConfigured, testConnection, getBotInfo,
+  isTelegramConfigured, isLocalBotApiConfigured, checkLocalBotApiHealth,
+  testConnection, getBotInfo,
   setWebhook, getWebhookInfo, deleteWebhook,
 } from "../lib/telegram/client";
 import {
@@ -542,6 +543,41 @@ router.get("/admin/telegram/health", authenticate, requireRole("admin", "owner")
       }
     }
 
+    // ── Real Local Bot API Server check ──────────────────────────────────────
+    // Do NOT assume the server is OK just because TELEGRAM_API_BASE is set.
+    // Perform a real connection test (getMe) against the configured endpoint.
+    let localBotApiStatus: "ok" | "error" | "not_configured" = "not_configured";
+    if (telegramApi && isLocalBotApiConfigured()) {
+      localBotApiStatus = (await checkLocalBotApiHealth()) ? "ok" : "error";
+    }
+
+    // ── Streaming mode ─────────────────────────────────────────────────────────
+    // streaming reflects the actual Bot API endpoint in use:
+    //   - STANDARD_BOT_API: using api.telegram.org (20 MB getFile limit)
+    //   - LOCAL_BOT_API:    using a Local Bot API Server (up to 2 GB) — but only
+    //                       reported as LOCAL_BOT_API when the server is actually
+    //                       reachable, not merely configured.
+    //   - NOT_AVAILABLE:    no bot token configured.
+    let streamingMode: "STANDARD_BOT_API" | "LOCAL_BOT_API" | "NOT_AVAILABLE" = "NOT_AVAILABLE";
+    let largeFileStreaming = false;
+    if (!telegramApi) {
+      streamingMode = "NOT_AVAILABLE";
+      largeFileStreaming = false;
+    } else if (isLocalBotApiConfigured()) {
+      // Only claim large-file support if the server is actually reachable.
+      if (localBotApiStatus === "ok") {
+        streamingMode = "LOCAL_BOT_API";
+        largeFileStreaming = true;
+      } else {
+        // Configured but unreachable — fall back to standard mode, no large file.
+        streamingMode = "STANDARD_BOT_API";
+        largeFileStreaming = false;
+      }
+    } else {
+      streamingMode = "STANDARD_BOT_API";
+      largeFileStreaming = false;
+    }
+
     // ── Active sources count ────────────────────────────────────────────────
     const [activeSources] = await db.select({
       count: sql<number>`count(*)::int`,
@@ -557,12 +593,15 @@ router.get("/admin/telegram/health", authenticate, requireRole("admin", "owner")
       botUsername,
       lastSuccessfulImport: lastImport ? { createdAt: lastImport.createdAt, sourceName: lastImport.sourceName } : null,
       lastFailedImport: lastFailedImport ? { createdAt: lastFailedImport.createdAt, errorMessage: lastFailedImport.errorMessage } : null,
+      streamingMode,
+      largeFileStreaming,
       components: {
         telegramApi: botApiStatus,
         webhook: webhookStatus,
         database: "ok",
         indexer: telegramApi ? "ok" : "not_configured",
-        streaming: telegramApi ? "ok" : "not_configured",
+        streaming: streamingMode === "NOT_AVAILABLE" ? "not_configured" : "ok",
+        localBotApi: localBotApiStatus,
       },
     });
   } catch (err) {
@@ -630,11 +669,34 @@ router.post("/admin/telegram/test", authenticate, requireRole("admin", "owner"),
     // 5. Queue processor
     results.indexer = { status: "ok", detail: "Queue processor running" };
 
-    // 6. Streaming
-    results.streaming = {
-      status: isTelegramConfigured() ? "ok" : "error",
-      detail: isTelegramConfigured() ? "Ready" : "Bot token not configured",
-    };
+    // 6. Streaming — reflects the actual Bot API endpoint and large-file support.
+    if (!isTelegramConfigured()) {
+      results.streaming = { status: "error", detail: "Bot token not configured" };
+    } else if (isLocalBotApiConfigured()) {
+      const healthy = await checkLocalBotApiHealth();
+      results.streaming = {
+        status: healthy ? "ok" : "error",
+        detail: healthy
+          ? "Local Bot API Server — large file streaming (up to 2 GB) available"
+          : "Local Bot API Server configured but unreachable — falling back to standard mode",
+      };
+    } else {
+      results.streaming = {
+        status: "ok",
+        detail: "Standard Bot API — 20 MB file limit (Telegram-imposed)",
+      };
+    }
+
+    // 7. Local Bot API Server — real connection test
+    if (!isLocalBotApiConfigured()) {
+      results.localBotApi = { status: "error", detail: "Not configured" };
+    } else {
+      const healthy = await checkLocalBotApiHealth();
+      results.localBotApi = {
+        status: healthy ? "ok" : "error",
+        detail: healthy ? "Reachable" : "Configured but unreachable",
+      };
+    }
 
     res.json({ results });
   } catch (err) {
