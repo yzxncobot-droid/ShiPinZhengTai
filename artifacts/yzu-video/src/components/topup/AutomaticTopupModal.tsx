@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Loader2, ImageIcon, ExternalLink, CheckCircle2, Clock, AlertCircle, XCircle, RefreshCw } from "lucide-react";
+import { X, Loader2, ImageIcon, CheckCircle2, Clock, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getGetMeQueryKey, getListMyTopupsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -265,7 +265,7 @@ export function AutomaticTopupModal({
             {/* ── Header ─────────────────────────────────────────────────── */}
             <div
               className="relative px-5 py-5 text-white"
-              style={{ background: "linear-gradient(135deg, #7B4DFF 0%, #6D3DFF 100%)" }}
+              style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #8b5cf6 100%)" }}
             >
               <button
                 onClick={handleClose}
@@ -284,7 +284,7 @@ export function AutomaticTopupModal({
                   </svg>
                 </div>
                 <div>
-                  <h2 className="text-lg font-extrabold leading-tight">Bayar QRIS</h2>
+                  <h2 className="text-lg font-extrabold leading-tight">Top Up QRIS</h2>
                   <p className="text-xs font-medium text-white/80">QRIS Otomatis · BuatQris</p>
                 </div>
               </div>
@@ -293,7 +293,7 @@ export function AutomaticTopupModal({
             {/* ── Body ────────────────────────────────────────────────────── */}
             {state === "creating" && (
               <div className="flex min-h-[300px] flex-col items-center justify-center px-6 py-8">
-                <Loader2 className="h-10 w-10 animate-spin" style={{ color: "#7B4DFF" }} />
+                <Loader2 className="h-10 w-10 animate-spin" style={{ color: "#4f46e5" }} />
                 <p className="mt-4 text-sm font-bold text-slate-500">Membuat QRIS…</p>
               </div>
             )}
@@ -311,7 +311,7 @@ export function AutomaticTopupModal({
                   <button
                     onClick={retry}
                     className="h-12 flex-1 rounded-2xl text-sm font-extrabold text-white transition hover:opacity-90"
-                    style={{ background: "linear-gradient(135deg, #7B4DFF 0%, #6D3DFF 100%)" }}
+                    style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
                   >
                     Coba Lagi
                   </button>
@@ -335,7 +335,7 @@ export function AutomaticTopupModal({
                 >
                   <CheckCircle2 className="h-10 w-10 text-green-500" />
                 </motion.div>
-                <h3 className="text-xl font-extrabold" style={{ color: "#4F2DAA" }}>
+                <h3 className="text-xl font-extrabold" style={{ color: "#4f46e5" }}>
                   Top Up Berhasil!
                 </h3>
                 <p className="mx-auto mt-2 max-w-xs text-sm font-medium text-slate-500">
@@ -344,7 +344,7 @@ export function AutomaticTopupModal({
                 <button
                   onClick={handleClose}
                   className="mt-7 h-12 w-full rounded-2xl text-sm font-extrabold text-white transition hover:opacity-90"
-                  style={{ background: "linear-gradient(135deg, #7B4DFF 0%, #6D3DFF 100%)" }}
+                  style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
                 >
                   Selesai
                 </button>
@@ -357,7 +357,7 @@ export function AutomaticTopupModal({
                 <p className="text-center text-xs font-bold uppercase tracking-wider text-slate-400">
                   TOTAL BAYAR
                 </p>
-                <p className="mt-1 text-center text-3xl font-extrabold" style={{ color: "#4F2DAA" }}>
+                <p className="mt-1 text-center text-3xl font-extrabold" style={{ color: "#4f46e5" }}>
                   {fmtRp(totalAmount)}
                 </p>
 
@@ -374,8 +374,8 @@ export function AutomaticTopupModal({
                     </div>
                     <div className="mt-2 border-t border-slate-200 pt-2">
                       <div className="flex items-center justify-between text-xs font-bold">
-                        <span style={{ color: "#263238" }}>Total pembayaran</span>
-                        <span style={{ color: "#4F2DAA" }}>{fmtRp(totalAmount)}</span>
+                        <span style={{ color: "#1e293b" }}>Total pembayaran</span>
+                        <span style={{ color: "#4f46e5" }}>{fmtRp(totalAmount)}</span>
                       </div>
                     </div>
                   </div>
@@ -408,76 +408,38 @@ export function AutomaticTopupModal({
                   </div>
                 </div>
 
-                {/* Bayar Sekarang button (opens payment page) */}
-                {paymentLink && (
-                  <a
-                    href={paymentLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-extrabold text-white transition hover:opacity-90"
-                    style={{ background: "linear-gradient(135deg, #7B4DFF 0%, #6D3DFF 100%)" }}
+                {/* Download QRIS text link */}
+                {qrImage && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(qrImage);
+                        const blob = await res.blob();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `QRIS-${orderId ?? "topup"}.png`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                      } catch {
+                        // Fallback: open in new tab
+                        window.open(qrImage, "_blank");
+                      }
+                    }}
+                    className="mt-5 flex w-full items-center justify-center gap-2 text-sm font-extrabold transition hover:opacity-80"
+                    style={{ color: "#f472b6" }}
                   >
-                    <ExternalLink className="h-4 w-4" />
-                    Bayar Sekarang
-                  </a>
-                )}
-
-                {/* Sudah Bayar button — checks BuatQris provider status */}
-                <button
-                  onClick={handleConfirmPaid}
-                  disabled={confirmingPaid}
-                  className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border-2 border-violet-200 bg-violet-50 text-sm font-extrabold transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
-                  style={{ color: "#4F2DAA" }}
-                >
-                  {confirmingPaid ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Memeriksa Pembayaran...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="h-4 w-4" />
-                      Sudah Bayar
-                    </>
-                  )}
-                </button>
-
-                {/* Awaiting payment message (after "Sudah Bayar" with pending status) */}
-                {awaitingMsg && (
-                  <div className="mt-3 rounded-2xl bg-amber-50 px-4 py-3">
-                    <div className="flex items-start gap-2.5">
-                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                      <div>
-                        <p className="text-xs font-bold text-amber-700">Pembayaran belum terdeteksi</p>
-                        <p className="mt-0.5 text-xs font-medium text-amber-600">{awaitingMsg}</p>
-                        <button
-                          onClick={handleConfirmPaid}
-                          disabled={confirmingPaid}
-                          className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-700 transition hover:bg-amber-200 disabled:opacity-50"
-                        >
-                          <RefreshCw className="h-3 w-3" />
-                          Cek Lagi
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                    <Download className="h-4 w-4" />
+                    Download Qris
+                  </button>
                 )}
 
                 {/* Status indicator */}
                 <div className="mt-4 flex items-center justify-center gap-2 text-xs font-medium text-slate-400">
                   <Clock className="h-3.5 w-3.5 animate-pulse" />
                   Menunggu pembayaran QRIS — saldo masuk otomatis setelah bayar
-                </div>
-
-                {/* Footer info */}
-                <div className="mt-4 flex items-start gap-2.5 rounded-2xl bg-[#F5F2FF] px-4 py-3">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
-                  <p className="text-xs font-medium leading-snug" style={{ color: "#4F2DAA" }}>
-                    <span className="font-bold">Pembayaran otomatis.</span>{" "}
-                    <span className="text-slate-500">
-                      Setelah pembayaran berhasil dikonfirmasi via webhook, saldo akan masuk otomatis. Tidak perlu upload bukti pembayaran.
-                    </span>
-                  </p>
                 </div>
               </div>
             )}
