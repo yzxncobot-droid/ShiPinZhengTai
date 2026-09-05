@@ -27,9 +27,40 @@ export function isTelegramConfigured(): boolean {
   return !!process.env.TELEGRAM_BOT_TOKEN;
 }
 
-/** Returns true when a Local Bot API Server is configured (large-file mode). */
-export function isLocalBotApiServer(): boolean {
+/**
+ * Returns true when a Local Bot API Server is *configured* (TELEGRAM_API_BASE
+ * is set). This only checks configuration — it does NOT prove the server is
+ * actually reachable. Use checkLocalBotApiHealth() for a real connection test.
+ */
+export function isLocalBotApiConfigured(): boolean {
   return !!process.env.TELEGRAM_API_BASE;
+}
+
+/**
+ * Performs a real connection test against the configured Local Bot API Server
+ * via a lightweight getMe call. Returns true only if the server responds with a
+ * valid Bot API result. Never logs the bot token.
+ *
+ * Do NOT use ENV existence as proof the server is active — the server may be
+ * configured but down, misconfigured, or unreachable.
+ */
+export async function checkLocalBotApiHealth(): Promise<boolean> {
+  if (!isLocalBotApiConfigured()) return false;
+  try {
+    await botApiCall<{ id: number }>("getMe");
+    return true;
+  } catch (err) {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "[TELEGRAM] Local Bot API Server health check failed",
+    );
+    return false;
+  }
+}
+
+/** @deprecated Use isLocalBotApiConfigured() (config) or checkLocalBotApiHealth() (reachable). */
+export function isLocalBotApiServer(): boolean {
+  return isLocalBotApiConfigured();
 }
 
 /** Telegram Bot API error. */

@@ -88,6 +88,39 @@ Bot API cannot read message history, so videos arrive via **webhook**:
   infrastructure. If `getFile` returns "file is too big", the streamer returns HTTP 413
   with a clear message explaining the Bot API limit and how to set `TELEGRAM_API_BASE`.
 
+### Bug fixes applied (2026-09-05) — streaming & health audit
+
+- **Range streaming (streamer.ts)**: Replaced `response.ok` check with explicit
+  `response.status` inspection. `response.ok` is true for both 200 and 206, so it
+  could not confirm Telegram honored a Range. Now: if upstream returns 206, the
+  Content-Range and Content-Length are verified against the requested range
+  (mismatch → 502, no fake Content-Range). If upstream returns 200 (ignored the
+  Range), the streamer skips the leading bytes and serves only the requested
+  range as a genuine 206 — never a fake 206, never the full file for a range
+  request. Unsatisfiable ranges return 416.
+- **Cache-Control**: Changed from `public, max-age=3600` to `private, no-store`.
+  Videos may have permission/premium/private access; a public CDN cache could
+  serve a private video to an unauthorized user.
+- **Local Bot API (client.ts)**: Split `isLocalBotApiServer()` (env existence)
+  into `isLocalBotApiConfigured()` (config only) and `checkLocalBotApiHealth()`
+  (real getMe request). ENV existence is no longer treated as proof the server
+  is active. The old function is kept as a deprecated alias.
+- **Health check (routes/telegram.ts)**: The `components` object now distinguishes
+  `telegramApi`, `webhook`, `database`, `indexer`, `streaming`, and `localBotApi`.
+  Added `streamingMode` (`STANDARD_BOT_API` | `LOCAL_BOT_API` | `NOT_AVAILABLE`)
+  and `largeFileStreaming` (boolean). Large-file support is only reported when
+  the Local Bot API Server is actually reachable, not merely configured.
+- **Duplicate protection (indexer.ts)**: Added `onConflictDoUpdate` targeting the
+  `(telegramSourceId, telegramMessageId)` unique index on the video insert, so
+  concurrent identical webhooks create one row at the DB level (last line of
+  defense). The existing select-then-update logic is preserved.
+- **file_id refresh**: Confirmed the refresh updates by `telegramVideosTable.id`
+  (primary key), not by `telegramChatId` — only the relevant video changes.
+- **No artificial file size limit**: No `MAX_FILE_SIZE` constant; the limit comes
+  from Telegram's infrastructure (20 MB standard, 2 GB local server).
+- **Tests**: Added `src/lib/telegram/__tests__/telegram.test.ts` (13 tests)
+  covering all 10 audit scenarios. `processQueueItem` is now exported for testing.
+
 ### Bug fixes applied (2026-09-05)
 - **Document video detection**: `extractVideoMetadata` now checks `message.document`
   with video mime type (previously only `message.video` / `message.animation`).

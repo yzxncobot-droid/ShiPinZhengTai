@@ -370,7 +370,7 @@ function getBackoffMs(attempts: number): number {
  * Process a single import log entry: upsert the video metadata into the DB.
  * Duplicate protection: (telegramSourceId, telegramMessageId) unique index.
  */
-async function processQueueItem(log: typeof telegramImportLogsTable.$inferSelect): Promise<void> {
+export async function processQueueItem(log: typeof telegramImportLogsTable.$inferSelect): Promise<void> {
   // Mark as processing.
   await db.update(telegramImportLogsTable).set({
     status: "processing",
@@ -415,11 +415,19 @@ async function processQueueItem(log: typeof telegramImportLogsTable.$inferSelect
         .where(eq(telegramVideosTable.id, existing.id));
       logger.info({ videoId: existing.id }, "[TELEGRAM] Video updated (duplicate protection)");
     } else {
+      // DB-level duplicate protection: the unique index on
+      // (telegram_source_id, telegram_message_id) is the last line of defense.
+      // If two identical webhooks race past the select above, onConflictDoUpdate
+      // ensures only one row is created and the other becomes an update — never
+      // two duplicate records.
       await db.insert(telegramVideosTable).values({
         telegramSourceId: metadata.sourceId,
         telegramChatId: metadata.effectiveChatId,
         telegramMessageId: metadata.telegramMessageId,
         ...videoData,
+      }).onConflictDoUpdate({
+        target: [telegramVideosTable.telegramSourceId, telegramVideosTable.telegramMessageId],
+        set: videoData,
       });
       logger.info({ sourceId: metadata.sourceId, messageId: metadata.telegramMessageId }, "[TELEGRAM] Video indexed");
     }
