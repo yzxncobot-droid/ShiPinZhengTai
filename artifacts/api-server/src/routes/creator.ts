@@ -264,7 +264,7 @@ router.get("/creator/stats", authenticate, requirePermission("permMyVideo"), asy
 router.patch("/creator/videos/:id", authenticate, requirePermission("permUploadVideo"), async (req: Request, res: Response) => {
   try {
     const userId  = req.user!.userId;
-    const videoId = req.params.id;
+    const videoId = req.params.id as string;
 
     const [existing] = await db
       .select({ id: videosTable.id, creatorId: videosTable.creatorId })
@@ -307,7 +307,7 @@ router.patch("/creator/videos/:id", authenticate, requirePermission("permUploadV
 router.delete("/creator/videos/:id", authenticate, requirePermission("permUploadVideo"), async (req: Request, res: Response) => {
   try {
     const userId  = req.user!.userId;
-    const videoId = req.params.id;
+    const videoId = req.params.id as string;
 
     const [existing] = await db
       .select({ id: videosTable.id, creatorId: videosTable.creatorId })

@@ -77,7 +77,7 @@ router.put("/admin/gamification/achievements/:id", authenticate, requireRole("ad
       ...(isHidden !== undefined ? { isHidden: Boolean(isHidden) } : {}),
       ...(isActive !== undefined ? { isActive: Boolean(isActive) } : {}),
       updatedAt: new Date(),
-    }).where(eq(achievementsTable.id, req.params.id)).returning();
+    }).where(eq(achievementsTable.id, req.params.id as string)).returning();
     if (!updated) { res.status(404).json({ error: "Achievement not found" }); return; }
     res.json(updated);
   } catch (err: any) {
@@ -90,7 +90,7 @@ router.delete("/admin/gamification/achievements/:id", authenticate, requireRole(
   try {
     // Deactivate instead of hard delete to preserve user_achievements records
     await db.update(achievementsTable).set({ isActive: false, updatedAt: new Date() })
-      .where(eq(achievementsTable.id, req.params.id));
+      .where(eq(achievementsTable.id, req.params.id as string));
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -139,7 +139,7 @@ router.put("/admin/gamification/badges/:id", authenticate, requireRole("admin", 
       ...(color !== undefined ? { color } : {}),
       ...(description !== undefined ? { description } : {}),
       ...(isActive !== undefined ? { isActive: Boolean(isActive) } : {}),
-    }).where(eq(specialBadgesTable.id, req.params.id)).returning();
+    }).where(eq(specialBadgesTable.id, req.params.id as string)).returning();
     if (!updated) { res.status(404).json({ error: "Badge not found" }); return; }
     res.json(updated);
   } catch (err: any) {
@@ -151,7 +151,7 @@ router.put("/admin/gamification/badges/:id", authenticate, requireRole("admin", 
 router.delete("/admin/gamification/badges/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
   try {
     await db.update(specialBadgesTable).set({ isActive: false })
-      .where(eq(specialBadgesTable.id, req.params.id));
+      .where(eq(specialBadgesTable.id, req.params.id as string));
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -164,7 +164,7 @@ router.post("/admin/gamification/badges/:id/assign", authenticate, requireRole("
     const { userId } = req.body;
     if (!userId) { res.status(400).json({ error: "userId is required" }); return; }
     await db.insert(userSpecialBadgesTable).values({
-      userId, badgeId: req.params.id, assignedBy: req.user!.userId,
+      userId, badgeId: req.params.id as string, assignedBy: req.user!.userId,
     }).onConflictDoNothing();
     res.status(201).json({ ok: true });
   } catch (err: any) {
@@ -176,7 +176,7 @@ router.post("/admin/gamification/badges/:id/assign", authenticate, requireRole("
 router.delete("/admin/gamification/badges/:id/users/:userId", authenticate, requireRole("admin", "owner"), async (req, res) => {
   try {
     await db.delete(userSpecialBadgesTable).where(
-      and(eq(userSpecialBadgesTable.badgeId, req.params.id), eq(userSpecialBadgesTable.userId, req.params.userId)),
+      and(eq(userSpecialBadgesTable.badgeId, req.params.id as string), eq(userSpecialBadgesTable.userId, req.params.userId as string)),
     );
     res.json({ ok: true });
   } catch (err: any) {
@@ -195,7 +195,7 @@ router.get("/admin/gamification/badges/:id/users", authenticate, requireRole("ad
     })
       .from(userSpecialBadgesTable)
       .innerJoin(usersTable, eq(userSpecialBadgesTable.userId, usersTable.id))
-      .where(eq(userSpecialBadgesTable.badgeId, req.params.id))
+      .where(eq(userSpecialBadgesTable.badgeId, req.params.id as string))
       .orderBy(desc(userSpecialBadgesTable.assignedAt));
     res.json(rows);
   } catch (err: any) {
@@ -273,7 +273,7 @@ router.put("/admin/gamification/tiers/:id", authenticate, requireRole("admin", "
       ...(color !== undefined ? { color } : {}),
       ...(minLevel !== undefined ? { minLevel: Number(minLevel) } : {}),
       ...(sortOrder !== undefined ? { sortOrder: Number(sortOrder) } : {}),
-    }).where(eq(levelBadgeTiersTable.id, req.params.id)).returning();
+    }).where(eq(levelBadgeTiersTable.id, req.params.id as string)).returning();
     clearTierCache();
     if (!updated) { res.status(404).json({ error: "Tier not found" }); return; }
     res.json(updated);
@@ -285,7 +285,7 @@ router.put("/admin/gamification/tiers/:id", authenticate, requireRole("admin", "
 // ── DELETE /admin/gamification/tiers/:id ──────────────────────────────────────
 router.delete("/admin/gamification/tiers/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
   try {
-    await db.delete(levelBadgeTiersTable).where(eq(levelBadgeTiersTable.id, req.params.id));
+    await db.delete(levelBadgeTiersTable).where(eq(levelBadgeTiersTable.id, req.params.id as string));
     clearTierCache();
     res.json({ ok: true });
   } catch (err: any) {
@@ -326,7 +326,7 @@ router.post("/admin/gamification/level-rewards", authenticate, requireRole("admi
 // ── DELETE /admin/gamification/level-rewards/:id ─────────────────────────────
 router.delete("/admin/gamification/level-rewards/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
   try {
-    await db.delete(levelRewardsTable).where(eq(levelRewardsTable.id, req.params.id));
+    await db.delete(levelRewardsTable).where(eq(levelRewardsTable.id, req.params.id as string));
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -400,7 +400,7 @@ router.get("/admin/gamification/audit-logs", authenticate, requireRole("admin", 
 router.get("/admin/gamification/user/:userId", authenticate, requireRole("admin", "owner"), async (req, res) => {
   try {
     const { getUserGamification } = await import("../lib/gamification");
-    const data = await getUserGamification(req.params.userId);
+    const data = await getUserGamification(req.params.userId as string);
     res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

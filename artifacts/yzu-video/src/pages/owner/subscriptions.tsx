@@ -23,7 +23,7 @@ export default function OwnerSubscriptions() {
   const queryClient = useQueryClient();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   
   // Form State
   const [name, setName] = useState("");
@@ -87,7 +87,7 @@ export default function OwnerSubscriptions() {
     }
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = (id: string) => {
     if (confirm("Are you sure? Users with this active plan won't be affected until expiration, but it will be hidden from new purchases.")) {
       deleteSub.mutate({ id }, {
         onSuccess: () => {

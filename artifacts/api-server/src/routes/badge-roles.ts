@@ -122,7 +122,7 @@ router.get(
       const [role] = await db
         .select()
         .from(customRolesTable)
-        .where(eq(customRolesTable.id, req.params.id))
+        .where(eq(customRolesTable.id, req.params.id as string))
         .limit(1);
 
       if (!role) { res.status(404).json({ error: "Role not found" }); return; }
@@ -182,7 +182,7 @@ router.put(
           } : {}),
           updatedAt: new Date(),
         })
-        .where(eq(customRolesTable.id, req.params.id))
+        .where(eq(customRolesTable.id, req.params.id as string))
         .returning();
 
       if (!updated) { res.status(404).json({ error: "Role not found" }); return; }
@@ -205,7 +205,7 @@ router.delete(
   requireRole("owner"),
   async (req, res) => {
     try {
-      const roleId = req.params.id;
+      const roleId = req.params.id as string;
 
       // Count users whose primary custom role is this role.
       const [countRow] = await db
@@ -252,7 +252,7 @@ router.get(
         })
         .from(userCustomRolesTable)
         .innerJoin(usersTable, eq(userCustomRolesTable.userId, usersTable.id))
-        .where(eq(userCustomRolesTable.roleId, req.params.id))
+        .where(eq(userCustomRolesTable.roleId, req.params.id as string))
         .orderBy(desc(userCustomRolesTable.assignedAt));
 
       res.json(rows);
@@ -281,14 +281,14 @@ router.post(
         .from(userCustomRolesTable)
         .where(and(
           eq(userCustomRolesTable.userId, userId),
-          eq(userCustomRolesTable.roleId, req.params.id),
+          eq(userCustomRolesTable.roleId, req.params.id as string),
         )).limit(1);
 
       if (existing) { res.json({ ok: true, alreadyAssigned: true }); return; }
 
       const [assignment] = await db.insert(userCustomRolesTable).values({
         userId,
-        roleId: req.params.id,
+        roleId: req.params.id as string,
         assignedBy: req.user!.userId,
       }).returning();
 
@@ -309,8 +309,8 @@ router.delete(
     try {
       await db.delete(userCustomRolesTable).where(
         and(
-          eq(userCustomRolesTable.roleId, req.params.id),
-          eq(userCustomRolesTable.userId, req.params.userId),
+          eq(userCustomRolesTable.roleId, req.params.id as string),
+          eq(userCustomRolesTable.userId, req.params.userId as string),
         ),
       );
       res.json({ ok: true });

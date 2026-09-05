@@ -356,8 +356,9 @@ async function processQueueItem(log: typeof telegramImportLogsTable.$inferSelect
     processedAt: new Date(),
   }).where(eq(telegramImportLogsTable.id, log.id));
 
+  let metadata: VideoMetadata | null = null;
   try {
-    const metadata = JSON.parse(log.metadata || "{}") as VideoMetadata;
+    metadata = JSON.parse(log.metadata || "{}") as VideoMetadata;
 
     // Upsert: if (sourceId, messageId) exists → update, else → insert.
     const [existing] = await db.select({ id: telegramVideosTable.id })
@@ -429,7 +430,7 @@ async function processQueueItem(log: typeof telegramImportLogsTable.$inferSelect
     }).where(eq(telegramImportLogsTable.id, log.id));
 
     // ── Send failure reply to the user (only on final failure) ────────────────
-    if (attempts >= MAX_ATTEMPTS && isTelegramConfigured() && metadata.replyChatId) {
+    if (attempts >= MAX_ATTEMPTS && isTelegramConfigured() && metadata?.replyChatId) {
       await sendMessage(metadata.replyChatId,
         "❌ Video gagal diproses.\n\nSilakan cek Telegram Video Storage → Logs.",
       ).catch(() => {});

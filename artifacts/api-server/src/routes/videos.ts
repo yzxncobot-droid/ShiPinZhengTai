@@ -523,6 +523,10 @@ router.post("/videos/:id/like", authenticate, async (req, res) => {
   const id = req.params.id as string;
   const userId = req.user!.userId;
 
+  // Fetch video to get creatorId for gamification (creator achievement check)
+  const [video] = await db.select({ id: videosTable.id, creatorId: videosTable.creatorId })
+    .from(videosTable).where(eq(videosTable.id, id)).limit(1);
+
   try {
     await db.insert(likesTable).values({ videoId: id, userId });
     await db.update(videosTable).set({ likes: sql`${videosTable.likes} + 1` }).where(eq(videosTable.id, id));

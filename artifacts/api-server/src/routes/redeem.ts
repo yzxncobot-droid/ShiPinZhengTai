@@ -384,7 +384,7 @@ router.post("/admin/redeem", authenticate, requireRole("admin", "owner"), async 
 // ── ADMIN: PUT /admin/redeem/:id  ─────────────────────────────────────────────
 
 router.put("/admin/redeem/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const { id } = req.params;
+  const { id  } = req.params as { id: string };
   const {
     code, rewardType, rewardValue, rewardName, description,
     maxUse, expiresAt, isActive,
@@ -424,7 +424,7 @@ router.put("/admin/redeem/:id", authenticate, requireRole("admin", "owner"), asy
 // ── ADMIN: DELETE /admin/redeem/:id  ─────────────────────────────────────────
 
 router.delete("/admin/redeem/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const { id } = req.params;
+  const { id  } = req.params as { id: string };
   try {
     const [row] = await db
       .delete(redeemCodesTable)
@@ -444,7 +444,7 @@ router.delete("/admin/redeem/:id", authenticate, requireRole("admin", "owner"), 
 // ── ADMIN: GET /admin/redeem/:id/history  ────────────────────────────────────
 
 router.get("/admin/redeem/:id/history", authenticate, requireRole("admin", "owner"), async (req, res) => {
-  const { id } = req.params;
+  const { id  } = req.params as { id: string };
   try {
     const rows = await db
       .select({

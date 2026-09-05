@@ -34,11 +34,11 @@ export default function OwnerUsers() {
 
   // Wallet Modal State
   const [walletModalOpen, setWalletModalOpen] = useState(false);
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [walletAmount, setWalletAmount] = useState<string>("");
   const [walletReason, setWalletReason] = useState("");
 
-  const handleRoleChange = (id: number, newRole: 'user' | 'admin' | 'owner') => {
+  const handleRoleChange = (id: string, newRole: 'user' | 'admin' | 'owner') => {
     if (confirm(`Change user role to ${newRole.toUpperCase()}?`)) {
       updateRole.mutate({ id, data: { role: newRole } }, {
         onSuccess: () => {
@@ -49,7 +49,7 @@ export default function OwnerUsers() {
     }
   };
 
-  const handleBanToggle = (id: number, isCurrentlyBanned: boolean) => {
+  const handleBanToggle = (id: string, isCurrentlyBanned: boolean) => {
     banUser.mutate({ id, data: { banned: !isCurrentlyBanned } }, {
       onSuccess: () => {
         toast({ title: `User ${!isCurrentlyBanned ? 'banned' : 'unbanned'} successfully` });
@@ -58,7 +58,7 @@ export default function OwnerUsers() {
     });
   };
 
-  const openWalletModal = (id: number) => {
+  const openWalletModal = (id: string) => {
     setSelectedUserId(id);
     setWalletAmount("");
     setWalletReason("");

@@ -113,7 +113,7 @@ router.delete("/social/follow/:userId", authenticate, async (req, res) => {
 // ─── Social stats ──────────────────────────────────────────────────────────────
 
 router.get("/social/stats/:userId", authenticate, async (req, res) => {
-  const { userId } = req.params;
+  const { userId  } = req.params as { userId: string };
   const me = req.user!.userId;
 
   const [followerCount]  = await db.select({ count: sql<number>`cast(count(*) as int)` })
@@ -143,7 +143,7 @@ router.get("/social/followers/:userId", authenticate, async (req, res) => {
     })
     .from(followersTable)
     .innerJoin(usersTable, eq(followersTable.followerId, usersTable.id))
-    .where(eq(followersTable.followingId, req.params.userId))
+    .where(eq(followersTable.followingId, req.params.userId as string))
     .orderBy(desc(followersTable.createdAt))
     .limit(100);
   res.json(list);
@@ -158,7 +158,7 @@ router.get("/social/following/:userId", authenticate, async (req, res) => {
     })
     .from(followersTable)
     .innerJoin(usersTable, eq(followersTable.followingId, usersTable.id))
-    .where(eq(followersTable.followerId, req.params.userId))
+    .where(eq(followersTable.followerId, req.params.userId as string))
     .orderBy(desc(followersTable.createdAt))
     .limit(100);
   res.json(list);
@@ -176,7 +176,7 @@ router.get("/users/profile/:username", authenticate, async (req, res) => {
       createdAt: usersTable.createdAt,
     })
     .from(usersTable)
-    .where(and(eq(usersTable.username, req.params.username), eq(usersTable.isBanned, false)))
+    .where(and(eq(usersTable.username, req.params.username as string), eq(usersTable.isBanned, false)))
     .limit(1);
 
   if (!user) { res.status(404).json({ error: "User not found" }); return; }

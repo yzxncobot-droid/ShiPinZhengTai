@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
-import { useListNotifications } from "@workspace/api-client-react";
+import { useListNotifications, getListNotificationsQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -189,7 +189,7 @@ function SidebarContent({
   const [location, setLocation] = useLocation();
   const isOwner = user?.role === "owner";
 
-  const { data: notifs } = useListNotifications({ query: { refetchInterval: 30000 } });
+  const { data: notifs } = useListNotifications({ query: { refetchInterval: 30000, queryKey: getListNotificationsQueryKey() } });
   const unreadNotifs = Array.isArray(notifs) ? notifs.filter((n: any) => !n.isRead).length : 0;
 
   const navGroups = useNavGroups(0, unreadNotifs);
