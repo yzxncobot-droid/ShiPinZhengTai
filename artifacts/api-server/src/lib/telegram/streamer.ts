@@ -20,9 +20,82 @@
 import type { Response } from "express";
 import { logger } from "../logger";
 import { getFileInfo, getFileUrl, refreshFileId, isLocalBotApiConfigured } from "./client";
+import type { TelegramFileInfo } from "./client";
 import { db } from "@workspace/db";
 import { telegramVideosTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+
+// ── getFile result cache ───────────────────────────────────────────────────
+// A browser playing a video sends many Range requests in quick succession
+// (initial load + seeks). Each Range request previously made a separate Bot API
+// getFile call to obtain the file_path — but the path is stable for a given
+// file_id (until it expires). Caching eliminates redundant Bot API round-trips,
+// cutting latency from ~200ms (network) to ~0ms (memory) on cache hit.
+const FILE_INFO_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const FILE_INFO_CACHE_MAX = 200;
+
+const fileInfoCache = new Map<string, { info: TelegramFileInfo; expiresAt: number }>();
+
+/**
+ * Cached wrapper around getFileInfo. Returns the cached result if still fresh,
+ * otherwise calls the Bot API and caches the result. On cache miss the call
+ * behaves identically to getFileInfo (throws on error).
+ */
+async function getCachedFileInfo(fileId: string): Promise<TelegramFileInfo> {
+  const cached = fileInfoCache.get(fileId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.info;
+  }
+
+  const info = await getFileInfo(fileId);
+
+  // Evict oldest entries if the cache is full (simple FIFO eviction).
+  if (fileInfoCache.size >= FILE_INFO_CACHE_MAX) {
+    const oldest = fileInfoCache.keys().next().value;
+    if (oldest) fileInfoCache.delete(oldest);
+  }
+
+  fileInfoCache.set(fileId, { info, expiresAt: Date.now() + FILE_INFO_CACHE_TTL_MS });
+  return info;
+}
+
+/** Invalidate a cached file_info entry (e.g. after a file_id refresh). */
+function invalidateFileInfoCache(fileId: string): void {
+  fileInfoCache.delete(fileId);
+}
+
+/**
+ * Pipe a ReadableStream reader to an Express response with proper backpressure.
+ *
+ * Without backpressure, res.write() buffers data internally when the client
+ * can't keep up. For large files (up to 2 GB) the upstream reader keeps pushing
+ * chunks into memory faster than the client consumes them, causing unbounded
+ * memory growth. This function waits for the 'drain' event when res.write()
+ * returns false, ensuring the upstream is only read as fast as the downstream
+ * can consume.
+ */
+async function pipeWithBackpressure(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  res: Response,
+  isAborted: () => boolean,
+): Promise<void> {
+  while (!isAborted()) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      if (!res.write(value)) {
+        // Internal buffer full — pause reading from upstream until the client
+        // drains. Also resolve on 'close' so we don't hang if the client
+        // disconnects mid-drain.
+        await new Promise<void>(resolve => {
+          const done = () => { res.off("close", done); res.off("drain", done); resolve(); };
+          res.once("drain", done);
+          res.once("close", done);
+        });
+      }
+    }
+  }
+}
 
 interface StreamParams {
   fileId: string;
@@ -40,6 +113,10 @@ interface StreamParams {
  * Returns null for an unsatisfiable range.
  */
 function parseRange(rangeHeader: string, fileSize: number): { start: number; end: number } | null {
+  // Reject multi-range requests (e.g. "bytes=0-100,200-300"). We only support
+  // single ranges — multipart/byteranges is not implemented. Processing only
+  // the first range silently would be incorrect; return null → 416 instead.
+  if (rangeHeader.includes(",")) return null;
   const match = /bytes=(\d+)-(\d*)/.exec(rangeHeader);
   if (!match) return null;
   const start = parseInt(match[1], 10);
@@ -73,7 +150,7 @@ export async function streamTelegramVideo({
 }: StreamParams): Promise<void> {
   let fileInfo;
   try {
-    fileInfo = await getFileInfo(fileId);
+    fileInfo = await getCachedFileInfo(fileId);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
 
@@ -98,8 +175,11 @@ export async function streamTelegramVideo({
           updatedAt: new Date(),
         }).where(eq(telegramVideosTable.id, videoId)).catch(() => {});
 
+        // Invalidate the old file_id's cache entry — the path is stale.
+        invalidateFileInfoCache(fileId);
+
         try {
-          fileInfo = await getFileInfo(newFileId);
+          fileInfo = await getCachedFileInfo(newFileId);
         } catch (err2) {
           logger.error({ err: err2 instanceof Error ? err2.message : String(err2) }, "[TELEGRAM] Refreshed getFile also failed");
           handleStreamError(err2, res);
@@ -196,8 +276,7 @@ export async function streamTelegramVideo({
       // Verify the upstream Content-Range matches what we requested.
       const expectedRange = `bytes ${start}-${end}/${fileSize}`;
       const rangeMatches = upstreamContentRange === expectedRange ||
-        upstreamContentRange === `bytes ${start}-${end}/*` ||
-        upstreamContentRange === `bytes ${start}-${end}/${fileSize}`;
+        upstreamContentRange === `bytes ${start}-${end}/*`;
 
       if (!rangeMatches) {
         // Upstream returned a different range than requested — do NOT send a
@@ -227,66 +306,48 @@ export async function streamTelegramVideo({
       }
 
       // Stream upstream body directly — it contains exactly the requested range.
-      while (!aborted) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) res.write(value);
-      }
+      await pipeWithBackpressure(reader, res, () => aborted);
     } else if (requestedRange && upstreamStatus === 200) {
-      // ── Upstream ignored the Range (returned full file as 200) ───────────
-      // Do NOT send a fake 206. We already set 206 + Content-Range for the
-      // browser, and we will genuinely serve only bytes start–end by skipping
-      // the leading bytes and stopping after contentLength bytes. This is a
-      // REAL 206 — the bytes streamed match the Content-Range exactly.
-      logger.info(
-        { videoId, start, end, contentLength },
-        "[TELEGRAM] Upstream returned 200 for Range request — skipping to requested range",
-      );
-
-      let remaining = contentLength;
-      let skipped = 0;
-
-      while (!aborted) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!value) continue;
-
-        const chunk = value;
-
-        // Skip bytes before the requested start.
-        if (skipped < start) {
-          const skip = Math.min(chunk.length, start - skipped);
-          skipped += skip;
-          if (skip < chunk.length) {
-            const rest = chunk.subarray(skip);
-            const write = Math.min(rest.length, remaining);
-            if (write > 0) {
-              res.write(write === rest.length ? rest : rest.subarray(0, write));
-              remaining -= write;
-            }
-          }
-        } else {
-          const write = Math.min(chunk.length, remaining);
-          if (write > 0) {
-            res.write(write === chunk.length ? chunk : chunk.subarray(0, write));
-            remaining -= write;
-          }
+      // ── Upstream ignored the Range and returned the full file (200) ──────
+      // Do NOT skip gigabytes of leading bytes to serve only the requested
+      // range — that would download the entire file (up to 2 GB with Local
+      // Bot API) and discard most of it, wasting enormous bandwidth.
+      //
+      // If the Range starts at byte 0 (initial playback: "bytes=0-"), stream
+      // the full file as 200 — the browser gets a playable video and no bytes
+      // are wasted (we serve everything we download).
+      // If the Range starts beyond byte 0 (seeking), return 502 — seeking is
+      // not supported when the upstream endpoint ignores Range headers, and
+      // we refuse to download gigabytes just to discard them.
+      if (start === 0) {
+        logger.info(
+          { videoId, fileSize },
+          "[TELEGRAM] Upstream returned 200 for Range (start=0) — streaming full file as 200",
+        );
+        // Override the 206/Content-Range we set earlier — headers not flushed yet.
+        res.status(200);
+        res.removeHeader("Content-Range");
+        res.setHeader("Content-Length", fileSize.toString());
+        await pipeWithBackpressure(reader, res, () => aborted);
+      } else {
+        logger.warn(
+          { videoId, start, end },
+          "[TELEGRAM] Upstream returned 200 for Range (start>0) — refusing to waste bandwidth, returning 502",
+        );
+        reader.cancel().catch(() => {});
+        if (!res.headersSent) {
+          res.removeHeader("Content-Range");
+          res.status(502).json({
+            error: "Range request tidak didukung oleh endpoint Telegram",
+            detail: "Endpoint file Telegram mengembalikan seluruh file (200) alih-alih range yang diminta. Seeking tidak didukung pada mode ini.",
+          });
         }
-
-        if (remaining <= 0) {
-          // We've served the full requested range — stop.
-          reader.cancel().catch(() => {});
-          break;
-        }
+        return;
       }
     } else {
       // ── No range requested, or upstream returned 200 for a full request ──
       // Stream the entire body directly.
-      while (!aborted) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) res.write(value);
-      }
+      await pipeWithBackpressure(reader, res, () => aborted);
     }
   } catch (err) {
     logger.error(
