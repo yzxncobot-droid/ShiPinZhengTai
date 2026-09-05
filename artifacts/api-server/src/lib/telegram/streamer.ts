@@ -20,9 +20,82 @@
 import type { Response } from "express";
 import { logger } from "../logger";
 import { getFileInfo, getFileUrl, refreshFileId, isLocalBotApiConfigured } from "./client";
+import type { TelegramFileInfo } from "./client";
 import { db } from "@workspace/db";
 import { telegramVideosTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+
+// ── getFile result cache ───────────────────────────────────────────────────
+// A browser playing a video sends many Range requests in quick succession
+// (initial load + seeks). Each Range request previously made a separate Bot API
+// getFile call to obtain the file_path — but the path is stable for a given
+// file_id (until it expires). Caching eliminates redundant Bot API round-trips,
+// cutting latency from ~200ms (network) to ~0ms (memory) on cache hit.
+const FILE_INFO_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const FILE_INFO_CACHE_MAX = 200;
+
+const fileInfoCache = new Map<string, { info: TelegramFileInfo; expiresAt: number }>();
+
+/**
+ * Cached wrapper around getFileInfo. Returns the cached result if still fresh,
+ * otherwise calls the Bot API and caches the result. On cache miss the call
+ * behaves identically to getFileInfo (throws on error).
+ */
+async function getCachedFileInfo(fileId: string): Promise<TelegramFileInfo> {
+  const cached = fileInfoCache.get(fileId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.info;
+  }
+
+  const info = await getFileInfo(fileId);
+
+  // Evict oldest entries if the cache is full (simple FIFO eviction).
+  if (fileInfoCache.size >= FILE_INFO_CACHE_MAX) {
+    const oldest = fileInfoCache.keys().next().value;
+    if (oldest) fileInfoCache.delete(oldest);
+  }
+
+  fileInfoCache.set(fileId, { info, expiresAt: Date.now() + FILE_INFO_CACHE_TTL_MS });
+  return info;
+}
+
+/** Invalidate a cached file_info entry (e.g. after a file_id refresh). */
+function invalidateFileInfoCache(fileId: string): void {
+  fileInfoCache.delete(fileId);
+}
+
+/**
+ * Pipe a ReadableStream reader to an Express response with proper backpressure.
+ *
+ * Without backpressure, res.write() buffers data internally when the client
+ * can't keep up. For large files (up to 2 GB) the upstream reader keeps pushing
+ * chunks into memory faster than the client consumes them, causing unbounded
+ * memory growth. This function waits for the 'drain' event when res.write()
+ * returns false, ensuring the upstream is only read as fast as the downstream
+ * can consume.
+ */
+async function pipeWithBackpressure(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  res: Response,
+  isAborted: () => boolean,
+): Promise<void> {
+  while (!isAborted()) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      if (!res.write(value)) {
+        // Internal buffer full — pause reading from upstream until the client
+        // drains. Also resolve on 'close' so we don't hang if the client
+        // disconnects mid-drain.
+        await new Promise<void>(resolve => {
+          const done = () => { res.off("close", done); res.off("drain", done); resolve(); };
+          res.once("drain", done);
+          res.once("close", done);
+        });
+      }
+    }
+  }
+}
 
 interface StreamParams {
   fileId: string;
@@ -77,7 +150,7 @@ export async function streamTelegramVideo({
 }: StreamParams): Promise<void> {
   let fileInfo;
   try {
-    fileInfo = await getFileInfo(fileId);
+    fileInfo = await getCachedFileInfo(fileId);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
 
@@ -102,8 +175,11 @@ export async function streamTelegramVideo({
           updatedAt: new Date(),
         }).where(eq(telegramVideosTable.id, videoId)).catch(() => {});
 
+        // Invalidate the old file_id's cache entry — the path is stale.
+        invalidateFileInfoCache(fileId);
+
         try {
-          fileInfo = await getFileInfo(newFileId);
+          fileInfo = await getCachedFileInfo(newFileId);
         } catch (err2) {
           logger.error({ err: err2 instanceof Error ? err2.message : String(err2) }, "[TELEGRAM] Refreshed getFile also failed");
           handleStreamError(err2, res);
@@ -230,11 +306,7 @@ export async function streamTelegramVideo({
       }
 
       // Stream upstream body directly — it contains exactly the requested range.
-      while (!aborted) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) res.write(value);
-      }
+      await pipeWithBackpressure(reader, res, () => aborted);
     } else if (requestedRange && upstreamStatus === 200) {
       // ── Upstream ignored the Range and returned the full file (200) ──────
       // Do NOT skip gigabytes of leading bytes to serve only the requested
@@ -256,11 +328,7 @@ export async function streamTelegramVideo({
         res.status(200);
         res.removeHeader("Content-Range");
         res.setHeader("Content-Length", fileSize.toString());
-        while (!aborted) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) res.write(value);
-        }
+        await pipeWithBackpressure(reader, res, () => aborted);
       } else {
         logger.warn(
           { videoId, start, end },
@@ -279,11 +347,7 @@ export async function streamTelegramVideo({
     } else {
       // ── No range requested, or upstream returned 200 for a full request ──
       // Stream the entire body directly.
-      while (!aborted) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) res.write(value);
-      }
+      await pipeWithBackpressure(reader, res, () => aborted);
     }
   } catch (err) {
     logger.error(
