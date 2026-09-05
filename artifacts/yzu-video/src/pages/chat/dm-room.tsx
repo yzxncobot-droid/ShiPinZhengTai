@@ -320,7 +320,7 @@ export default function DmRoomPage() {
         <div className="relative">
           <Avatar className="h-10 w-10 border-2 border-white shadow-sm">
             <AvatarImage src={other?.avatar ?? ""} />
-            <AvatarFallback className="gradient-funplus text-white font-bold">
+            <AvatarFallback className="gradient-kidzoo text-white font-bold">
               {other?.username?.charAt(0).toUpperCase() ?? "?"}
             </AvatarFallback>
           </Avatar>
@@ -376,7 +376,7 @@ export default function DmRoomPage() {
           </div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="h-16 w-16 rounded-full gradient-funplus flex items-center justify-center mb-4 shadow-lg">
+            <div className="h-16 w-16 rounded-full gradient-kidzoo flex items-center justify-center mb-4 shadow-lg">
               <Avatar className="h-12 w-12">
                 <AvatarImage src={other?.avatar ?? ""} />
                 <AvatarFallback className="text-white font-bold text-xl bg-transparent">

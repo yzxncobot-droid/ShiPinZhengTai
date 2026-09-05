@@ -158,7 +158,7 @@ function AnnouncementCard({ ann, userId, onReact, onComment }: {
           </div>
           <div>
             <p className="text-[11px] font-extrabold text-purple-600 flex items-center gap-1">
-              <Sparkles className="h-3 w-3" /> FUN+ Official
+              <Sparkles className="h-3 w-3" /> KIDZOO Official
             </p>
             <p className="text-[10px] text-slate-400 font-medium">{timeAgo(ann.createdAt)}</p>
           </div>

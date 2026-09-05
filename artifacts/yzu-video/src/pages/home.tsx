@@ -77,7 +77,7 @@ export default function Home() {
   }, [queryClient]);
 
   return (
-    <div className="relative h-[100dvh] w-full overflow-hidden bg-slate-50">
+    <div className="relative h-[100dvh] w-full overflow-hidden" style={{ background: "linear-gradient(135deg, #eef2ff 0%, #e0e7ff 40%, #dbeafe 100%)" }}>
       {/* ── Header overlay ── */}
       <header
         className="absolute top-0 inset-x-0 z-30 flex items-center justify-between px-4"
@@ -86,16 +86,18 @@ export default function Home() {
         {/* Logo */}
         <div className="flex flex-col">
           <span
-            className="text-2xl font-extrabold tracking-tight leading-none bg-clip-text text-transparent"
-            style={{
-              fontFamily: "Outfit, sans-serif",
-              backgroundImage: "linear-gradient(to right, #FF4D6D, #E156F6)",
-            }}
+            className="text-2xl font-extrabold tracking-tight leading-none"
+            style={{ fontFamily: "Nunito, sans-serif" }}
           >
-            FUN<span style={{ backgroundImage: "none", color: "#7C3AED" }}>+</span>
+            <span style={{ color: "#3b82f6" }}>K</span>
+            <span style={{ color: "#22c55e" }}>I</span>
+            <span style={{ color: "#facc15" }}>D</span>
+            <span style={{ color: "#ef4444" }}>Z</span>
+            <span style={{ color: "#22c55e" }}>O</span>
+            <span style={{ color: "#3b82f6" }}>O</span>
           </span>
-          <span className="mt-1 inline-block self-start rounded-full px-2 py-0.5 text-[8px] font-extrabold uppercase tracking-widest text-white" style={{ backgroundColor: "rgba(225,86,246,0.55)" }}>
-            Premium Kids Platform
+          <span className="mt-1 inline-block self-start rounded-full px-2 py-0.5 text-[8px] font-extrabold uppercase tracking-widest text-white" style={{ backgroundColor: "rgba(79,70,229,0.55)" }}>
+            Play • Learn • Grow
           </span>
         </div>
 
@@ -138,7 +140,7 @@ export default function Home() {
           <div className="h-full flex items-center justify-center px-8">
             <div className="text-center text-slate-700">
               <span className="text-5xl block mb-3">🎬</span>
-              <p className="text-lg font-extrabold">Selamat Datang di FUN+!</p>
+              <p className="text-lg font-extrabold">Selamat Datang di KIDZOO!</p>
               <p className="text-sm text-slate-500 mt-1">Video akan segera hadir. Nantikan ya! 🌟</p>
             </div>
           </div>

@@ -150,7 +150,7 @@ export default function WithdrawPage() {
                 <Sparkles className="h-4 w-4 text-[#6C3DF5]" />
               </span>
               <span className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#6C3DF5]">
-                FUN+ Premium Kids Platform
+                KIDZOO • Play • Learn • Grow
               </span>
             </div>
 

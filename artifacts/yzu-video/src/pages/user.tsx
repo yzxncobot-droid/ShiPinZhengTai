@@ -158,7 +158,7 @@ export default function UserProfilePage() {
         {/* Banner */}
         <div className="relative">
           <div
-            className="h-40 w-full gradient-funplus"
+            className="h-40 w-full gradient-kidzoo"
             style={profile.banner ? { backgroundImage: `url(${profile.banner})`, backgroundSize: "cover", backgroundPosition: "center" } : {}}
           />
           {/* Back button */}
@@ -205,7 +205,7 @@ export default function UserProfilePage() {
             <div className="relative">
               <Avatar className="h-20 w-20 border-4 border-white shadow-lg">
                 <AvatarImage src={profile.avatar ?? ""} />
-                <AvatarFallback className="gradient-funplus text-white text-2xl font-extrabold">
+                <AvatarFallback className="gradient-kidzoo text-white text-2xl font-extrabold">
                   {profile.username.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>

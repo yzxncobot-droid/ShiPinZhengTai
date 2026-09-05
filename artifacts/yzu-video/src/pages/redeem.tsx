@@ -316,7 +316,7 @@ export default function RedeemPage() {
               {
                 icon: <GamepadIcon className="w-6 h-6 text-purple-500" />,
                 title: "🎮 Ikuti Event",
-                desc: "Berpartisipasi dalam event resmi FUN+.",
+                desc: "Berpartisipasi dalam event resmi KIDZOO.",
                 bg: "from-purple-50 to-violet-50 border-purple-100",
               },
               {

@@ -177,7 +177,7 @@ export default function ProfilePage() {
         <div className="max-w-lg mx-auto pb-8">
           {/* Compact Hero Header */}
           <div
-            className="relative overflow-hidden gradient-funplus pt-5 pb-5 px-4"
+            className="relative overflow-hidden gradient-kidzoo pt-5 pb-5 px-4"
             style={{ borderBottomLeftRadius: 24, borderBottomRightRadius: 24 }}
           >
             {/* Subtle decorative blobs — smaller and softer */}
