@@ -490,9 +490,29 @@ router.get("/admin/telegram/health", authenticate, requireRole("admin", "owner")
 
     const telegramApi = isTelegramConfigured();
 
+    // ── Last successful video import (most recent completed import log) ────
+    const [lastImport] = await db.select({
+      createdAt: telegramImportLogsTable.createdAt,
+      sourceName: telegramSourcesTable.name,
+    }).from(telegramImportLogsTable)
+      .leftJoin(telegramSourcesTable,
+        eq(telegramImportLogsTable.telegramSourceId, telegramSourcesTable.id))
+      .where(eq(telegramImportLogsTable.status, "completed"))
+      .orderBy(desc(telegramImportLogsTable.createdAt))
+      .limit(1);
+
+    // ── Last failed import ──────────────────────────────────────────────────
+    const [lastFailedImport] = await db.select({
+      createdAt: telegramImportLogsTable.createdAt,
+      errorMessage: telegramImportLogsTable.errorMessage,
+    }).from(telegramImportLogsTable)
+      .where(eq(telegramImportLogsTable.status, "failed"))
+      .orderBy(desc(telegramImportLogsTable.createdAt))
+      .limit(1);
+
     // ── Real webhook check via getWebhookInfo ────────────────────────────────
     let webhookStatus: "ok" | "error" | "not_configured" = "not_configured";
-    let webhookInfo: { url: string; pendingUpdateCount: number; lastErrorMessage: string | null } | null = null;
+    let webhookInfo: { url: string; pendingUpdateCount: number; lastErrorMessage: string | null; lastErrorDate: number | null } | null = null;
     if (telegramApi) {
       try {
         const info = await getWebhookInfo();
@@ -500,6 +520,7 @@ router.get("/admin/telegram/health", authenticate, requireRole("admin", "owner")
           url: info.url,
           pendingUpdateCount: info.pendingUpdateCount,
           lastErrorMessage: info.lastErrorMessage || null,
+          lastErrorDate: info.lastErrorDate || null,
         };
         // Webhook is OK if a URL is set and there's no recent error.
         webhookStatus = info.url && !info.lastErrorMessage ? "ok" : "error";
@@ -510,20 +531,32 @@ router.get("/admin/telegram/health", authenticate, requireRole("admin", "owner")
 
     // ── Real bot API check via getMe ─────────────────────────────────────────
     let botApiStatus: "ok" | "error" | "not_configured" = "not_configured";
+    let botUsername: string | null = null;
     if (telegramApi) {
       try {
         const me = await getBotInfo();
         botApiStatus = me ? "ok" : "error";
+        botUsername = me?.username || null;
       } catch {
         botApiStatus = "error";
       }
     }
 
+    // ── Active sources count ────────────────────────────────────────────────
+    const [activeSources] = await db.select({
+      count: sql<number>`count(*)::int`,
+    }).from(telegramSourcesTable)
+      .where(eq(telegramSourcesTable.enabled, true));
+
     res.json({
       sources,
       totalVideos: videos.total,
+      activeSources: activeSources.count,
       importQueue: queueStats,
       webhook: webhookInfo,
+      botUsername,
+      lastSuccessfulImport: lastImport ? { createdAt: lastImport.createdAt, sourceName: lastImport.sourceName } : null,
+      lastFailedImport: lastFailedImport ? { createdAt: lastFailedImport.createdAt, errorMessage: lastFailedImport.errorMessage } : null,
       components: {
         telegramApi: botApiStatus,
         webhook: webhookStatus,
@@ -746,8 +779,14 @@ router.get("/telegram-videos/:id/stream", authenticate, async (req, res) => {
       res.status(404).json({ error: "Video file_id not available" }); return;
     }
 
+    // Check video status — error/unavailable videos should not be streamed.
+    if (row.video.status === "error" || row.video.status === "unavailable") {
+      res.status(503).json({ error: "Video sedang tidak tersedia", detail: row.video.status }); return;
+    }
+
     await streamTelegramVideo({
       fileId: row.video.telegramFileId,
+      videoId: row.video.id,
       chatId: row.video.telegramChatId,
       messageId: row.video.telegramMessageId,
       mimeType: row.video.mimeType || "video/mp4",

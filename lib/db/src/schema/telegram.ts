@@ -19,6 +19,10 @@ export const telegramSyncStatusEnum = pgEnum("telegram_sync_status", [
   "success", "error", "in_progress",
 ]);
 
+export const telegramVideoStatusEnum = pgEnum("telegram_video_status", [
+  "active", "error", "unavailable",
+]);
+
 // ── telegram_sources ─────────────────────────────────────────────────────────
 // Admin-registered Telegram channels/groups. Relational — no limit on count.
 
@@ -62,6 +66,8 @@ export const telegramVideosTable = pgTable(
     telegramMessageId: text("telegram_message_id").notNull(),
     /** Telegram document ID — reference only; the message is re-fetched for streaming. */
     telegramFileId: text("telegram_file_id"),
+    /** Stable Telegram file identifier — survives file_id expiry, used for dedup. */
+    telegramFileUniqueId: text("telegram_file_unique_id"),
     fileName: text("file_name"),
     title: text("title"),
     mimeType: text("mime_type"),
@@ -70,8 +76,12 @@ export const telegramVideosTable = pgTable(
     width: integer("width"),
     height: integer("height"),
     thumbnailFileId: text("thumbnail_file_id"),
+    thumbnailWidth: integer("thumbnail_width"),
+    thumbnailHeight: integer("thumbnail_height"),
     caption: text("caption"),
     telegramDate: timestamp("telegram_date"),
+    /** Video availability: active (default), error, unavailable. */
+    status: telegramVideoStatusEnum("status").notNull().default("active"),
     isPremium: boolean("is_premium").notNull().default(false),
     price: doublePrecision("price"),
     indexedAt: timestamp("indexed_at").notNull().defaultNow(),
@@ -83,6 +93,8 @@ export const telegramVideosTable = pgTable(
     ),
     sourceIdx: index("telegram_videos_source_idx").on(t.telegramSourceId),
     chatIdx: index("telegram_videos_chat_idx").on(t.telegramChatId),
+    messageIdx: index("telegram_videos_message_idx").on(t.telegramMessageId),
+    fileUniqueIdIdx: index("telegram_videos_file_unique_id_idx").on(t.telegramFileUniqueId),
   }),
 );
 

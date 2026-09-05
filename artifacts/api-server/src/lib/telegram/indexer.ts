@@ -29,6 +29,9 @@ export interface VideoMetadata {
   duration: number | null;
   width: number | null;
   height: number | null;
+  thumbnailFileId: string | null;
+  thumbnailWidth: number | null;
+  thumbnailHeight: number | null;
   caption: string | null;
   telegramDate: string; // ISO string
   telegramMessageId: string;
@@ -56,9 +59,21 @@ export interface QueueStats {
 
 // ── Metadata extraction ─────────────────────────────────────────────────────
 
+/** Check if a Telegram document mime type represents a video. */
+function isVideoDocument(mimeType: string | undefined): boolean {
+  if (!mimeType) return false;
+  return mimeType.startsWith("video/");
+}
+
 /**
  * Extract video metadata from a Telegram Bot API update.
  * Returns null for non-video messages.
+ *
+ * Detects:
+ *   - message.video / channel_post.video
+ *   - message.animation / channel_post.animation (GIF)
+ *   - message.document / channel_post.document IF mime type is video/*
+ *   - edited_message / edited_channel_post variants of the above
  */
 export function extractVideoMetadata(update: any): Omit<VideoMetadata, "sourceId"> | null {
   const message = update.message || update.channel_post ||
@@ -66,7 +81,8 @@ export function extractVideoMetadata(update: any): Omit<VideoMetadata, "sourceId
   if (!message) return null;
 
   // Check for video, animation (GIF), or document with video mime type.
-  const video = message.video || message.animation;
+  const video = message.video || message.animation ||
+    (message.document && isVideoDocument(message.document.mime_type) ? message.document : null);
   if (!video) return null;
 
   const videoType = message.video ? "VIDEO" : message.animation ? "ANIMATION" : "DOCUMENT";
@@ -94,6 +110,9 @@ export function extractVideoMetadata(update: any): Omit<VideoMetadata, "sourceId
   // replyChatId is always the chat where the bot received the message.
   const replyChatId = message.chat ? String(message.chat.id) : effectiveChatId;
 
+  // Extract thumbnail metadata (Telegram uses "thumbnail" in newer API, "thumb" in older).
+  const thumb = video.thumbnail || video.thumb;
+
   return {
     fileId: video.file_id || "",
     fileUniqueId: video.file_unique_id || "",
@@ -103,6 +122,9 @@ export function extractVideoMetadata(update: any): Omit<VideoMetadata, "sourceId
     duration: video.duration ? Number(video.duration) : null,
     width: video.width ? Number(video.width) : null,
     height: video.height ? Number(video.height) : null,
+    thumbnailFileId: thumb?.file_id || null,
+    thumbnailWidth: thumb?.width ? Number(thumb.width) : null,
+    thumbnailHeight: thumb?.height ? Number(thumb.height) : null,
     caption: message.caption || null,
     telegramDate: new Date(message.date * 1000).toISOString(),
     telegramMessageId: String(message.message_id),
@@ -197,7 +219,7 @@ async function matchSource(chatId: string): Promise<SourceMatchResult> {
  * Extracts video metadata, creates an import log entry (pending), and returns.
  * The queue processor handles the actual video upsert asynchronously.
  *
- * Deduplication: if a pending/processing entry already exists for the same
+ * Deduplication: if a pending/processing/completed entry already exists for the same
  * source + message, skip (Telegram retries updates if 200 is slow).
  */
 export async function processIncomingUpdate(update: any): Promise<{ processed: boolean; reason?: string }> {
@@ -371,6 +393,7 @@ async function processQueueItem(log: typeof telegramImportLogsTable.$inferSelect
 
     const videoData = {
       telegramFileId: metadata.fileId,
+      telegramFileUniqueId: metadata.fileUniqueId || null,
       fileName: metadata.fileName,
       title: metadata.caption || metadata.fileName || `Video ${metadata.telegramMessageId}`,
       mimeType: metadata.mimeType,
@@ -378,8 +401,12 @@ async function processQueueItem(log: typeof telegramImportLogsTable.$inferSelect
       duration: metadata.duration,
       width: metadata.width,
       height: metadata.height,
+      thumbnailFileId: metadata.thumbnailFileId,
+      thumbnailWidth: metadata.thumbnailWidth,
+      thumbnailHeight: metadata.thumbnailHeight,
       caption: metadata.caption,
       telegramDate: new Date(metadata.telegramDate),
+      status: "active" as const,
       updatedAt: new Date(),
     };
 
@@ -423,8 +450,10 @@ async function processQueueItem(log: typeof telegramImportLogsTable.$inferSelect
 
     const attempts = log.attempts + 1;
 
+    // BUG FIX: was `attempts >= MAX_ATTEMPTS ? "failed" : "failed"` — both branches
+    // were "failed", so retries never worked. Now: "pending" for retryable, "failed" for permanent.
     await db.update(telegramImportLogsTable).set({
-      status: attempts >= MAX_ATTEMPTS ? "failed" : "failed",
+      status: attempts >= MAX_ATTEMPTS ? "failed" : "pending",
       errorMessage: errMsg,
       processedAt: new Date(),
     }).where(eq(telegramImportLogsTable.id, log.id));

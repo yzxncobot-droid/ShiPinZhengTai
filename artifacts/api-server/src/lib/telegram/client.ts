@@ -2,7 +2,12 @@
  * Telegram Bot API client — HTTP-based, uses ONLY TELEGRAM_BOT_TOKEN.
  *
  * No MTProto, no GramJS, no API ID / API Hash / String Session.
- * All calls go to https://api.telegram.org/bot<token>/<method>.
+ * All calls go to the Bot API endpoint (default: https://api.telegram.org).
+ *
+ * To support files larger than 20 MB, set TELEGRAM_API_BASE to a Telegram
+ * Local Bot API Server URL (e.g. http://localhost:8081). This is a drop-in
+ * replacement — same bot token, no extra credentials needed — and lifts the
+ * getFile limit from 20 MB to 2 GB.
  *
  * The bot token is NEVER sent to the frontend, logged, or exposed in API
  * responses. It stays server-side in process.env.
@@ -10,11 +15,21 @@
 import { logger } from "../logger";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const API_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
-const FILE_BASE = `https://api.telegram.org/file/bot${BOT_TOKEN}`;
+/**
+ * Configurable API base. Defaults to the public Telegram Bot API.
+ * Set TELEGRAM_API_BASE to a Local Bot API Server URL for large-file support.
+ */
+const TELEGRAM_API_BASE = process.env.TELEGRAM_API_BASE || "https://api.telegram.org";
+const API_BASE = `${TELEGRAM_API_BASE}/bot${BOT_TOKEN}`;
+const FILE_BASE = `${TELEGRAM_API_BASE}/file/bot${BOT_TOKEN}`;
 
 export function isTelegramConfigured(): boolean {
   return !!process.env.TELEGRAM_BOT_TOKEN;
+}
+
+/** Returns true when a Local Bot API Server is configured (large-file mode). */
+export function isLocalBotApiServer(): boolean {
+  return !!process.env.TELEGRAM_API_BASE;
 }
 
 /** Telegram Bot API error. */
@@ -145,8 +160,10 @@ export interface TelegramFileInfo {
 
 /**
  * Get the file path for a file_id via Bot API `getFile`.
- * NOTE: Bot API `getFile` only works for files up to 20 MB — this is a
- * Telegram-imposed external limitation, not an application limit.
+ *
+ * With the standard Bot API (api.telegram.org): 20 MB limit (Telegram-imposed).
+ * With a Local Bot API Server (TELEGRAM_API_BASE set): up to 2 GB.
+ * The limit is determined by Telegram/infrastructure, not by this code.
  */
 export async function getFileInfo(fileId: string): Promise<TelegramFileInfo> {
   const result = await botApiCall<{
@@ -229,6 +246,10 @@ export async function sendMessage(
 /**
  * Forward a message to the bot's own chat to get a fresh file_id.
  * Returns the new file_id from the forwarded message.
+ *
+ * The caller is responsible for updating the correct database record
+ * (by video ID), NOT by chat ID alone — refreshing one video's file_id
+ * must not affect other videos from the same chat.
  */
 export async function refreshFileId(
   fromChatId: string,

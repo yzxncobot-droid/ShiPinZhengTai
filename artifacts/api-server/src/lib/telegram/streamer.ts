@@ -9,18 +9,23 @@
  *
  * The entire file is NEVER loaded into RAM — the response body is piped.
  *
- * Bot API getFile limit: 20 MB per file. This is a Telegram-imposed external
- * limitation. Larger files return a clear error explaining the limit.
+ * File size limits:
+ *   - Standard Bot API (api.telegram.org): 20 MB (Telegram-imposed)
+ *   - Local Bot API Server (TELEGRAM_API_BASE set): up to 2 GB
+ * The limit is determined by the Telegram infrastructure in use, not by
+ * any artificial MAX_SIZE constant in this code.
  */
 import type { Response } from "express";
 import { logger } from "../logger";
-import { getFileInfo, getFileUrl, refreshFileId } from "./client";
+import { getFileInfo, getFileUrl, refreshFileId, isLocalBotApiServer } from "./client";
 import { db } from "@workspace/db";
 import { telegramVideosTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
 interface StreamParams {
   fileId: string;
+  /** Primary key of the telegram_videos row — used for targeted file_id refresh. */
+  videoId: string;
   chatId: string;
   messageId: string;
   mimeType: string;
@@ -31,9 +36,13 @@ interface StreamParams {
 /**
  * Stream a Telegram video to the HTTP response.
  * Handles Range requests (206 Partial Content) and full requests (200 OK).
+ *
+ * If getFile fails with an expired/invalid file_id, the streamer attempts
+ * a file_id refresh via forwardMessage — updating ONLY this specific video's
+ * record (by primary key), never all videos from the same chat.
  */
 export async function streamTelegramVideo({
-  fileId, chatId, messageId, mimeType, res, rangeHeader,
+  fileId, videoId, chatId, messageId, mimeType, res, rangeHeader,
 }: StreamParams): Promise<void> {
   let fileInfo;
   try {
@@ -41,33 +50,40 @@ export async function streamTelegramVideo({
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
 
-    // If file_id expired, try to refresh it by forwarding the message.
-    if (errMsg.includes("file_id") || errMsg.includes("file is too big") || errMsg.includes("400")) {
-      logger.info({ chatId, messageId }, "[TELEGRAM] getFile failed, trying file_id refresh");
+    // Only attempt file_id refresh for expired/invalid file_id errors.
+    // Do NOT refresh for "file is too big" — that's a size limit, not expiry.
+    const isFileIdError = errMsg.includes("file_id") ||
+      errMsg.includes("file_id_not_found") ||
+      errMsg.includes("file_id_expired") ||
+      errMsg.includes("wrong file_id") ||
+      errMsg.includes("bad file_id");
+
+    if (isFileIdError) {
+      logger.info({ videoId, chatId, messageId }, "[TELEGRAM] getFile failed (file_id issue), trying refresh");
       const newFileId = await refreshFileId(chatId, messageId);
 
       if (newFileId) {
-        // Update the stored file_id in the database.
+        // BUG FIX: Update ONLY this specific video's file_id by primary key.
+        // Previously updated ALL videos from the same chat (by chatId), corrupting
+        // other videos' file_ids.
         await db.update(telegramVideosTable).set({
           telegramFileId: newFileId,
           updatedAt: new Date(),
-        }).where(
-          eq(telegramVideosTable.telegramChatId, chatId) as any,
-        ).catch(() => {});
+        }).where(eq(telegramVideosTable.id, videoId)).catch(() => {});
 
         try {
           fileInfo = await getFileInfo(newFileId);
         } catch (err2) {
           logger.error({ err: err2 instanceof Error ? err2.message : String(err2) }, "[TELEGRAM] Refreshed getFile also failed");
-          handleStreamError(err2, res, true);
+          handleStreamError(err2, res);
           return;
         }
       } else {
-        handleStreamError(err, res, true);
+        handleStreamError(err, res);
         return;
       }
     } else {
-      handleStreamError(err, res, false);
+      handleStreamError(err, res);
       return;
     }
   }
@@ -151,7 +167,7 @@ export async function streamTelegramVideo({
     }
   } catch (err) {
     logger.error(
-      { err: err instanceof Error ? err.message : String(err), chatId, messageId },
+      { err: err instanceof Error ? err.message : String(err), videoId, chatId, messageId },
       "[TELEGRAM] Streaming error",
     );
     if (!res.headersSent) {
@@ -163,19 +179,49 @@ export async function streamTelegramVideo({
   }
 }
 
-function handleStreamError(err: unknown, res: Response, fileExpired: boolean): void {
+function handleStreamError(err: unknown, res: Response): void {
   const msg = err instanceof Error ? err.message : String(err);
 
-  if (fileExpired || msg.includes("too big") || msg.includes("file is too big")) {
-    res.status(501).json({
-      error: "File terlalu besar untuk streaming via Bot API",
-      detail: "Telegram Bot API membatasi download file hingga 20 MB. Ini adalah batasan eksternal dari Telegram, bukan batasan aplikasi. Untuk file lebih besar, gunakan MTProto (memerlukan API ID/API Hash).",
+  // "file is too big" — standard Bot API 20 MB limit.
+  // This is a Telegram infrastructure limitation, not an application limit.
+  // With a Local Bot API Server (TELEGRAM_API_BASE), this limit is lifted to 2 GB.
+  if (msg.includes("too big") || msg.includes("file is too big")) {
+    const usingLocalServer = isLocalBotApiServer();
+    res.status(413).json({
+      error: usingLocalServer
+        ? "File terlalu besar untuk streaming"
+        : "File terlalu besar untuk streaming via Bot API standar",
+      detail: usingLocalServer
+        ? "File melebihi batas yang dapat ditangani oleh server."
+        : "Telegram Bot API standar membatasi download file hingga 20 MB. " +
+          "Untuk file lebih besar (hingga 2 GB), jalankan Telegram Local Bot API Server " +
+          "dan set environment variable TELEGRAM_API_BASE ke URL server tersebut. " +
+          "Tidak ada credential tambahan yang diperlukan — cukup bot token yang sudah ada.",
     });
     return;
   }
 
+  // Rate limit
+  if (msg.includes("429") || msg.includes("Too Many Requests")) {
+    res.status(429).json({
+      error: "Rate limit tercapai",
+      detail: "Telegram membatasi jumlah request. Coba lagi dalam beberapa saat.",
+    });
+    return;
+  }
+
+  // Invalid/expired file_id that couldn't be refreshed
+  if (msg.includes("file_id") || msg.includes("file_id_not_found")) {
+    res.status(502).json({
+      error: "File ID kadaluarsa",
+      detail: "File ID Telegram sudah kadaluarsa dan tidak dapat diperbarui. Coba import ulang video dengan forward ke bot.",
+    });
+    return;
+  }
+
+  // Generic error — never expose stack trace or credentials
   res.status(502).json({
     error: "Gagal mengambil file dari Telegram",
-    detail: "File ID mungkin sudah kadaluarsa. Coba import ulang video dengan forward ke bot.",
+    detail: "Terjadi kesalahan saat menghubungi Telegram. Coba lagi nanti.",
   });
 }

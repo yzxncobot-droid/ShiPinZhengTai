@@ -80,6 +80,34 @@ Bot API cannot read message history, so videos arrive via **webhook**:
 4. Open video → native `<video>` player streams via Range (play/pause/seek).
 5. Existing features (login, videos, payments, etc.) must remain unaffected.
 
+### File size limits (no artificial MAX_SIZE)
+- Standard Bot API (`api.telegram.org`): **20 MB** — Telegram-imposed, not application limit.
+- Local Bot API Server (`TELEGRAM_API_BASE` set): **up to 2 GB** — drop-in replacement,
+  same bot token, no API ID/Hash/Session needed.
+- The streamer has NO `MAX_VIDEO_SIZE` constant. The limit comes from Telegram's
+  infrastructure. If `getFile` returns "file is too big", the streamer returns HTTP 413
+  with a clear message explaining the Bot API limit and how to set `TELEGRAM_API_BASE`.
+
+### Bug fixes applied (2026-09-05)
+- **Document video detection**: `extractVideoMetadata` now checks `message.document`
+  with video mime type (previously only `message.video` / `message.animation`).
+- **File ID refresh scope**: Streamer updates file_id by video primary key, not by
+  `telegramChatId` — prevents corrupting other videos from the same chat.
+- **Queue retry status**: Fixed `attempts >= MAX ? "failed" : "failed"` ternary (both
+  branches were "failed") → now `"pending"` for retryable, `"failed"` for permanent.
+- **Schema**: Added `telegramFileUniqueId`, `status` (active/error/unavailable),
+  `thumbnailWidth`, `thumbnailHeight` columns + indexes on `telegramMessageId` and
+  `telegramFileUniqueId`.
+- **Thumbnail extraction**: Indexer now extracts thumbnail file_id, width, height.
+- **Streamer error handling**: Separated "file is too big" (HTTP 413) from expired
+  file_id (HTTP 502 + refresh attempt) and rate limit (HTTP 429). No stack traces
+  exposed to users.
+- **Video status check**: Stream endpoint rejects videos with `error`/`unavailable` status.
+- **Health endpoint**: Added `botUsername`, `activeSources`, `lastSuccessfulImport`,
+  `lastFailedImport`, `lastErrorDate` to the admin health response.
+- **Video player**: Added `playsInline` and `preload="metadata"` attributes.
+- **Configurable API base**: `TELEGRAM_API_BASE` env var for Local Bot API Server support.
+
 ## Payment system (BuatQris + Manual)
 
 The app has **two payment methods**, both crediting the wallet through a single
