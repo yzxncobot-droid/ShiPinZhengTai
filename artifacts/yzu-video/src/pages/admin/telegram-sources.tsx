@@ -72,7 +72,7 @@ function SourceModal({
 }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{ name: string; chatId: string; type: "GROUP" | "CHANNEL"; description: string; enabled: boolean }>({
     name: "", chatId: "", type: "CHANNEL", description: "", enabled: true,
   });
 
@@ -145,7 +145,7 @@ function SourceModal({
           </div>
           <div>
             <Label>Type</Label>
-            <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+            <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v as "GROUP" | "CHANNEL" })}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="CHANNEL">Channel</SelectItem>

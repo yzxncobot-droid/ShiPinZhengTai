@@ -158,7 +158,7 @@ router.post("/admin/telegram/sources", authenticate, requireRole("admin", "owner
 router.get("/admin/telegram/sources/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
   try {
     const [source] = await db.select().from(telegramSourcesTable)
-      .where(eq(telegramSourcesTable.id, req.params.id)).limit(1);
+      .where(eq(telegramSourcesTable.id, req.params.id as string)).limit(1);
     if (!source) { res.status(404).json({ error: "Source not found" }); return; }
     res.json(source);
   } catch (err) {
@@ -173,7 +173,7 @@ router.patch("/admin/telegram/sources/:id", authenticate, requireRole("admin", "
     const { name, chatId, type, description, enabled } = req.body;
 
     const [existing] = await db.select().from(telegramSourcesTable)
-      .where(eq(telegramSourcesTable.id, req.params.id)).limit(1);
+      .where(eq(telegramSourcesTable.id, req.params.id as string)).limit(1);
     if (!existing) { res.status(404).json({ error: "Source not found" }); return; }
 
     const updates: Record<string, any> = { updatedAt: new Date() };
@@ -184,7 +184,7 @@ router.patch("/admin/telegram/sources/:id", authenticate, requireRole("admin", "
     if (enabled !== undefined) updates.enabled = enabled;
 
     const [updated] = await db.update(telegramSourcesTable).set(updates)
-      .where(eq(telegramSourcesTable.id, req.params.id)).returning();
+      .where(eq(telegramSourcesTable.id, req.params.id as string)).returning();
 
     res.json(updated);
   } catch (err) {
@@ -197,11 +197,11 @@ router.patch("/admin/telegram/sources/:id", authenticate, requireRole("admin", "
 router.delete("/admin/telegram/sources/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
   try {
     const [existing] = await db.select().from(telegramSourcesTable)
-      .where(eq(telegramSourcesTable.id, req.params.id)).limit(1);
+      .where(eq(telegramSourcesTable.id, req.params.id as string)).limit(1);
     if (!existing) { res.status(404).json({ error: "Source not found" }); return; }
 
     await db.delete(telegramSourcesTable)
-      .where(eq(telegramSourcesTable.id, req.params.id));
+      .where(eq(telegramSourcesTable.id, req.params.id as string));
 
     logger.info({ sourceId: req.params.id }, "[TELEGRAM] Source deleted");
     res.json({ message: "Source deleted" });
@@ -215,7 +215,7 @@ router.delete("/admin/telegram/sources/:id", authenticate, requireRole("admin", 
 router.post("/admin/telegram/sources/:id/test", authenticate, requireRole("admin", "owner"), async (req, res) => {
   try {
     const [source] = await db.select().from(telegramSourcesTable)
-      .where(eq(telegramSourcesTable.id, req.params.id)).limit(1);
+      .where(eq(telegramSourcesTable.id, req.params.id as string)).limit(1);
     if (!source) { res.status(404).json({ error: "Source not found" }); return; }
 
     if (!isTelegramConfigured()) {
@@ -247,7 +247,7 @@ router.post("/admin/telegram/sources/:id/test", authenticate, requireRole("admin
 router.post("/admin/telegram/sources/:id/sync", authenticate, requireRole("admin", "owner"), async (req, res) => {
   try {
     const [source] = await db.select().from(telegramSourcesTable)
-      .where(eq(telegramSourcesTable.id, req.params.id)).limit(1);
+      .where(eq(telegramSourcesTable.id, req.params.id as string)).limit(1);
     if (!source) { res.status(404).json({ error: "Source not found" }); return; }
 
     if (isTelegramConfigured()) {
@@ -277,7 +277,7 @@ router.get("/admin/telegram/sources/:id/logs", authenticate, requireRole("admin"
   try {
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
     const logs = await db.select().from(telegramSyncLogsTable)
-      .where(eq(telegramSyncLogsTable.telegramSourceId, req.params.id))
+      .where(eq(telegramSyncLogsTable.telegramSourceId, req.params.id as string))
       .orderBy(desc(telegramSyncLogsTable.startedAt))
       .limit(limit);
     res.json(logs);
@@ -296,7 +296,7 @@ router.patch("/admin/telegram/videos/:id", authenticate, requireRole("admin", "o
     if (price !== undefined) updates.price = price;
 
     const [updated] = await db.update(telegramVideosTable).set(updates)
-      .where(eq(telegramVideosTable.id, req.params.id)).returning();
+      .where(eq(telegramVideosTable.id, req.params.id as string)).returning();
 
     if (!updated) { res.status(404).json({ error: "Video not found" }); return; }
     res.json(updated);
@@ -420,7 +420,7 @@ router.get("/admin/telegram/import-queue", authenticate, requireRole("admin", "o
         eq(telegramImportLogsTable.telegramSourceId, telegramSourcesTable.id));
 
     if (statusFilter && ["pending", "processing", "completed", "failed"].includes(statusFilter)) {
-      query = (query as any).where(eq(telegramImportLogsTable.status, statusFilter));
+      query = (query as any).where(eq(telegramImportLogsTable.status, statusFilter as "pending" | "processing" | "completed" | "failed"));
     }
 
     const rows = await (query as any).orderBy(desc(telegramImportLogsTable.createdAt)).limit(limit);
@@ -463,7 +463,7 @@ router.get("/admin/telegram/import-queue/stats", authenticate, requireRole("admi
 // ── POST /api/admin/telegram/import-queue/:id/retry — retry failed import ───
 router.post("/admin/telegram/import-queue/:id/retry", authenticate, requireRole("admin", "owner"), async (req, res) => {
   try {
-    await retryImportLog(req.params.id);
+    await retryImportLog(req.params.id as string);
     res.json({ success: true, message: "Import queued for retry" });
   } catch (err) {
     logger.error({ err }, "POST /admin/telegram/import-queue/:id/retry failed");
@@ -702,7 +702,7 @@ router.get("/telegram-videos/:id", optionalAuth, async (req, res) => {
     }).from(telegramVideosTable)
       .innerJoin(telegramSourcesTable,
         eq(telegramVideosTable.telegramSourceId, telegramSourcesTable.id))
-      .where(eq(telegramVideosTable.id, req.params.id))
+      .where(eq(telegramVideosTable.id, req.params.id as string))
       .limit(1);
 
     if (!row) { res.status(404).json({ error: "Not found" }); return; }
@@ -730,7 +730,7 @@ router.get("/telegram-videos/:id/stream", authenticate, async (req, res) => {
       .innerJoin(telegramSourcesTable,
         eq(telegramVideosTable.telegramSourceId, telegramSourcesTable.id))
       .where(and(
-        eq(telegramVideosTable.id, req.params.id),
+        eq(telegramVideosTable.id, req.params.id as string),
         eq(telegramSourcesTable.enabled, true),
       ))
       .limit(1);

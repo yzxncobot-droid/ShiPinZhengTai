@@ -184,7 +184,7 @@ router.post("/dm/conversations/start", authenticate, async (req, res) => {
 
 router.get("/dm/conversations/:id/messages", authenticate, async (req, res) => {
   try {
-    const convId = req.params.id;
+    const convId = req.params.id as string;
     const userId = req.user!.userId;
     const limit = Math.min(50, parseInt(String(req.query.limit ?? "30")));
     const before = req.query.before as string | undefined;
@@ -251,7 +251,7 @@ router.get("/dm/conversations/:id/messages", authenticate, async (req, res) => {
 
 router.post("/dm/conversations/:id/messages", authenticate, async (req, res) => {
   try {
-    const convId = req.params.id;
+    const convId = req.params.id as string;
     const userId = req.user!.userId;
 
     const [membership] = await db.select().from(conversationMembersTable)
@@ -300,13 +300,13 @@ router.patch("/dm/messages/:msgId", authenticate, async (req, res) => {
     if (!content?.trim()) { res.status(400).json({ error: "content required" }); return; }
 
     const userId = req.user!.userId;
-    const [msg] = await db.select().from(directMessagesTable).where(eq(directMessagesTable.id, req.params.msgId));
+    const [msg] = await db.select().from(directMessagesTable).where(eq(directMessagesTable.id, req.params.msgId as string));
     if (!msg) { res.status(404).json({ error: "Not found" }); return; }
     if (msg.senderId !== userId) { res.status(403).json({ error: "Forbidden" }); return; }
 
     const [updated] = await db.update(directMessagesTable)
       .set({ content: content.trim(), editedAt: new Date() })
-      .where(eq(directMessagesTable.id, req.params.msgId))
+      .where(eq(directMessagesTable.id, req.params.msgId as string))
       .returning();
     res.json(updated);
   } catch (err: any) {
@@ -321,18 +321,18 @@ router.delete("/dm/messages/:msgId", authenticate, async (req, res) => {
     const { deleteFor } = req.body; // "me" | "everyone"
     const userId = req.user!.userId;
 
-    const [msg] = await db.select().from(directMessagesTable).where(eq(directMessagesTable.id, req.params.msgId));
+    const [msg] = await db.select().from(directMessagesTable).where(eq(directMessagesTable.id, req.params.msgId as string));
     if (!msg) { res.status(404).json({ error: "Not found" }); return; }
     if (msg.senderId !== userId) { res.status(403).json({ error: "Forbidden" }); return; }
 
     if (deleteFor === "everyone") {
       await db.update(directMessagesTable)
         .set({ isDeletedAll: true, content: "[Pesan dihapus]" })
-        .where(eq(directMessagesTable.id, req.params.msgId));
+        .where(eq(directMessagesTable.id, req.params.msgId as string));
     } else {
       await db.update(directMessagesTable)
         .set({ isDeletedSender: true })
-        .where(eq(directMessagesTable.id, req.params.msgId));
+        .where(eq(directMessagesTable.id, req.params.msgId as string));
     }
 
     res.json({ message: "Deleted" });
@@ -349,7 +349,7 @@ router.post("/dm/messages/:msgId/react", authenticate, async (req, res) => {
     if (!emoji) { res.status(400).json({ error: "emoji required" }); return; }
 
     const userId = req.user!.userId;
-    const messageId = req.params.msgId;
+    const messageId = req.params.msgId as string;
 
     const existing = await db.select().from(dmReactionsTable)
       .where(and(eq(dmReactionsTable.messageId, messageId), eq(dmReactionsTable.userId, userId), eq(dmReactionsTable.emoji, emoji)))
@@ -373,7 +373,7 @@ router.post("/dm/messages/:msgId/react", authenticate, async (req, res) => {
 
 router.post("/dm/conversations/:id/read", authenticate, async (req, res) => {
   try {
-    const convId = req.params.id;
+    const convId = req.params.id as string;
     const userId = req.user!.userId;
 
     await db.insert(dmReadsTable).values({ conversationId: convId, userId, lastReadAt: new Date() })
@@ -405,7 +405,7 @@ router.patch("/dm/conversations/:id/settings", authenticate, async (req, res) =>
     await db.update(conversationMembersTable)
       .set(updates)
       .where(and(
-        eq(conversationMembersTable.conversationId, req.params.id),
+        eq(conversationMembersTable.conversationId, req.params.id as string),
         eq(conversationMembersTable.userId, userId),
       ));
 

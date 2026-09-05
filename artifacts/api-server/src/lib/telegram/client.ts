@@ -46,7 +46,7 @@ export async function botApiCall<T = any>(
     body: JSON.stringify(params ?? {}),
   });
 
-  const data = await res.json().catch(() => null);
+  const data: any = await res.json().catch(() => null);
   if (!data) {
     throw new Error(`Telegram API returned non-JSON (HTTP ${res.status})`);
   }

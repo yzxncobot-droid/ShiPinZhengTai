@@ -4,7 +4,7 @@ import { formatDistanceToNow } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Heart, Share2, ThumbsUp, CheckCircle2, Star, Send, Rocket, AlertCircle, Loader2 } from "lucide-react";
 
-import { useGetVideo, useGetRelatedVideos, useFetchVideoComments, useLikeVideo, useRecordView, useAddComment, getGetVideoQueryKey } from "@workspace/api-client-react";
+import { useGetVideo, useGetRelatedVideos, useFetchVideoComments, useLikeVideo, useRecordView, useAddComment, getGetVideoQueryKey, getGetRelatedVideosQueryKey, getFetchVideoCommentsQueryKey } from "@workspace/api-client-react";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { AppLayout } from "@/components/layout/AppLayout";

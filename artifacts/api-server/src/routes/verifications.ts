@@ -35,7 +35,7 @@ async function syncUserBadge(userId: string) {
 
 router.get("/verifications/user/:userId", async (req, res) => {
   try {
-    const { userId } = req.params;
+    const { userId  } = req.params as { userId: string };
     const badges = await db
       .select({
         id: creatorVerificationsTable.id,
@@ -140,7 +140,7 @@ router.patch("/verifications/:id/revoke", authenticate, requireRole("owner"), as
   try {
     const ownerId = req.user!.userId;
     const { reason } = req.body;
-    const { id } = req.params;
+    const { id  } = req.params as { id: string };
 
     const [ver] = await db.select().from(creatorVerificationsTable)
       .where(eq(creatorVerificationsTable.id, id));

@@ -26,7 +26,7 @@ export default function OwnerPayments() {
   const confirmTopup = useConfirmTopup();
   const denyTopup = useDenyTopup();
 
-  const handleAction = (id: number, action: 'confirm' | 'deny') => {
+  const handleAction = (id: string, action: 'confirm' | 'deny') => {
     const mutation = action === 'confirm' ? confirmTopup : denyTopup;
     mutation.mutate({ id }, {
       onSuccess: () => {

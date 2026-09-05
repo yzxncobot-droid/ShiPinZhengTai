@@ -792,7 +792,7 @@ export async function seedDefaultGamification(): Promise<void> {
   const toInsert = allAchNames.filter(n => !existingNames.has(n));
 
   if (toInsert.length > 0) {
-    const allAchievements = [
+    const allAchievements: (typeof achievementsTable.$inferInsert)[] = [
       { name: "First Watch", description: "Tonton video pertamamu", icon: "🎬", rarity: "COMMON", requirementType: "first_watch", requirementValue: 1, expReward: 10 },
       { name: "First Like", description: "Berikan like pertamamu", icon: "❤️", rarity: "COMMON", requirementType: "first_like", requirementValue: 1, expReward: 10 },
       { name: "Chatter", description: "Kirim 100 pesan", icon: "💬", rarity: "RARE", requirementType: "message_count", requirementValue: 100, expReward: 100 },

@@ -24,7 +24,7 @@ export default function OwnerCategories() {
   const [newCatName, setNewCatName] = useState("");
   const [newCatDesc, setNewCatDesc] = useState("");
 
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
 
@@ -49,7 +49,7 @@ export default function OwnerCategories() {
     setEditDesc(cat.description || "");
   };
 
-  const handleUpdate = (id: number) => {
+  const handleUpdate = (id: string) => {
     if (!editName.trim()) return;
     
     updateCat.mutate({ id, data: { name: editName, description: editDesc } }, {
@@ -61,7 +61,7 @@ export default function OwnerCategories() {
     });
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = (id: string) => {
     if (confirm("Are you sure? This will not delete the videos, but they will lose this category.")) {
       deleteCat.mutate({ id }, {
         onSuccess: () => {

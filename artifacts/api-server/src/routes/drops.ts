@@ -224,7 +224,7 @@ router.get("/drops/:id", optionalAuth, async (req, res) => {
     await completeExpiredDrops();
 
     const [drop] = await db.select().from(dropsTable)
-      .where(eq(dropsTable.id, req.params.id));
+      .where(eq(dropsTable.id, req.params.id as string));
     if (!drop) { res.status(404).json({ error: "Drop not found" }); return; }
 
     const userId = req.user?.userId;
@@ -381,7 +381,7 @@ router.patch("/drops/:id/cancel", authenticate, requireRole("owner"), async (req
   try {
     const ownerId = req.user!.userId;
     const [drop] = await db.select().from(dropsTable)
-      .where(eq(dropsTable.id, req.params.id));
+      .where(eq(dropsTable.id, req.params.id as string));
     if (!drop) { res.status(404).json({ error: "Drop not found" }); return; }
     if (!["scheduled", "active"].includes(drop.status)) {
       res.status(409).json({ error: "Only scheduled or active drops can be cancelled" });
@@ -415,7 +415,7 @@ router.get("/drops/:id/claims", authenticate, requireRole("owner"), async (req, 
       })
       .from(dropClaimsTable)
       .innerJoin(usersTable, eq(dropClaimsTable.userId, usersTable.id))
-      .where(eq(dropClaimsTable.dropId, req.params.id))
+      .where(eq(dropClaimsTable.dropId, req.params.id as string))
       .orderBy(dropClaimsTable.claimedAt);
     res.json(claims);
   } catch (err: any) {

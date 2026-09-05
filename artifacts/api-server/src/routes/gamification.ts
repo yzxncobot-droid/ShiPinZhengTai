@@ -36,7 +36,7 @@ router.get("/gamification/me", authenticate, async (req, res) => {
 // ── GET /gamification/badge-info/:userId — compact badge info for display ────
 router.get("/gamification/badge-info/:userId", async (req, res) => {
   try {
-    const data = await getUserBadgeInfo(req.params.userId);
+    const data = await getUserBadgeInfo(req.params.userId as string);
     res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -46,7 +46,7 @@ router.get("/gamification/badge-info/:userId", async (req, res) => {
 // ── GET /gamification/public/:userId — public gamification (respects privacy) ─
 router.get("/gamification/public/:userId", async (req, res) => {
   try {
-    const data = await getPublicGamification(req.params.userId);
+    const data = await getPublicGamification(req.params.userId as string);
     res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

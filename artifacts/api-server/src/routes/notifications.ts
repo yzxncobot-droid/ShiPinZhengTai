@@ -39,7 +39,7 @@ router.patch("/notifications/read-all", authenticate, async (req, res) => {
 });
 
 router.patch("/notifications/:id/read", authenticate, async (req, res) => {
-  const id     = req.params.id;
+  const id     = req.params.id as string;
   const userId = req.user!.userId;
   const [n] = await db.update(notificationsTable)
     .set({ isRead: true })
@@ -49,7 +49,7 @@ router.patch("/notifications/:id/read", authenticate, async (req, res) => {
 });
 
 router.delete("/notifications/:id", authenticate, async (req, res) => {
-  const id     = req.params.id;
+  const id     = req.params.id as string;
   const userId = req.user!.userId;
   await db.delete(notificationsTable)
     .where(and(eq(notificationsTable.id, id), eq(notificationsTable.userId, userId)));

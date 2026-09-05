@@ -105,7 +105,7 @@ router.get("/announcements", optionalAuth, async (req, res) => {
 
 router.get("/announcements/:id", optionalAuth, async (req, res) => {
   try {
-    const id = req.params.id;
+    const id = req.params.id as string;
     const userId = req.user?.userId;
 
     const [row] = await db
@@ -170,7 +170,7 @@ router.post("/announcements", authenticate, requireRole("owner"), async (req, re
 
 router.patch("/announcements/:id", authenticate, requireRole("owner"), async (req, res) => {
   try {
-    const id = req.params.id;
+    const id = req.params.id as string;
     const { title, content, imageUrl, videoUrl, linkUrl, linkLabel, isPinned, visibility } = req.body;
 
     const updates: Record<string, any> = { updatedAt: new Date() };
@@ -199,7 +199,7 @@ router.patch("/announcements/:id", authenticate, requireRole("owner"), async (re
 
 router.delete("/announcements/:id", authenticate, requireRole("owner"), async (req, res) => {
   try {
-    await db.delete(announcementsTable).where(eq(announcementsTable.id, req.params.id));
+    await db.delete(announcementsTable).where(eq(announcementsTable.id, req.params.id as string));
     res.json({ message: "Deleted" });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -214,7 +214,7 @@ router.post("/announcements/:id/react", authenticate, async (req, res) => {
     if (!emoji) { res.status(400).json({ error: "emoji required" }); return; }
 
     const userId = req.user!.userId;
-    const announcementId = req.params.id;
+    const announcementId = req.params.id as string;
 
     // Toggle: delete if exists, else insert
     const existing = await db
@@ -260,7 +260,7 @@ router.get("/announcements/:id/comments", optionalAuth, async (req, res) => {
       })
       .from(announcementCommentsTable)
       .innerJoin(usersTable, eq(announcementCommentsTable.userId, usersTable.id))
-      .where(eq(announcementCommentsTable.announcementId, req.params.id))
+      .where(eq(announcementCommentsTable.announcementId, req.params.id as string))
       .orderBy(desc(announcementCommentsTable.createdAt))
       .limit(50);
 
@@ -278,7 +278,7 @@ router.post("/announcements/:id/comments", authenticate, requireRole("owner"), a
     if (!content?.trim()) { res.status(400).json({ error: "content required" }); return; }
 
     const [created] = await db.insert(announcementCommentsTable).values({
-      announcementId: req.params.id,
+      announcementId: req.params.id as string,
       userId: req.user!.userId,
       content: content.trim(),
     }).returning();
@@ -296,7 +296,7 @@ router.delete("/announcements/:id/comments/:commentId", authenticate, async (req
   try {
     const userId = req.user!.userId;
     const role = req.user!.role;
-    const { commentId } = req.params;
+    const { commentId  } = req.params as { commentId: string };
 
     const [comment] = await db.select().from(announcementCommentsTable)
       .where(eq(announcementCommentsTable.id, commentId));
@@ -318,7 +318,7 @@ router.delete("/announcements/:id/comments/:commentId", authenticate, async (req
 router.post("/announcements/:id/read", authenticate, async (req, res) => {
   try {
     await db.insert(announcementReadsTable).values({
-      announcementId: req.params.id,
+      announcementId: req.params.id as string,
       userId: req.user!.userId,
     }).onConflictDoNothing();
     res.json({ ok: true });

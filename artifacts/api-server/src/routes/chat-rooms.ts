@@ -364,7 +364,7 @@ router.patch("/chat/rooms/:id", authenticate, requireRole("admin"), async (req, 
     if (slowModeSeconds !== undefined) updates.slowModeSeconds = Math.max(0, parseInt(slowModeSeconds) || 0);
 
     const [updated] = await db.update(chatRoomsTable).set(updates)
-      .where(eq(chatRoomsTable.id, req.params.id)).returning();
+      .where(eq(chatRoomsTable.id, req.params.id as string)).returning();
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -375,7 +375,7 @@ router.patch("/chat/rooms/:id", authenticate, requireRole("admin"), async (req, 
 
 router.delete("/chat/rooms/:id", authenticate, requireRole("owner"), async (req, res) => {
   try {
-    await db.delete(chatRoomsTable).where(eq(chatRoomsTable.id, req.params.id));
+    await db.delete(chatRoomsTable).where(eq(chatRoomsTable.id, req.params.id as string));
     res.json({ message: "Deleted" });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -412,7 +412,7 @@ router.post("/chat/rooms/:id/join", authenticate, async (req, res) => {
 router.post("/chat/rooms/:id/leave", authenticate, async (req, res) => {
   try {
     await db.delete(chatRoomMembersTable).where(and(
-      eq(chatRoomMembersTable.roomId, req.params.id),
+      eq(chatRoomMembersTable.roomId, req.params.id as string),
       eq(chatRoomMembersTable.userId, req.user!.userId),
     ));
     res.json({ message: "Left" });
@@ -593,13 +593,13 @@ router.patch("/chat/rooms/:roomId/messages/:msgId", authenticate, async (req, re
     if (!content?.trim()) { res.status(400).json({ error: "content required" }); return; }
 
     const userId = req.user!.userId;
-    const [msg] = await db.select().from(chatMessagesTable).where(eq(chatMessagesTable.id, req.params.msgId));
+    const [msg] = await db.select().from(chatMessagesTable).where(eq(chatMessagesTable.id, req.params.msgId as string));
     if (!msg) { res.status(404).json({ error: "Not found" }); return; }
     if (msg.userId !== userId) { res.status(403).json({ error: "Forbidden" }); return; }
 
     const [updated] = await db.update(chatMessagesTable)
       .set({ content: content.trim(), editedAt: new Date() })
-      .where(eq(chatMessagesTable.id, req.params.msgId))
+      .where(eq(chatMessagesTable.id, req.params.msgId as string))
       .returning();
     res.json(updated);
   } catch (err: any) {
@@ -614,7 +614,7 @@ router.delete("/chat/rooms/:roomId/messages/:msgId", authenticate, async (req, r
     const userId = req.user!.userId;
     const role = req.user!.role;
 
-    const [msg] = await db.select().from(chatMessagesTable).where(eq(chatMessagesTable.id, req.params.msgId));
+    const [msg] = await db.select().from(chatMessagesTable).where(eq(chatMessagesTable.id, req.params.msgId as string));
     if (!msg) { res.status(404).json({ error: "Not found" }); return; }
     if (msg.userId !== userId && !["admin", "owner"].includes(role)) {
       res.status(403).json({ error: "Forbidden" }); return;
@@ -622,7 +622,7 @@ router.delete("/chat/rooms/:roomId/messages/:msgId", authenticate, async (req, r
 
     await db.update(chatMessagesTable)
       .set({ isDeleted: true, content: "[Pesan dihapus]" })
-      .where(eq(chatMessagesTable.id, req.params.msgId));
+      .where(eq(chatMessagesTable.id, req.params.msgId as string));
 
     res.json({ message: "Deleted" });
   } catch (err: any) {
@@ -634,7 +634,7 @@ router.delete("/chat/rooms/:roomId/messages/:msgId", authenticate, async (req, r
 
 router.patch("/chat/rooms/:roomId/messages/:msgId/pin", authenticate, requireRole("admin"), async (req, res) => {
   const roomId = req.params.roomId as string;
-  const msgId  = req.params.msgId;
+  const msgId  = req.params.msgId as string;
   const pinnerId = req.user!.userId;
 
   try {
@@ -674,7 +674,7 @@ router.post("/chat/rooms/:roomId/messages/:msgId/react", authenticate, async (re
     if (!emoji) { res.status(400).json({ error: "emoji required" }); return; }
 
     const userId = req.user!.userId;
-    const messageId = req.params.msgId;
+    const messageId = req.params.msgId as string;
 
     const existing = await db.select().from(chatReactionsTable)
       .where(and(
@@ -733,7 +733,7 @@ router.get("/chat/rooms/:id/pinned", optionalAuth, async (req, res) => {
       .from(chatMessagesTable)
       .innerJoin(usersTable, eq(chatMessagesTable.userId, usersTable.id))
       .where(and(
-        eq(chatMessagesTable.roomId, req.params.id),
+        eq(chatMessagesTable.roomId, req.params.id as string),
         eq(chatMessagesTable.isPinned, true),
         eq(chatMessagesTable.isDeleted, false),
       ))
@@ -765,7 +765,7 @@ router.get("/chat/rooms/:id/members", optionalAuth, async (req, res) => {
       .from(chatRoomMembersTable)
       .innerJoin(usersTable, eq(chatRoomMembersTable.userId, usersTable.id))
       .where(and(
-        eq(chatRoomMembersTable.roomId, req.params.id),
+        eq(chatRoomMembersTable.roomId, req.params.id as string),
         eq(chatRoomMembersTable.isBanned, false),
       ))
       .orderBy(chatRoomMembersTable.joinedAt)
@@ -791,14 +791,14 @@ router.post("/chat/rooms/:id/moderate", authenticate, requireRole("admin"), asyn
       await db.update(chatRoomMembersTable)
         .set({ isBanned: true })
         .where(and(
-          eq(chatRoomMembersTable.roomId, req.params.id),
+          eq(chatRoomMembersTable.roomId, req.params.id as string),
           eq(chatRoomMembersTable.userId, targetUserId),
         ));
     } else if (action === "unban") {
       await db.update(chatRoomMembersTable)
         .set({ isBanned: false })
         .where(and(
-          eq(chatRoomMembersTable.roomId, req.params.id),
+          eq(chatRoomMembersTable.roomId, req.params.id as string),
           eq(chatRoomMembersTable.userId, targetUserId),
         ));
     } else if (action === "mute") {
@@ -808,19 +808,19 @@ router.post("/chat/rooms/:id/moderate", authenticate, requireRole("admin"), asyn
       await db.update(chatRoomMembersTable)
         .set({ isMuted: true, mutedUntil: until })
         .where(and(
-          eq(chatRoomMembersTable.roomId, req.params.id),
+          eq(chatRoomMembersTable.roomId, req.params.id as string),
           eq(chatRoomMembersTable.userId, targetUserId),
         ));
     } else if (action === "unmute") {
       await db.update(chatRoomMembersTable)
         .set({ isMuted: false, mutedUntil: null })
         .where(and(
-          eq(chatRoomMembersTable.roomId, req.params.id),
+          eq(chatRoomMembersTable.roomId, req.params.id as string),
           eq(chatRoomMembersTable.userId, targetUserId),
         ));
     } else if (action === "kick") {
       await db.delete(chatRoomMembersTable).where(and(
-        eq(chatRoomMembersTable.roomId, req.params.id),
+        eq(chatRoomMembersTable.roomId, req.params.id as string),
         eq(chatRoomMembersTable.userId, targetUserId),
       ));
     }
@@ -1013,7 +1013,7 @@ router.patch("/chat/rooms/:id/group-settings", authenticate, requireRole("owner"
 
     const [updated] = await db.update(chatRoomsTable)
       .set(updates)
-      .where(eq(chatRoomsTable.id, req.params.id))
+      .where(eq(chatRoomsTable.id, req.params.id as string))
       .returning();
     if (!updated) { res.status(404).json({ error: "Room not found" }); return; }
     res.json(updated);

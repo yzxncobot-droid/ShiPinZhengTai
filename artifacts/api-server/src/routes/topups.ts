@@ -225,7 +225,7 @@ router.post("/payments/buatqris/create", authenticate, qrisRateLimit, async (req
 // credited via creditVerifiedTopup() (the SAME single credit path used by the
 // webhook). Polling never has its own credit logic.
 router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) => {
-  const id = String(req.params.id);
+  const id = String(req.params.id as string);
   const [topup] = await db.select().from(topupsTable)
     .where(and(eq(topupsTable.id, id), eq(topupsTable.userId, req.user!.userId))).limit(1);
   if (!topup) { res.status(404).json({ error: "Top-up not found" }); return; }
@@ -279,7 +279,7 @@ router.get("/topup/:id/status", authenticate, qrisRateLimit, async (req, res) =>
 // transaction status. Only if the provider confirms "success" does it credit
 // via creditVerifiedTopup(). If still pending, returns "awaiting_payment".
 router.post("/topup/:id/confirm-paid", authenticate, qrisRateLimit, async (req, res) => {
-  const id = String(req.params.id);
+  const id = String(req.params.id as string);
   const userId = req.user!.userId;
 
   const [topup] = await db.select().from(topupsTable)
@@ -429,7 +429,7 @@ router.post("/topup/manual", authenticate, qrisRateLimit, async (req, res) => {
 // Accepts a proof_image_url (already uploaded via /api/upload/payment-proof)
 // and attaches it to the pending manual top-up. Status stays "pending".
 router.post("/topup/:id/upload-proof", authenticate, qrisRateLimit, async (req, res) => {
-  const topupId = String(req.params.id);
+  const topupId = String(req.params.id as string);
   const userId = req.user!.userId;
   const proofImageUrl = String(req.body?.proofImageUrl ?? req.body?.paymentProof ?? "").trim();
 

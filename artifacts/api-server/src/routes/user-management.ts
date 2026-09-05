@@ -83,7 +83,7 @@ router.get("/users/:id/public", authenticate, async (req, res) => {
 router.get("/users/:id/badges", authenticate, async (req, res) => {
   try {
     const badges = await db.select().from(userBadgesTable)
-      .where(eq(userBadgesTable.userId, req.params.id))
+      .where(eq(userBadgesTable.userId, req.params.id as string))
       .orderBy(desc(userBadgesTable.assignedAt));
     res.json(badges);
   } catch (err: any) {
@@ -125,9 +125,9 @@ router.post("/users/:id/badges", authenticate, requireRole("owner"), async (req,
 router.delete("/users/:id/badges/:badgeId", authenticate, requireRole("owner"), async (req, res) => {
   try {
     await db.delete(userBadgesTable).where(
-      and(eq(userBadgesTable.id, req.params.badgeId), eq(userBadgesTable.userId, req.params.id)),
+      and(eq(userBadgesTable.id, req.params.badgeId as string), eq(userBadgesTable.userId, req.params.id as string)),
     );
-    logger.info({ badgeId: req.params.badgeId, targetId: req.params.id, by: req.user!.userId }, "Badge removed");
+    logger.info({ badgeId: req.params.badgeId as string, targetId: req.params.id as string, by: req.user!.userId }, "Badge removed");
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

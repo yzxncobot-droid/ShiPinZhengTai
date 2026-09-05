@@ -1,6 +1,6 @@
 import { useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { useListVideos } from "@workspace/api-client-react";
+import { useListVideos, getListVideosQueryKey } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
 import { VideoCard, VideoCardSkeleton } from "@/components/video/VideoCard";
 import { useState, useEffect } from "react";
@@ -16,7 +16,7 @@ export default function SearchPage() {
   const [activeQuery, setActiveQuery] = useState(initialQuery);
 
   const { data: videos, isLoading } = useListVideos({ search: activeQuery, limit: 24 }, {
-    query: { enabled: activeQuery.length > 0 }
+    query: { enabled: activeQuery.length > 0, queryKey: getListVideosQueryKey({ search: activeQuery, limit: 24 }) }
   });
 
   const handleSearch = (e: React.FormEvent) => {
