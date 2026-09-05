@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800;900&family=Nunito:wght@400;500;600;700;800;900&display=swap');
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @plugin "@tailwindcss/typography";
@@ -62,12 +62,12 @@
 }
 
 :root {
-  --background: 210 40% 98%;
-  --foreground: 222.2 84% 4.9%;
-  --border: 214.3 31.8% 91.4%;
+  --background: 230 100% 98%;
+  --foreground: 222 47% 11%;
+  --border: 220 30% 90%;
   --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
-  --card-border: 214.3 31.8% 91.4%;
+  --card-foreground: 222 47% 11%;
+  --card-border: 220 30% 90%;
 
   --popover: 0 0% 100%;
   --popover-foreground: 222.2 84% 4.9%;
@@ -79,8 +79,8 @@
   --secondary: 40 100% 50%;
   --secondary-foreground: 0 0% 100%;
 
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
+  --muted: 230 40% 96%;
+  --muted-foreground: 220 16% 47%;
 
   --accent: 200 100% 50%;
   --accent-foreground: 0 0% 100%;
@@ -100,8 +100,8 @@
   --sidebar-accent-foreground: 222.2 84% 4.9%;
   --sidebar-ring: 270 72% 57%;
 
-  --app-font-sans: 'Poppins', sans-serif;
-  --app-font-heading: 'Outfit', sans-serif;
+  --app-font-sans: 'Nunito', 'Poppins', sans-serif;
+  --app-font-heading: 'Nunito', 'Outfit', sans-serif;
   --app-font-mono: Menlo, monospace;
   --radius: 1rem;
 }
@@ -152,7 +152,9 @@
   }
 
   body {
-    @apply font-sans antialiased bg-background text-foreground;
+    @apply font-sans antialiased text-foreground;
+    background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 40%, #dbeafe 100%);
+    min-height: 100dvh;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -185,17 +187,21 @@
     @apply bg-black/20 backdrop-blur-md border border-white/10;
   }
 
-  .gradient-funplus {
-    background: linear-gradient(135deg, #7C3AED 0%, #9333EA 40%, #3B82F6 100%);
+  .gradient-kidzoo {
+    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 40%, #8b5cf6 100%);
   }
 
-  .gradient-funplus-pink {
-    background: linear-gradient(135deg, #9333EA 0%, #EC4899 60%, #F59E0B 100%);
+  .gradient-kidzoo-pink {
+    background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 60%, #f59e0b 100%);
+  }
+
+  .gradient-kidzoo-cta {
+    background: linear-gradient(135deg, #f472b6 0%, #ec4899 100%);
   }
 
   .text-gradient {
     @apply text-transparent bg-clip-text;
-    background: linear-gradient(135deg, #7C3AED, #EC4899);
+    background: linear-gradient(135deg, #4f46e5, #8b5cf6);
   }
 
   .card-hover {

@@ -1,11 +1,14 @@
 import { Link, useLocation } from "wouter";
-import { Home, ShoppingBag, CreditCard, User, MessageCircle } from "lucide-react";
+import { Home as HomeIcon, ShoppingBag, Compass, User, MessageCircle, Star } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 
 /**
- * Mobile bottom navigation — 5 items:
- *   Home · Shop · Top Up · Chat · Profile
+ * Mobile bottom navigation — 5 items (KIDZOO kid-friendly theme):
+ *   Shop · Eksplore · Home (center star) · Pesan · Profil
+ *
+ * The center star is a raised, glowing gold button that navigates to the
+ * Home landing page ("/"). The first item is "Shop" (was "Beranda/Home").
  */
 export function BottomNav() {
   const [location] = useLocation();
@@ -17,13 +20,13 @@ export function BottomNav() {
   };
 
   const sideItems = [
-    { href: "/", icon: Home, label: "Home" },
     { href: "/shop", icon: ShoppingBag, label: "Shop" },
-    { href: "/chat", icon: MessageCircle, label: "Chat" },
-    { href: user ? "/profile" : "/login", icon: User, label: "Profile" },
+    { href: "/search", icon: Compass, label: "Eksplore" },
+    { href: "/chat", icon: MessageCircle, label: "Pesan" },
+    { href: user ? "/profile" : "/login", icon: User, label: "Profil" },
   ];
 
-  const topupActive = isActive("/topup");
+  const homeActive = isActive("/");
 
   return (
     <div
@@ -32,18 +35,21 @@ export function BottomNav() {
     >
       <div className="mx-3 mb-3">
         <nav
-          className="relative flex items-end justify-around rounded-[28px] bg-white/85 backdrop-blur-xl border border-slate-200 shadow-[0_8px_40px_rgba(0,0,0,0.08)]"
-          style={{ height: "68px" }}
+          className="relative flex items-end justify-around rounded-[28px] backdrop-blur-xl border border-white/40 shadow-[0_8px_40px_rgba(79,70,229,0.18)]"
+          style={{
+            height: "68px",
+            background: "linear-gradient(135deg, rgba(79,70,229,0.92) 0%, rgba(139,92,246,0.92) 100%)",
+          }}
         >
-          {/* Home */}
+          {/* Shop */}
           <SideLink item={sideItems[0]} active={isActive(sideItems[0].href)} />
 
-          {/* Shop */}
+          {/* Eksplore */}
           <SideLink item={sideItems[1]} active={isActive(sideItems[1].href)} />
 
-          {/* Center: Top Up — floating circular button */}
+          {/* Center: Home — floating glowing star button */}
           <Link
-            href="/topup"
+            href="/"
             className="flex flex-col items-center w-full relative"
             style={{ marginBottom: "-4px" }}
           >
@@ -54,28 +60,36 @@ export function BottomNav() {
               style={{ transform: "translateY(-16px)" }}
             >
               <div
-                className={`h-[54px] w-[54px] rounded-full flex items-center justify-center shadow-xl transition-all duration-300 ${
-                  topupActive
-                    ? "bg-gradient-to-br from-amber-400 to-orange-500 shadow-orange-500/50"
-                    : "bg-gradient-to-br from-amber-400 to-orange-500 shadow-orange-500/40"
-                }`}
+                className="h-[54px] w-[54px] rounded-full flex items-center justify-center shadow-xl transition-all duration-300"
+                style={{
+                  background: homeActive
+                    ? "linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)"
+                    : "linear-gradient(135deg, #facc15 0%, #fbbf24 100%)",
+                  boxShadow: homeActive
+                    ? "0 0 20px 4px rgba(250,204,21,0.6), 0 4px 12px rgba(245,158,11,0.4)"
+                    : "0 0 14px 2px rgba(250,204,21,0.45), 0 4px 10px rgba(245,158,11,0.3)",
+                }}
               >
-                <CreditCard className="h-6 w-6 text-white" strokeWidth={2.5} />
+                <Star
+                  className="h-7 w-7 text-white"
+                  strokeWidth={2.5}
+                  fill="white"
+                />
               </div>
               <span
                 className={`text-[10px] font-extrabold mt-1 transition-all duration-300 ${
-                  topupActive ? "text-amber-500" : "text-slate-400"
+                  homeActive ? "text-amber-300" : "text-white/70"
                 }`}
               >
-                Top Up
+                Home
               </span>
             </motion.div>
           </Link>
 
-          {/* Chat */}
+          {/* Pesan */}
           <SideLink item={sideItems[2]} active={isActive(sideItems[2].href)} />
 
-          {/* Profile */}
+          {/* Profil */}
           <SideLink item={sideItems[3]} active={isActive(sideItems[3].href)} />
         </nav>
       </div>
@@ -99,17 +113,17 @@ function SideLink({
       >
         <div
           className={`h-10 w-10 rounded-full flex items-center justify-center transition-all duration-300 ${
-            active ? "bg-gradient-to-br from-purple-500 to-violet-500 shadow-lg shadow-purple-500/30" : ""
+            active ? "bg-white/25 shadow-lg" : ""
           }`}
         >
           <item.icon
-            className={`h-5 w-5 transition-all duration-300 ${active ? "text-white" : "text-slate-400"}`}
+            className={`h-5 w-5 transition-all duration-300 ${active ? "text-white" : "text-white/60"}`}
             strokeWidth={active ? 2.5 : 2}
           />
         </div>
         <span
           className={`text-[10px] font-extrabold transition-all duration-300 ${
-            active ? "text-purple-600" : "text-slate-400"
+            active ? "text-white" : "text-white/60"
           }`}
         >
           {item.label}

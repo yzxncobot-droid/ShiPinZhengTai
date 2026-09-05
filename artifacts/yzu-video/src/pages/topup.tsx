@@ -88,7 +88,7 @@ export default function TopupPage() {
                 <Sparkles className="h-4 w-4 text-violet-500" />
               </span>
               <span className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-violet-500">
-                FUN+ Premium Kids Platform
+                KIDZOO • Play • Learn • Grow
               </span>
             </div>
 

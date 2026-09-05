@@ -162,7 +162,7 @@ export default function VideoDetailPage() {
           </Avatar>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1">
-              <span className="font-heading font-extrabold text-slate-800 text-sm truncate">{video.creator?.username || 'FUN+ Creator'}</span>
+              <span className="font-heading font-extrabold text-slate-800 text-sm truncate">{video.creator?.username || 'KIDZOO Creator'}</span>
               <CheckCircle2 className="h-4 w-4 text-blue-500 fill-blue-500/20" />
             </div>
             <p className="text-[11px] font-medium text-slate-400">{formatDistanceToNow(new Date(video.createdAt))} ago</p>

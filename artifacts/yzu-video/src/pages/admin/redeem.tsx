@@ -431,7 +431,7 @@ export default function AdminRedeemPage() {
               Manajemen Kode Redeem
             </h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              Buat, kelola, dan pantau kode redeem untuk pengguna FUN+
+              Buat, kelola, dan pantau kode redeem untuk pengguna KIDZOO
             </p>
           </div>
           <div className="flex items-center gap-2">

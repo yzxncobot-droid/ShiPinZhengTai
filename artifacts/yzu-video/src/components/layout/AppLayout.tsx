@@ -19,15 +19,25 @@ import { Badge } from "@/components/ui/badge";
 import { BottomNav } from "./BottomNav";
 
 export function FunLogo({ className = "" }: { className?: string }) {
+  const letters = [
+    { ch: "K", color: "#3b82f6" },
+    { ch: "I", color: "#22c55e" },
+    { ch: "D", color: "#facc15" },
+    { ch: "Z", color: "#ef4444" },
+    { ch: "O", color: "#22c55e" },
+    { ch: "O", color: "#3b82f6" },
+  ];
   return (
     <div className={`flex flex-col items-center justify-center ${className}`}>
       <div className="flex items-center">
-        <span className="text-3xl font-extrabold tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-purple-600 via-pink-500 to-orange-500 drop-shadow-sm" style={{ fontFamily: "Outfit, sans-serif" }}>
-          FUN<span className="text-blue-500">+</span>
+        <span className="text-3xl font-extrabold tracking-tighter drop-shadow-sm" style={{ fontFamily: "Nunito, sans-serif" }}>
+          {letters.map((l, i) => (
+            <span key={i} style={{ color: l.color }}>{l.ch}</span>
+          ))}
         </span>
       </div>
       <div className="bg-purple-100 rounded-full px-2 py-0.5 -mt-1">
-        <span className="text-[8px] font-extrabold text-purple-700 tracking-widest uppercase">Kids Video Platform</span>
+        <span className="text-[8px] font-extrabold text-purple-700 tracking-widest uppercase">Play • Learn • Grow</span>
       </div>
     </div>
   );
@@ -63,7 +73,7 @@ export function Navbar() {
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-slate-100 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
+    <header className="sticky top-0 z-50 w-full border-b border-indigo-100/60 backdrop-blur supports-[backdrop-filter]:bg-white/70" style={{ background: "linear-gradient(135deg, rgba(238,242,255,0.92) 0%, rgba(219,234,254,0.92) 100%)" }}>
       <div className="container mx-auto flex h-16 items-center px-4 md:px-6">
         <div className="flex items-center gap-6 md:gap-10">
           <Link href="/" className="flex items-center">
@@ -225,7 +235,7 @@ const SOCIAL_LINKS = [
 
 export function Footer() {
   const { data: settings } = useGetSettings();
-  const siteName = settings?.siteName || "FUN+";
+  const siteName = settings?.siteName || "KIDZOO";
   const socials = SOCIAL_LINKS.filter((s) => !!(settings as any)?.[s.key]);
   const hasContact = !!settings?.whatsappLink || !!settings?.telegramLink;
 
@@ -316,7 +326,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const isVideoDetail = location.startsWith("/videos/");
 
   return (
-    <div className="relative flex min-h-[100dvh] flex-col bg-slate-50 text-foreground pb-[68px] md:pb-0">
+    <div className="relative flex min-h-[100dvh] flex-col text-foreground pb-[68px] md:pb-0" style={{ background: "linear-gradient(135deg, #eef2ff 0%, #e0e7ff 40%, #dbeafe 100%)" }}>
       {!isVideoDetail && <Navbar />}
       <main className="flex-1 w-full max-w-full overflow-x-hidden">{children}</main>
       {!isVideoDetail && <Footer />}

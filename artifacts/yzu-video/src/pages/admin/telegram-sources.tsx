@@ -128,7 +128,7 @@ function SourceModal({
             <Input
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="e.g. FUN+ Kids"
+              placeholder="e.g. KIDZOO Kids"
             />
           </div>
           <div>
