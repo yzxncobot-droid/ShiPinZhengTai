@@ -15,7 +15,9 @@ if (!connectionString) {
 export const pool = new Pool({
   connectionString,
   ssl: { rejectUnauthorized: false }, // required for Neon PostgreSQL
-  max: 10,
+  // Serverless-friendly: each function instance gets its own pool. A small max
+  // prevents connection exhaustion when many cold starts open pools concurrently.
+  max: Number(process.env.DB_POOL_MAX ?? 3),
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
 });

@@ -1,0 +1,43 @@
+# Netlify deployment configuration for the Yzu视频 monorepo.
+#
+# Architecture:
+#   - Frontend (Vite/React) builds to static files → served by Netlify CDN.
+#   - Backend (Express API) is bundled by esbuild into a single serverless
+#     function → all /api/* requests are proxied to it.
+#   - Database: external Neon PostgreSQL (NEON_DATABASE_URL env var).
+#
+# Required environment variables (set in Netlify dashboard → Settings → Environment):
+#   NEON_DATABASE_URL  — Neon PostgreSQL connection string (REQUIRED)
+#
+# Optional (for specific features):
+#   SESSION_SECRET, TELEGRAM_BOT_TOKEN, BUATQRIS_*, *_SUPABASE_*, KV_REST_API_*
+
+[build]
+  command = "bash scripts/netlify-build.sh"
+  publish = "artifacts/yzu-video/dist/public"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+[build.environment]
+  NODE_VERSION = "20"
+  # Vite config requires PORT and BASE_PATH at config-load time, even for build.
+  PORT = "3000"
+  BASE_PATH = "/"
+  NODE_ENV = "production"
+
+# ── API proxy: all /api/* requests → serverless function ──────────────────
+# `:splat` preserves the full path; serverless-http receives the original
+# /api/* path so Express routes (mounted at /api) match correctly.
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+# ── SPA fallback: all other routes → index.html (client-side routing) ──────
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
