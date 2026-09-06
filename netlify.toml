@@ -17,6 +17,9 @@
   publish = "artifacts/yzu-video/dist/public"
   functions = "netlify/functions"
 
+[functions]
+  node_bundler = "esbuild"
+
 [build.environment]
   NODE_VERSION = "20"
   # Vite config requires PORT and BASE_PATH at config-load time, even for build.
