@@ -141,6 +141,46 @@ Bot API cannot read message history, so videos arrive via **webhook**:
 - **Video player**: Added `playsInline` and `preload="metadata"` attributes.
 - **Configurable API base**: `TELEGRAM_API_BASE` env var for Local Bot API Server support.
 
+## Netlify Deployment
+
+The repo is configured for one-click Netlify import & deploy via `netlify.toml`.
+
+### Architecture
+- **Frontend**: Vite builds to `artifacts/yzu-video/dist/public` (static, served by Netlify CDN).
+- **Backend**: Express API bundled by esbuild into `artifacts/api-server/dist/lambda.mjs`,
+  wrapped with `serverless-http` → single Netlify Function at `netlify/functions/api.mjs`.
+- **Database**: External Neon PostgreSQL (`NEON_DATABASE_URL` env var — no local DB on Netlify).
+- **Routing**: `/api/*` → `/.netlify/functions/api/:splat` (proxy, status 200); `/*` → `/index.html` (SPA fallback).
+
+### Build flow (`scripts/netlify-build.sh`)
+1. `pnpm install --no-frozen-lockfile`
+2. `pnpm --filter @workspace/api-server run build` → produces `dist/index.mjs` (dev),
+   `dist/lambda.mjs` (serverless), `dist/migrate.mjs` (migrations).
+3. `pnpm --filter @workspace/yzu-video run build` → static frontend.
+4. If `NEON_DATABASE_URL` is set: `drizzle-kit push --force` + `node dist/migrate.mjs` (schema + seed).
+
+### Entry points (esbuild — `artifacts/api-server/build.mjs`)
+- `src/index.ts` → `dist/index.mjs` — local dev (Express `app.listen` + DB init + migrations).
+- `src/lambda.ts` → `dist/lambda.mjs` — serverless (wraps Express app with `serverless-http`, no listen).
+- `src/migrate.ts` → `dist/migrate.mjs` — standalone migration script (runs migrations, exits).
+
+### Required Netlify environment variables
+- `NEON_DATABASE_URL` — **required**. Neon PostgreSQL connection string. Without it,
+  the build skips migrations and the app will not function at runtime.
+
+### Optional Netlify environment variables
+Same as the Base44 dev secrets list (SESSION_SECRET, TELEGRAM_BOT_TOKEN, BUATQRIS_*,
+*_SUPABASE_*, KV_REST_API_*, etc.). Set them in Netlify → Settings → Environment.
+
+### Notes
+- `serverless-http` wraps the Express app; all routes (mounted at `/api` in `app.ts`)
+  receive the original `/api/*` path via the `:splat` redirect.
+- Background workers (Telegram import queue `setInterval`) run on cold start but don't
+  persist between serverless invocations — Telegram video import is best-effort.
+- `bcrypt` (native module) is externalized by esbuild; Netlify's function bundler
+  resolves it from `node_modules` (prebuilt binary for Linux x64 / Lambda).
+- `packageManager: "pnpm@9.15.4"` in root `package.json` ensures Netlify uses pnpm via corepack.
+
 ## Payment system (BuatQris + Manual)
 
 The app has **two payment methods**, both crediting the wallet through a single
