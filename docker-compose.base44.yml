@@ -68,13 +68,37 @@ services:
     volumes:
       - .:/app
     environment:
+      # Fallback when NEON_DATABASE_URL is not set; drizzle.config.ts prefers
+      # NEON_DATABASE_URL over DATABASE_URL.
       DATABASE_URL: postgresql://yzu:yzu_pass@db:5432/yzu
-      # drizzle.config.ts hardcodes `ssl: true`; accept the self-signed cert.
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
+    env_file:
+      - /run/base44/app.env
     command: pnpm --filter @workspace/db run push-force
     depends_on:
       db:
         condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+
+  # One-shot: seed admin account + demo content (categories, videos, plans)
+  # on the active DB (Neon when NEON_DATABASE_URL is set, local otherwise).
+  seed:
+    build:
+      context: .
+      dockerfile: .base44/Dockerfile.node
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      DATABASE_URL: postgresql://yzu:yzu_pass@db:5432/yzu
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+    env_file:
+      - /run/base44/app.env
+    command: node lib/db/scripts/seed-base44.mjs
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
       setup:
         condition: service_completed_successfully
 
@@ -96,7 +120,7 @@ services:
       - /run/base44/app.env
     command: pnpm --filter @workspace/api-server run dev
     depends_on:
-      migrate:
+      seed:
         condition: service_completed_successfully
     restart: unless-stopped
 
