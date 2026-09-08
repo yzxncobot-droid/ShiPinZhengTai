@@ -1,31 +1,38 @@
 /**
  * Telegram video streaming proxy with HTTP Range / 206 Partial Content support.
  *
- * Flow:
- *   Browser → GET /api/telegram-videos/:id/stream (with Range header)
- *   → Access check → DB lookup (file_id, chat_id, message_id)
- *   → Bot API getFile → file_path → fetch from Telegram file URL with Range
- *   → Stream to browser (206 Partial Content)
+ * Two file download providers:
+ *   - MTProto (iterDownload): used when MTProto is connected. Supports files
+ *     of any size (no 20 MB limit). Handles Range via offset-based chunked
+ *     download — the browser's Range is mapped directly to an MTProto offset.
+ *   - Bot API (getFile + HTTP fetch): fallback when MTProto is not available.
+ *     Limited to 20 MB by Telegram infrastructure.
  *
- * The entire file is NEVER loaded into RAM — the response body is streamed
- * chunk-by-chunk via a ReadableStream reader. No arrayBuffer(), no
- * Buffer.concat(), no disk caching.
+ * Both paths:
+ *   - NEVER load the entire file into RAM — chunks are piped with backpressure.
+ *   - Support HTTP Range requests (206 Partial Content) for video seeking.
+ *   - Use Cache-Control: private, no-store (videos may be premium/private).
  *
  * File size limits:
- *   - Standard Bot API (api.telegram.org): 20 MB (Telegram-imposed)
- *   - Local Bot API Server (TELEGRAM_API_BASE set): up to 2 GB
- * The limit is determined by the Telegram infrastructure in use, not by
- * any artificial MAX_SIZE constant in this code.
+ *   - MTProto: no limit (determined by server capacity, not Telegram).
+ *   - Standard Bot API (api.telegram.org): 20 MB (Telegram-imposed).
+ *   - Local Bot API Server (TELEGRAM_API_BASE set): up to 2 GB.
+ *
+ * If getFile fails with an expired/invalid file_id, the streamer attempts
+ * a file_id refresh via forwardMessage — updating ONLY this specific video's
+ * record (by primary key), never all videos from the same chat.
  */
 import type { Response } from "express";
 import { logger } from "../logger";
 import { getFileInfo, getFileUrl, refreshFileId, isLocalBotApiConfigured } from "./client";
 import type { TelegramFileInfo } from "./client";
+import { isMtProtoReady, getMtProtoFileStream, getMtProtoFileInfo, BOT_API_THRESHOLD } from "./mtproto";
+import { shouldUseMtProto } from "./file-provider";
 import { db } from "@workspace/db";
 import { telegramVideosTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
-// ── getFile result cache ───────────────────────────────────────────────────
+// ── getFile result cache (Bot API) ──────────────────────────────────────────
 // A browser playing a video sends many Range requests in quick succession
 // (initial load + seeks). Each Range request previously made a separate Bot API
 // getFile call to obtain the file_path — but the path is stable for a given
@@ -36,44 +43,26 @@ const FILE_INFO_CACHE_MAX = 200;
 
 const fileInfoCache = new Map<string, { info: TelegramFileInfo; expiresAt: number }>();
 
-/**
- * Cached wrapper around getFileInfo. Returns the cached result if still fresh,
- * otherwise calls the Bot API and caches the result. On cache miss the call
- * behaves identically to getFileInfo (throws on error).
- */
 async function getCachedFileInfo(fileId: string): Promise<TelegramFileInfo> {
   const cached = fileInfoCache.get(fileId);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.info;
   }
-
   const info = await getFileInfo(fileId);
-
-  // Evict oldest entries if the cache is full (simple FIFO eviction).
   if (fileInfoCache.size >= FILE_INFO_CACHE_MAX) {
     const oldest = fileInfoCache.keys().next().value;
     if (oldest) fileInfoCache.delete(oldest);
   }
-
   fileInfoCache.set(fileId, { info, expiresAt: Date.now() + FILE_INFO_CACHE_TTL_MS });
   return info;
 }
 
-/** Invalidate a cached file_info entry (e.g. after a file_id refresh). */
 function invalidateFileInfoCache(fileId: string): void {
   fileInfoCache.delete(fileId);
 }
 
-/**
- * Pipe a ReadableStream reader to an Express response with proper backpressure.
- *
- * Without backpressure, res.write() buffers data internally when the client
- * can't keep up. For large files (up to 2 GB) the upstream reader keeps pushing
- * chunks into memory faster than the client consumes them, causing unbounded
- * memory growth. This function waits for the 'drain' event when res.write()
- * returns false, ensuring the upstream is only read as fast as the downstream
- * can consume.
- */
+// ── Backpressure pipe (Bot API ReadableStream) ──────────────────────────────
+
 async function pipeWithBackpressure(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   res: Response,
@@ -84,9 +73,6 @@ async function pipeWithBackpressure(
     if (done) break;
     if (value) {
       if (!res.write(value)) {
-        // Internal buffer full — pause reading from upstream until the client
-        // drains. Also resolve on 'close' so we don't hang if the client
-        // disconnects mid-drain.
         await new Promise<void>(resolve => {
           const done = () => { res.off("close", done); res.off("drain", done); resolve(); };
           res.once("drain", done);
@@ -97,6 +83,27 @@ async function pipeWithBackpressure(
   }
 }
 
+// ── Backpressure pipe (MTProto AsyncGenerator) ───────────────────────────────
+
+async function pipeGeneratorWithBackpressure(
+  iter: AsyncGenerator<Buffer>,
+  res: Response,
+  isAborted: () => boolean,
+): Promise<void> {
+  for await (const chunk of iter) {
+    if (isAborted()) break;
+    if (!res.write(chunk)) {
+      await new Promise<void>(resolve => {
+        const done = () => { res.off("close", done); res.off("drain", done); resolve(); };
+        res.once("drain", done);
+        res.once("close", done);
+      });
+    }
+  }
+}
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
 interface StreamParams {
   fileId: string;
   /** Primary key of the telegram_videos row — used for targeted file_id refresh. */
@@ -106,6 +113,8 @@ interface StreamParams {
   mimeType: string;
   res: Response;
   rangeHeader?: string;
+  /** File size from the database (may be null/0 if unknown). */
+  fileSize?: number | null;
 }
 
 /**
@@ -113,10 +122,7 @@ interface StreamParams {
  * Returns null for an unsatisfiable range.
  */
 function parseRange(rangeHeader: string, fileSize: number): { start: number; end: number } | null {
-  // Reject multi-range requests (e.g. "bytes=0-100,200-300"). We only support
-  // single ranges — multipart/byteranges is not implemented. Processing only
-  // the first range silently would be incorrect; return null → 416 instead.
-  if (rangeHeader.includes(",")) return null;
+  if (rangeHeader.includes(",")) return null; // multi-range not supported
   const match = /bytes=(\d+)-(\d*)/.exec(rangeHeader);
   if (!match) return null;
   const start = parseInt(match[1], 10);
@@ -125,37 +131,162 @@ function parseRange(rangeHeader: string, fileSize: number): { start: number; end
   return { start, end: Math.min(end, fileSize - 1) };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// MAIN ENTRY POINT
+// ═══════════════════════════════════════════════════════════════════════════
+
 /**
  * Stream a Telegram video to the HTTP response.
- * Handles Range requests (206 Partial Content) and full requests (200 OK).
  *
- * Range handling rules:
- *   - When the browser requests a Range, we forward it to Telegram.
- *   - We check the UPSTREAM response.status — response.ok is true for both 200
- *     and 206, so it cannot be trusted to confirm the range was honored.
- *   - If upstream returns 206: we verify the Content-Range matches the range we
- *     requested, then stream as 206.
- *   - If upstream returns 200 (ignored the Range): we do NOT send a fake 206.
- *     We skip the leading bytes and serve only the requested range, so the
- *     browser still receives exactly start–end as a genuine 206.
- *   - We never send a Content-Range that doesn't match the bytes we stream.
- *   - We never send the entire file when only a range was requested.
- *
- * If getFile fails with an expired/invalid file_id, the streamer attempts
- * a file_id refresh via forwardMessage — updating ONLY this specific video's
- * record (by primary key), never all videos from the same chat.
+ * Dispatches to the MTProto path or Bot API path based on provider selection.
+ * If the selected provider fails, falls back to the other (when applicable).
  */
-export async function streamTelegramVideo({
-  fileId, videoId, chatId, messageId, mimeType, res, rangeHeader,
-}: StreamParams): Promise<void> {
+export async function streamTelegramVideo(params: StreamParams): Promise<void> {
+  const { fileSize: dbFileSize, videoId } = params;
+
+  // ── MTProto path (preferred when available) ──────────────────────────────
+  if (shouldUseMtProto(dbFileSize ?? null)) {
+    try {
+      await streamViaMtProto(params);
+      return;
+    } catch (err) {
+      // If MTProto fails and the file is small enough for Bot API, fallback.
+      if (dbFileSize != null && dbFileSize > 0 && dbFileSize <= BOT_API_THRESHOLD) {
+        logger.warn(
+          { err: err instanceof Error ? err.message : String(err), videoId },
+          "[TELEGRAM] MTProto failed, falling back to Bot API",
+        );
+        // Continue to Bot API path below.
+      } else {
+        // Can't fallback — large file requires MTProto.
+        if (!params.res.headersSent) handleStreamError(err, params.res);
+        return;
+      }
+    }
+  }
+
+  // ── Bot API path ──────────────────────────────────────────────────────────
+  await streamViaBotApi(params);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MTProto STREAMING PATH
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Stream a video via MTProto (iterDownload with offset).
+ *
+ * This path supports files of any size — no 20 MB limit. The browser's Range
+ * header is mapped directly to an MTProto download offset, so seeking works
+ * natively. File reference recovery is handled internally by the MTProto client.
+ */
+async function streamViaMtProto(params: StreamParams): Promise<void> {
+  const { videoId, chatId, messageId, mimeType, res, rangeHeader, fileSize: dbFileSize } = params;
+
+  // ── Determine file size ──────────────────────────────────────────────────
+  // Prefer the DB file size; if missing, fetch via MTProto (getMessages).
+  let fileSize = dbFileSize;
+  if (!fileSize || fileSize <= 0) {
+    try {
+      const info = await getMtProtoFileInfo(chatId, messageId);
+      fileSize = info.fileSize;
+    } catch (err) {
+      logger.error(
+        { err: err instanceof Error ? err.message : String(err), videoId },
+        "[TELEGRAM MTProto] Failed to get file info",
+      );
+      throw err;
+    }
+  }
+
+  logger.info({ videoId, fileSize, provider: "mtproto" }, "[TELEGRAM STREAM] MTProto path selected");
+
+  // ── Parse Range ──────────────────────────────────────────────────────────
+  let range: { start: number; end: number } | null = null;
+  if (rangeHeader) {
+    range = parseRange(rangeHeader, fileSize);
+    if (!range) {
+      res.status(416).setHeader("Content-Range", `bytes */${fileSize}`);
+      res.end();
+      return;
+    }
+  }
+
+  const start = range ? range.start : 0;
+  const end = range ? range.end : fileSize - 1;
+  const contentLength = end - start + 1;
+  const isPartial = !!range;
+
+  // ── Set response headers ──────────────────────────────────────────────────
+  res.setHeader("Content-Type", mimeType || "video/mp4");
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("Content-Length", contentLength.toString());
+  res.setHeader("Cache-Control", "private, no-store");
+
+  if (isPartial) {
+    res.status(206);
+    res.setHeader("Content-Range", `bytes ${start}-${end}/${fileSize}`);
+  } else {
+    res.status(200);
+  }
+
+  // ── Get MTProto stream and pipe to response ──────────────────────────────
+  let aborted = false;
+  const onClose = () => { aborted = true; };
+  res.on("close", onClose);
+
+  try {
+    const streamResult = await getMtProtoFileStream(chatId, messageId, start, isPartial ? end : null);
+    await pipeGeneratorWithBackpressure(streamResult.chunks, res, () => aborted);
+    logger.info({ videoId }, "[TELEGRAM STREAM] MTProto download completed");
+  } catch (err) {
+    logger.error(
+      { err: err instanceof Error ? err.message : String(err), videoId, chatId, messageId },
+      "[TELEGRAM] MTProto streaming error",
+    );
+    if (!res.headersSent) {
+      handleStreamError(err, res);
+    }
+  } finally {
+    res.off("close", onClose);
+    if (!aborted) res.end();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BOT API STREAMING PATH (existing logic, unchanged)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Stream a video via Bot API (getFile + HTTP fetch).
+ *
+ * Limited to 20 MB by Telegram infrastructure (unless using a Local Bot API
+ * Server). Range requests are forwarded to Telegram; the upstream response
+ * status (200 vs 206) is carefully validated to ensure the correct bytes
+ * are streamed.
+ *
+ * If getFile fails with "file is too big" and MTProto is available, the
+ * caller (streamTelegramVideo) will have already dispatched to the MTProto
+ * path. This function is only reached when MTProto is not available or has
+ * already failed.
+ */
+async function streamViaBotApi(params: StreamParams): Promise<void> {
+  const { fileId, videoId, chatId, messageId, mimeType, res, rangeHeader } = params;
+
   let fileInfo;
   try {
     fileInfo = await getCachedFileInfo(fileId);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
 
+    // If the file is too big for Bot API and MTProto is ready, fallback.
+    if (isMtProtoReady() && (errMsg.includes("too big") || errMsg.includes("file is too big"))) {
+      logger.info({ videoId }, "[TELEGRAM] File too big for Bot API, falling back to MTProto");
+      await streamViaMtProto(params);
+      return;
+    }
+
     // Only attempt file_id refresh for expired/invalid file_id errors.
-    // Do NOT refresh for "file is too big" — that's a size limit, not expiry.
     const isFileIdError = errMsg.includes("file_id") ||
       errMsg.includes("file_id_not_found") ||
       errMsg.includes("file_id_expired") ||
@@ -167,15 +298,11 @@ export async function streamTelegramVideo({
       const newFileId = await refreshFileId(chatId, messageId);
 
       if (newFileId) {
-        // BUG FIX: Update ONLY this specific video's file_id by primary key.
-        // Previously updated ALL videos from the same chat (by chatId), corrupting
-        // other videos' file_ids.
         await db.update(telegramVideosTable).set({
           telegramFileId: newFileId,
           updatedAt: new Date(),
         }).where(eq(telegramVideosTable.id, videoId)).catch(() => {});
 
-        // Invalidate the old file_id's cache entry — the path is stale.
         invalidateFileInfoCache(fileId);
 
         try {
@@ -211,7 +338,6 @@ export async function streamTelegramVideo({
   if (rangeHeader) {
     range = parseRange(rangeHeader, fileSize);
     if (!range) {
-      // Unsatisfiable range (e.g. start beyond file size).
       res.status(416).setHeader("Content-Range", `bytes */${fileSize}`);
       res.end();
       return;
@@ -224,10 +350,6 @@ export async function streamTelegramVideo({
   const isPartial = !!range;
 
   // ── Set response headers ───────────────────────────────────────────────────
-  // Cache-Control: private, no-store — videos may have permission/premium/private
-  // access. A public CDN cache could serve a private/premium video to an
-  // unauthorized user. private + no-store ensures the browser/proxy never caches
-  // the video body and every request re-authorizes.
   res.setHeader("Content-Type", contentType);
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Content-Length", contentLength.toString());
@@ -253,9 +375,6 @@ export async function streamTelegramVideo({
 
     const response = await fetch(fileUrl, { headers: fetchHeaders });
 
-    // ── Validate upstream status — do NOT trust response.ok ─────────────────
-    // response.ok is true for 200 AND 206, so it cannot confirm the Range was
-    // honored. We inspect response.status directly.
     const requestedRange = isPartial || start > 0;
     const upstreamStatus = response.status;
 
@@ -277,14 +396,11 @@ export async function streamTelegramVideo({
       const upstreamContentRange = response.headers.get("content-range") || "";
       const upstreamContentLength = parseInt(response.headers.get("content-length") || "", 10);
 
-      // Verify the upstream Content-Range matches what we requested.
       const expectedRange = `bytes ${start}-${end}/${fileSize}`;
       const rangeMatches = upstreamContentRange === expectedRange ||
         upstreamContentRange === `bytes ${start}-${end}/*`;
 
       if (!rangeMatches) {
-        // Upstream returned a different range than requested — do NOT send a
-        // fake Content-Range. Abort and return an error.
         logger.warn(
           { expected: expectedRange, got: upstreamContentRange, videoId },
           "[TELEGRAM] Upstream Content-Range mismatch",
@@ -296,7 +412,6 @@ export async function streamTelegramVideo({
         return;
       }
 
-      // Verify Content-Length matches the expected byte count.
       if (!Number.isNaN(upstreamContentLength) && upstreamContentLength !== contentLength) {
         logger.warn(
           { expected: contentLength, got: upstreamContentLength, videoId },
@@ -309,26 +424,13 @@ export async function streamTelegramVideo({
         return;
       }
 
-      // Stream upstream body directly — it contains exactly the requested range.
       await pipeWithBackpressure(reader, res, () => aborted);
     } else if (requestedRange && upstreamStatus === 200) {
-      // ── Upstream ignored the Range and returned the full file (200) ──────
-      // Do NOT skip gigabytes of leading bytes to serve only the requested
-      // range — that would download the entire file (up to 2 GB with Local
-      // Bot API) and discard most of it, wasting enormous bandwidth.
-      //
-      // If the Range starts at byte 0 (initial playback: "bytes=0-"), stream
-      // the full file as 200 — the browser gets a playable video and no bytes
-      // are wasted (we serve everything we download).
-      // If the Range starts beyond byte 0 (seeking), return 502 — seeking is
-      // not supported when the upstream endpoint ignores Range headers, and
-      // we refuse to download gigabytes just to discard them.
       if (start === 0) {
         logger.info(
           { videoId, fileSize },
           "[TELEGRAM] Upstream returned 200 for Range (start=0) — streaming full file as 200",
         );
-        // Override the 206/Content-Range we set earlier — headers not flushed yet.
         res.status(200);
         res.removeHeader("Content-Range");
         res.setHeader("Content-Length", fileSize.toString());
@@ -349,8 +451,6 @@ export async function streamTelegramVideo({
         return;
       }
     } else {
-      // ── No range requested, or upstream returned 200 for a full request ──
-      // Stream the entire body directly.
       await pipeWithBackpressure(reader, res, () => aborted);
     }
   } catch (err) {
@@ -367,24 +467,26 @@ export async function streamTelegramVideo({
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ERROR HANDLING
+// ═══════════════════════════════════════════════════════════════════════════
+
 function handleStreamError(err: unknown, res: Response): void {
   const msg = err instanceof Error ? err.message : String(err);
 
   // "file is too big" — standard Bot API 20 MB limit.
-  // This is a Telegram infrastructure limitation, not an application limit.
-  // With a Local Bot API Server (TELEGRAM_API_BASE), this limit is lifted to 2 GB.
   if (msg.includes("too big") || msg.includes("file is too big")) {
+    const mtProtoReady = isMtProtoReady();
     const usingLocalServer = isLocalBotApiConfigured();
     res.status(413).json({
-      error: usingLocalServer
-        ? "File terlalu besar untuk streaming"
-        : "File terlalu besar untuk streaming via Bot API standar",
-      detail: usingLocalServer
-        ? "File melebihi batas yang dapat ditangani oleh server."
-        : "Telegram Bot API standar membatasi download file hingga 20 MB. " +
-          "Untuk file lebih besar (hingga 2 GB), jalankan Telegram Local Bot API Server " +
-          "dan set environment variable TELEGRAM_API_BASE ke URL server tersebut. " +
-          "Tidak ada credential tambahan yang diperlukan — cukup bot token yang sudah ada.",
+      error: "File terlalu besar untuk streaming via Bot API standar",
+      detail: mtProtoReady
+        ? "File melebihi batas Bot API (20 MB). MTProto seharusnya digunakan tetapi gagal."
+        : usingLocalServer
+          ? "File melebihi batas yang dapat ditangani oleh server."
+          : "Telegram Bot API standar membatasi download file hingga 20 MB. " +
+            "Set TELEGRAM_API_ID dan TELEGRAM_API_HASH untuk mengaktifkan MTProto streaming " +
+            "yang mendukung file berukuran besar tanpa batas 20 MB.",
     });
     return;
   }
@@ -403,6 +505,24 @@ function handleStreamError(err: unknown, res: Response): void {
     res.status(502).json({
       error: "File ID kadaluarsa",
       detail: "File ID Telegram sudah kadaluarsa dan tidak dapat diperbarui. Coba import ulang video dengan forward ke bot.",
+    });
+    return;
+  }
+
+  // MTProto-specific errors
+  if (msg.includes("MTProto") || msg.includes("not initialized")) {
+    res.status(503).json({
+      error: "MTProto tidak tersedia",
+      detail: "Layanan MTProto belum siap atau tidak dikonfigurasi. Pastikan TELEGRAM_API_ID dan TELEGRAM_API_HASH telah diset.",
+    });
+    return;
+  }
+
+  // Message not found / not accessible
+  if (msg.includes("Message not found") || msg.includes("not accessible")) {
+    res.status(404).json({
+      error: "Video tidak ditemukan di Telegram",
+      detail: "Pesan Telegram tidak dapat diakses. Bot mungkin tidak memiliki akses ke chat ini.",
     });
     return;
   }

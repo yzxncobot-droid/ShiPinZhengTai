@@ -114,12 +114,14 @@ services:
     working_dir: /app
     volumes:
       - .:/app
+      - tg-session:/data
     environment:
       PORT: "8080"
       DATABASE_URL: postgresql://yzu:yzu_pass@db:5432/yzu
       NODE_ENV: development
       BASE44_PUBLIC_HOST_SUFFIX: "${BASE44_PUBLIC_HOST_SUFFIX}"
       TELEGRAM_SYNC_INTERVAL_MS: "300000"
+      TELEGRAM_SESSION_DIR: "/data"
     env_file:
       - ./.env.base44-defaults
       - /run/base44/app.env
@@ -163,3 +165,4 @@ services:
 volumes:
   pgdata:
   pgcerts:
+  tg-session:
