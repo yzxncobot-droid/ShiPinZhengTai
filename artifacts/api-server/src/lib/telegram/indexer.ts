@@ -242,6 +242,11 @@ export async function processIncomingUpdate(update: any): Promise<{ processed: b
   const metadata = extractVideoMetadata(update);
   if (!metadata) return { processed: false, reason: "no_video" };
 
+  logger.info(
+    { chatId: metadata.effectiveChatId, messageId: metadata.telegramMessageId, videoType: metadata.videoType, fileSize: metadata.fileSize },
+    "[TELEGRAM] Video metadata extracted",
+  );
+
   try {
     // Match the source by effective chat ID.
     const match = await matchSource(metadata.effectiveChatId);
@@ -298,6 +303,11 @@ export async function processIncomingUpdate(update: any): Promise<{ processed: b
     }
 
     const sourceId = match.sourceId!;
+
+    logger.info(
+      { sourceId, chatId: metadata.effectiveChatId, autoCreated: match.autoCreated },
+      "[TELEGRAM] Source matched",
+    );
 
     // ── Duplicate check (Telegram retry protection) ──────────────────────────
     const [existing] = await db.select({ id: telegramImportLogsTable.id })
@@ -444,6 +454,8 @@ export async function processQueueItem(log: typeof telegramImportLogsTable.$infe
       status: "completed",
       processedAt: new Date(),
     }).where(eq(telegramImportLogsTable.id, log.id));
+
+    logger.info({ logId: log.id, sourceId: metadata.sourceId, messageId: metadata.telegramMessageId }, "[TELEGRAM] Import completed");
 
     // ── Send success reply to the user ───────────────────────────────────────
     if (isTelegramConfigured() && metadata.replyChatId) {
