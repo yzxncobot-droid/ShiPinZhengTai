@@ -160,6 +160,16 @@ export const tgApi = {
   getWebhookInfo: () => tgFetch<WebhookInfo>("/admin/telegram/webhook/info"),
   deleteWebhook: () =>
     tgFetch<{ success: boolean }>("/admin/telegram/webhook", { method: "DELETE" }),
+  testWebhook: () =>
+    tgFetch<{
+      botApi: "ok" | "error";
+      webhook: "ok" | "error";
+      database: "ok" | "error";
+      publicBaseUrl: string | null;
+      webhookUrl: string | null;
+      pendingUpdates: number;
+      errors: string[];
+    }>("/admin/telegram/webhook/test"),
   getBotInfo: () => tgFetch<BotInfo>("/admin/telegram/bot-info"),
   testTelegram: () =>
     tgFetch<{ results: Record<string, { status: "ok" | "error"; detail?: string }> }>(

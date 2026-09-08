@@ -71,7 +71,18 @@ async function checkTelegramVideoAccess(
 // ═══════════════════════════════════════════════════════════════════════════
 
 router.post("/telegram/webhook", async (req, res) => {
-  logger.info({ updateId: req.body?.update_id ?? null }, "[TELEGRAM] Webhook received");
+  const update = req.body || {};
+  const updateType = update.message ? "message" : update.channel_post ? "channel_post"
+    : update.edited_message ? "edited_message" : update.edited_channel_post ? "edited_channel_post"
+    : "unknown";
+  const chatId = update.message?.chat?.id ?? update.channel_post?.chat?.id
+    ?? update.edited_message?.chat?.id ?? update.edited_channel_post?.chat?.id ?? null;
+  const messageId = update.message?.message_id ?? update.channel_post?.message_id
+    ?? update.edited_message?.message_id ?? update.edited_channel_post?.message_id ?? null;
+  logger.info(
+    { updateId: update.update_id ?? null, updateType, chatId, messageId },
+    "[TELEGRAM] Webhook received",
+  );
 
   // Verify webhook secret if configured.
   const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -339,14 +350,28 @@ router.post("/admin/telegram/webhook/setup", authenticate, requireRole("admin", 
 
     await setWebhook(publicUrl, secretToken);
 
+    // Verify that Telegram actually reports the expected webhook URL.
+    const info = await getWebhookInfo();
+    if (info.url !== publicUrl) {
+      logger.error({ expected: publicUrl, actual: info.url }, "[TELEGRAM] Webhook URL mismatch after setWebhook");
+      res.status(500).json({
+        success: false,
+        error: "Webhook URL mismatch",
+        detail: `Expected ${publicUrl} but Telegram reports ${info.url || "(empty)"}`,
+        webhookUrl: info.url,
+      });
+      return;
+    }
+
     // Get bot info to show the username.
     const botInfo = await getBotInfo();
 
-    logger.info({ url: publicUrl }, "[TELEGRAM] Webhook set");
+    logger.info({ url: publicUrl, bot: botInfo?.username }, "[TELEGRAM] Webhook set");
     res.json({
       success: true,
       webhookUrl: publicUrl,
       botUsername: botInfo?.username || null,
+      pendingUpdates: info.pendingUpdateCount,
     });
   } catch (err) {
     logger.error({ err }, "POST /admin/telegram/webhook/setup failed");
@@ -396,6 +421,86 @@ router.delete("/admin/telegram/webhook", authenticate, requireRole("admin", "own
     logger.error({ err }, "DELETE /admin/telegram/webhook failed");
     res.status(500).json({ error: "Failed to delete webhook" });
   }
+});
+
+// ── GET /api/admin/telegram/webhook/test — diagnostic endpoint ──────────────
+router.get("/admin/telegram/webhook/test", authenticate, requireRole("admin", "owner"), async (_req, res) => {
+  const errors: string[] = [];
+
+  // 1. TELEGRAM_BOT_TOKEN exists
+  if (!isTelegramConfigured()) {
+    res.json({
+      botApi: "error",
+      webhook: "error",
+      database: "error",
+      publicBaseUrl: process.env.PUBLIC_BASE_URL || null,
+      webhookUrl: null,
+      pendingUpdates: 0,
+      errors: ["TELEGRAM_BOT_TOKEN not configured"],
+    });
+    return;
+  }
+
+  // 2. Telegram getMe succeeds
+  let botApiOk = false;
+  try {
+    const me = await getBotInfo();
+    botApiOk = !!me;
+    if (!botApiOk) errors.push("getMe returned null");
+  } catch (err) {
+    errors.push(`getMe failed: ${err instanceof Error ? err.message : "Unknown"}`);
+  }
+
+  // 3. Telegram getWebhookInfo succeeds
+  let webhookOk = false;
+  let webhookUrl = "";
+  let pendingUpdates = 0;
+  try {
+    const info = await getWebhookInfo();
+    webhookUrl = info.url;
+    pendingUpdates = info.pendingUpdateCount;
+    webhookOk = !!info.url;
+    if (!info.url) errors.push("No webhook URL set");
+    if (info.lastErrorMessage) errors.push(`Last webhook error: ${info.lastErrorMessage}`);
+  } catch (err) {
+    errors.push(`getWebhookInfo failed: ${err instanceof Error ? err.message : "Unknown"}`);
+  }
+
+  // 4-5. Webhook URL matches PUBLIC_BASE_URL + /api/telegram/webhook
+  const publicBaseUrl = process.env.PUBLIC_BASE_URL;
+  if (publicBaseUrl && webhookUrl) {
+    const expectedUrl = `${publicBaseUrl}/api/telegram/webhook`;
+    if (webhookUrl !== expectedUrl) {
+      errors.push(`Webhook URL mismatch: expected ${expectedUrl}, got ${webhookUrl}`);
+      webhookOk = false;
+    }
+  } else if (!publicBaseUrl) {
+    errors.push("PUBLIC_BASE_URL not configured");
+  }
+
+  // 6. Webhook secret configured
+  if (!process.env.TELEGRAM_WEBHOOK_SECRET) {
+    errors.push("TELEGRAM_WEBHOOK_SECRET not configured");
+  }
+
+  // 7. Database connection works
+  let dbOk = false;
+  try {
+    await db.execute(sql`SELECT 1`);
+    dbOk = true;
+  } catch (err) {
+    errors.push(`Database connection failed: ${err instanceof Error ? err.message : "Unknown"}`);
+  }
+
+  res.json({
+    botApi: botApiOk ? "ok" : "error",
+    webhook: webhookOk ? "ok" : "error",
+    database: dbOk ? "ok" : "error",
+    publicBaseUrl: publicBaseUrl || null,
+    webhookUrl: webhookUrl || null,
+    pendingUpdates,
+    errors,
+  });
 });
 
 // ── GET /api/admin/telegram/bot-info — get bot username ──────────────────────

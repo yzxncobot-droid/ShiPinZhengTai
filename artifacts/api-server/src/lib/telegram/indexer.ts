@@ -244,8 +244,23 @@ export async function processIncomingUpdate(update: any): Promise<{ processed: b
 
   logger.info(
     { chatId: metadata.effectiveChatId, messageId: metadata.telegramMessageId, videoType: metadata.videoType, fileSize: metadata.fileSize },
-    "[TELEGRAM] Video metadata extracted",
+    "[TELEGRAM] Video received",
   );
+
+  // ── IMMEDIATE ACKNOWLEDGEMENT (before source matching / DB insert) ────────
+  // Proves the webhook itself is working, regardless of source registration
+  // or processing outcome. Sent BEFORE any DB operation so the user knows
+  // the webhook is alive even if later steps fail.
+  if (isTelegramConfigured()) {
+    const isDirect = !metadata.isForwarded && Number(metadata.effectiveChatId) > 0;
+    const ackMsg = isDirect
+      ? "📥 VIDEO DITERIMA\n\nVideo langsung dari chat bot.\n\n🟡 Sedang diproses..."
+      : "📥 VIDEO DITERIMA\n\nSistem berhasil menerima video kamu.\n\nStatus:\n🟡 Sedang diproses...";
+    await sendMessage(metadata.replyChatId, ackMsg).catch((err) => {
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, "[TELEGRAM] Failed to send acknowledgement");
+    });
+    logger.info({ chatId: metadata.replyChatId, messageId: metadata.telegramMessageId }, "[TELEGRAM] Video acknowledgement sent");
+  }
 
   try {
     // Match the source by effective chat ID.
@@ -272,9 +287,12 @@ export async function processIncomingUpdate(update: any): Promise<{ processed: b
       // Reply to the user with the unregistered chat ID.
       if (isTelegramConfigured()) {
         await sendMessage(metadata.replyChatId,
-          `❌ Source tidak terdaftar.\n\n` +
-          `Chat ID: ${match.rejectChatId}\n\n` +
-          `Admin perlu menambahkan Chat ID ini di Telegram Video Storage → Add Source.`);
+          "⚠️ VIDEO DITERIMA\n\n" +
+          "Webhook Telegram bekerja dengan normal.\n\n" +
+          "Namun sumber video belum terdaftar.\n\n" +
+          `Chat ID:\n${match.rejectChatId}\n\n` +
+          "Tambahkan Chat ID tersebut melalui:\nTelegram Video Storage -> Add Source"
+        ).catch(() => {});
       }
       return { processed: false, reason: "source_not_registered" };
     }
@@ -336,23 +354,21 @@ export async function processIncomingUpdate(update: any): Promise<{ processed: b
       "[TELEGRAM] Import queued",
     );
 
-    // ── Send immediate bot reply: "Video diterima, processing..." ─────────────
-    if (isTelegramConfigured()) {
-      const title = metadata.caption || metadata.fileName || "Video";
-      const sizeStr = metadata.fileSize > 0
-        ? formatBytes(metadata.fileSize)
-        : "Unknown";
-      await sendMessage(metadata.replyChatId,
-        `✅ Video diterima\n\nJudul: ${title}\nUkuran: ${sizeStr}\nStatus: Processing...`,
-      );
-    }
-
     return { processed: true };
   } catch (err) {
     logger.error(
       { err: err instanceof Error ? err.message : String(err) },
       "[TELEGRAM] processIncomingUpdate failed",
     );
+
+    // Send error message to user (initial ack was already sent).
+    if (isTelegramConfigured() && metadata.replyChatId) {
+      await sendMessage(metadata.replyChatId,
+        "❌ VIDEO GAGAL DIPROSES\n\n" +
+        "Video sudah diterima oleh sistem, tetapi terjadi error saat menyimpan/mengindex.\n\n" +
+        "Status:\n❌ Failed"
+      ).catch(() => {});
+    }
     return { processed: false, reason: "error" };
   }
 }
@@ -364,6 +380,15 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+/** Sanitize an error message — never expose tokens, secrets, or DB credentials. */
+function sanitizeErrorMessage(message: string): string {
+  return message
+    .replace(/bot\d+:[\w-]+/gi, "***")              // bot tokens
+    .replace(/postgres(?:ql)?:\/\/[^\s]+/gi, "***")  // database URLs
+    .replace(/[A-Za-z0-9_-]{30,}/g, "***")           // long secrets
+    .substring(0, 300);
 }
 
 // ── Queue processor ──────────────────────────────────────────────────────────
@@ -460,8 +485,12 @@ export async function processQueueItem(log: typeof telegramImportLogsTable.$infe
     // ── Send success reply to the user ───────────────────────────────────────
     if (isTelegramConfigured() && metadata.replyChatId) {
       const title = metadata.caption || metadata.fileName || `Video ${metadata.telegramMessageId}`;
+      const sizeStr = metadata.fileSize > 0 ? formatBytes(metadata.fileSize) : "Unknown";
       await sendMessage(metadata.replyChatId,
-        `✅ Video berhasil ditambahkan ke website.\n\nJudul: ${title}`,
+        "✅ VIDEO BERHASIL\n\n" +
+        "Video berhasil ditambahkan ke website.\n\n" +
+        `Judul: ${title}\n` +
+        `Ukuran: ${sizeStr}`
       ).catch(() => {});
     }
   } catch (err) {
@@ -480,8 +509,11 @@ export async function processQueueItem(log: typeof telegramImportLogsTable.$infe
 
     // ── Send failure reply to the user (only on final failure) ────────────────
     if (attempts >= MAX_ATTEMPTS && isTelegramConfigured() && metadata?.replyChatId) {
+      const safeError = sanitizeErrorMessage(errMsg);
       await sendMessage(metadata.replyChatId,
-        "❌ Video gagal diproses.\n\nSilakan cek Telegram Video Storage → Logs.",
+        "❌ VIDEO GAGAL\n\n" +
+        "Video diterima oleh sistem, tetapi gagal diproses.\n\n" +
+        `Error:\n${safeError}`
       ).catch(() => {});
     }
   }
