@@ -238,7 +238,17 @@ export async function setWebhook(url: string, secretToken?: string): Promise<boo
 }
 
 export async function getWebhookInfo(): Promise<WebhookInfo> {
-  return botApiCall<WebhookInfo>("getWebhookInfo");
+  const raw = await botApiCall<Record<string, any>>("getWebhookInfo");
+  // Telegram returns snake_case — map to our camelCase interface.
+  return {
+    url: raw.url ?? "",
+    pendingUpdateCount: raw.pending_update_count ?? 0,
+    lastErrorDate: raw.last_error_date,
+    lastErrorMessage: raw.last_error_message,
+    maxConnections: raw.max_connections,
+    allowedUpdates: raw.allowed_updates,
+    hasCustomCertificate: raw.has_custom_certificate,
+  };
 }
 
 export async function deleteWebhook(): Promise<boolean> {
