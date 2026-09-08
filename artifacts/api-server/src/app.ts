@@ -1,6 +1,9 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import { fileURLToPath } from "node:url";
+import nodePath from "node:path";
+import nodeFs from "node:fs";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { maintenanceGuard } from "./middlewares/maintenance";
@@ -68,6 +71,30 @@ app.use("/api", (req: Request, res: Response) => {
     message: `Endpoint tidak ditemukan: ${req.method} ${req.url}`,
   });
 });
+
+// ── Serve built frontend (production only) ───────────────────────────────────
+// In production, this Express server also serves the Vite-built frontend from
+// artifacts/yzu-video/dist/public. In dev, Vite serves the frontend and proxies
+// /api to this server, so this block is a no-op (the directory doesn't exist).
+const frontendDist = nodePath.resolve(
+  nodePath.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "yzu-video",
+  "dist",
+  "public",
+);
+
+if (nodeFs.existsSync(frontendDist)) {
+  app.use(express.static(frontendDist));
+  // SPA fallback: serve index.html for non-/api GET routes (client-side routing)
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.method !== "GET" || req.path.startsWith("/api")) return next();
+    res.sendFile(nodePath.join(frontendDist, "index.html"), (err) => {
+      if (err) next(err);
+    });
+  });
+}
 
 // ── Global JSON error handler ─────────────────────────────────────────────────
 // Catches any error thrown (or passed via next(err)) inside a route handler and
