@@ -71,7 +71,7 @@ export default defineConfig({
     // relative "/api" fetches resolve in the Base44 dev environment.
     proxy: {
       '/api': {
-        target: process.env.API_PROXY_TARGET ?? 'http://api:8080',
+        target: process.env.API_PROXY_TARGET ?? 'http://localhost:8080',
         changeOrigin: true,
       },
     },

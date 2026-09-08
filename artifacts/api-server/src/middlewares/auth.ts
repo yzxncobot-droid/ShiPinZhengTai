@@ -7,10 +7,17 @@ import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger";
 
 // Prefer JWT_SECRET if set; fall back to SESSION_SECRET for backward compat.
+// If neither is set, use an insecure dev fallback so the server can still boot
+// (with a loud warning) instead of crashing at module load time.
 const JWT_SECRET = process.env.JWT_SECRET ?? process.env.SESSION_SECRET;
 if (!JWT_SECRET) {
-  throw new Error("JWT_SECRET (or SESSION_SECRET) environment variable is required");
+  // eslint-disable-next-line no-console
+  console.warn(
+    "[AUTH] WARNING: JWT_SECRET (or SESSION_SECRET) is not set — using an insecure dev fallback. " +
+      "Set SESSION_SECRET in your environment for production.",
+  );
 }
+const EFFECTIVE_JWT_SECRET = JWT_SECRET ?? "insecure-dev-fallback-secret-change-me";
 
 export interface JwtPayload {
   /** UUID of the authenticated user. */
@@ -87,7 +94,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   const token = authHeader.slice(7);
   let payload: JwtPayload;
   try {
-    payload = jwt.verify(token, JWT_SECRET!) as unknown as JwtPayload;
+    payload = jwt.verify(token, EFFECTIVE_JWT_SECRET) as unknown as JwtPayload;
   } catch {
     res.status(401).json({ error: "Invalid token" });
     return;
@@ -145,7 +152,7 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
   }
   const token = authHeader.slice(7);
   try {
-    const payload = jwt.verify(token, JWT_SECRET!) as unknown as JwtPayload;
+    const payload = jwt.verify(token, EFFECTIVE_JWT_SECRET) as unknown as JwtPayload;
     if (payload.jti && isRedisAvailable) {
       try {
         const session = await getSession(payload.jti);
@@ -196,6 +203,6 @@ export function requireRole(...roles: string[]) {
 /** Sign a JWT with a unique jti for Redis session tracking. */
 export function signToken(userId: string, role: string): { token: string; jti: string } {
   const jti = crypto.randomUUID();
-  const token = jwt.sign({ userId, role, jti }, JWT_SECRET!, { expiresIn: "30d" });
+  const token = jwt.sign({ userId, role, jti }, EFFECTIVE_JWT_SECRET, { expiresIn: "30d" });
   return { token, jti };
 }

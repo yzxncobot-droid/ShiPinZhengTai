@@ -7,8 +7,13 @@ const { Pool } = pg;
 const connectionString = process.env.NEON_DATABASE_URL ?? process.env.DATABASE_URL;
 
 if (!connectionString) {
-  throw new Error(
-    "NEON_DATABASE_URL (or DATABASE_URL) must be set. Did you forget to provision a database?",
+  // Don't crash at module load — the server needs to start so health checks
+  // work and the error is visible in logs. initDatabase() in index.ts will
+  // catch the connection failure and retry/shutdown gracefully.
+  // eslint-disable-next-line no-console
+  console.error(
+    "[DB] WARNING: NEON_DATABASE_URL (or DATABASE_URL) is not set. " +
+      "The server will start but database operations will fail until a connection string is provided.",
   );
 }
 
