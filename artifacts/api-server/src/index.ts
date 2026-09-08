@@ -161,10 +161,12 @@ async function initDatabase(): Promise<void> {
     }
   }
 
-  logger.error("[SERVER] Database initialization failed after all retries — shutting down");
-  server.close(() => process.exit(1));
-  // Force exit after 5s if server.close hangs
-  setTimeout(() => process.exit(1), 5_000).unref();
+  // ── Don't shut down — keep the server running in degraded mode ──────────────
+  // The server stays up so API endpoints return structured JSON errors (e.g.
+  // DB_LOOKUP_FAILED) instead of a connection refused / proxy 502 that the
+  // frontend can't parse. The /api/readyz endpoint stays 503 (isReady is still
+  // false) so the platform knows the server isn't fully healthy.
+  logger.error("[SERVER] Database initialization failed after all retries — running in degraded mode (no database). API endpoints will return structured JSON errors.");
 }
 
 initDatabase();

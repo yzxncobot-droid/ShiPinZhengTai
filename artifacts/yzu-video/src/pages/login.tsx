@@ -39,14 +39,23 @@ export default function Login() {
         body: JSON.stringify(values),
       });
 
-      // Safely parse the response — the server may return non-JSON (e.g. proxy
-      // error, server crash) which would throw on res.json().
+      // Safely parse the response — the server or an intermediary proxy may
+      // return non-JSON even with a JSON content-type (e.g. "Internal Server
+      // error" from a crashed/degraded upstream). Guard against both cases.
       const contentType = res.headers.get("content-type") ?? "";
       let data: any;
       if (contentType.includes("application/json")) {
-        data = await res.json();
+        try {
+          data = await res.json();
+        } catch {
+          toast({
+            title: "Koneksi gagal",
+            description: `Server mengembalikan respons tidak valid (HTTP ${res.status}). Coba lagi beberapa saat.`,
+            variant: "destructive",
+          });
+          return;
+        }
       } else {
-        const text = await res.text();
         toast({
           title: "Koneksi gagal",
           description: `Server mengembalikan respons tidak valid (HTTP ${res.status}). Coba lagi beberapa saat.`,
