@@ -74,7 +74,7 @@ services:
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
     env_file:
       - /run/base44/app.env
-    command: pnpm --filter @workspace/db run push-force
+    command: sh -c "node lib/db/scripts/pre-migrate.mjs && pnpm --filter @workspace/db run push-force"
     depends_on:
       db:
         condition: service_healthy
