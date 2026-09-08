@@ -7,7 +7,7 @@
  */
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "wouter";
-import { Film, Search, Lock, Clock, HardDrive, Loader2 } from "lucide-react";
+import { Film, Search, Lock, Clock, HardDrive, Loader2, AlertCircle } from "lucide-react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -23,12 +23,14 @@ export default function TelegramVideosPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState<string>("");
   const [search, setSearch] = useState("");
   const [sources, setSources] = useState<{ id: string; name: string; videoCount: number }[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const [data, srcs] = await Promise.all([
         tgApi.listVideos({ page, limit: 24, sourceId: sourceFilter || undefined, search: search || undefined }),
@@ -37,9 +39,10 @@ export default function TelegramVideosPage() {
       setVideos(data.data);
       setTotal(data.total);
       setSources(srcs);
-    } catch {
+    } catch (err: any) {
       setVideos([]);
       setTotal(0);
+      setError(err.message || "Failed to load videos");
     } finally {
       setLoading(false);
     }
@@ -96,6 +99,12 @@ export default function TelegramVideosPage() {
         {loading ? (
           <div className="flex justify-center py-16">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : error ? (
+          <div className="text-center py-16">
+            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-3" />
+            <p className="text-red-500 font-medium mb-1">❌ API/Database Error</p>
+            <p className="text-muted-foreground text-sm">{error}</p>
           </div>
         ) : videos.length === 0 ? (
           <div className="text-center py-16">

@@ -131,6 +131,31 @@ export async function getBotInfo(): Promise<BotInfo | null> {
   }
 }
 
+// ── Real Bot API test (fresh getMe, no cache) ──────────────────────────────
+
+/**
+ * Performs a FRESH getMe call — never uses the cached bot info.
+ * Use this for health checks where you need to detect if the token is
+ * currently valid. Returns a sanitized error string on failure.
+ *
+ * Updates the cache on success so subsequent getBotInfo() calls benefit.
+ */
+export async function testBotApi(): Promise<
+  { ok: true; username: string } | { ok: false; error: string }
+> {
+  if (!isTelegramConfigured()) {
+    return { ok: false, error: "TELEGRAM_BOT_TOKEN not configured" };
+  }
+  try {
+    const me = await botApiCall<BotInfo>("getMe");
+    cachedBotInfo = me; // refresh cache
+    return { ok: true, username: me.username };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: sanitizeError(message) };
+  }
+}
+
 // ── Connection test ─────────────────────────────────────────────────────────
 
 export interface ConnectionTestResult {
@@ -139,6 +164,8 @@ export interface ConnectionTestResult {
   type?: string;
   chatId?: string;
   errorMessage?: string;
+  /** true when the bot cannot access the chat (400/403) → caller sets DISCONNECTED. */
+  disconnected?: boolean;
 }
 
 /** Sanitize an error message — never expose tokens, hashes, or secrets. */
@@ -175,8 +202,12 @@ export async function testConnection(chatId: string): Promise<ConnectionTestResu
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const safe = sanitizeError(message);
-    logger.warn({ chatId, err: safe }, "[TELEGRAM] Connection test failed");
-    return { success: false, errorMessage: safe || "Bot does not have access to this chat" };
+    // 403 Forbidden / 400 Bad Request = bot can't access the chat → DISCONNECTED.
+    // Other errors (network, 5xx, etc.) = unexpected → ERROR.
+    const errorCode = err instanceof TelegramBotApiError ? err.errorCode : 0;
+    const disconnected = errorCode === 403 || errorCode === 400;
+    logger.warn({ chatId, err: safe, errorCode, disconnected }, "[TELEGRAM] Connection test failed");
+    return { success: false, errorMessage: safe || "Bot does not have access to this chat", disconnected };
   }
 }
 
