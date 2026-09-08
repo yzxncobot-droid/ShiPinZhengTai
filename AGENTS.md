@@ -154,6 +154,40 @@ Bot API cannot read message history, so videos arrive via **webhook**:
 - **Video player**: Added `playsInline` and `preload="metadata"` attributes.
 - **Configurable API base**: `TELEGRAM_API_BASE` env var for Local Bot API Server support.
 
+## Telegram Video Integration in Admin Upload
+
+The Admin Upload page (`/admin/upload`) has three video source options:
+1. **Upload File** — existing file upload to Supabase (unchanged)
+2. **Link Video** — existing external link (unchanged)
+3. **Telegram Video** — NEW: select from existing `telegram_videos` catalog
+
+### How it works
+- Admin picks "Telegram Video" → a picker fetches `GET /api/telegram-videos` (existing endpoint)
+- Admin selects ONE video → `telegramVideoId` is stored in the form
+- On submit, `POST /videos` receives `videoSourceType: "telegram"` + `telegramVideoId`
+- Backend validates: record exists, source enabled, video status active, not already linked to another video
+- `videoUrl` is set to `/api/telegram-videos/{id}/stream` (reference only — no file copy)
+- `duration` is copied from the telegram video metadata
+- Video binary stays in Telegram — playback uses the existing stream ticket system
+
+### Schema change
+- `videosTable` gained `telegramVideoId` (nullable uuid, FK → `telegram_videos.id`, ON DELETE SET NULL)
+- Migration: `drizzle-kit push --force` (already applied)
+
+### Playback (video detail page)
+- When `videoSourceType === "telegram"`, the player uses the existing stream ticket flow:
+  1. `POST /api/telegram-videos/{id}/stream-ticket` → get signed 60s ticket
+  2. `<video src="/api/telegram-videos/{id}/stream?ticket=...">` — no auth header needed
+  3. On error (ticket expiry), auto-retry once with a fresh ticket
+- The stream endpoint is never public — premium access is re-checked on every request
+
+### Files changed
+- `lib/db/src/schema/videos.ts` — added `telegramVideoId` column
+- `artifacts/api-server/src/routes/videos.ts` — validation + insert in POST /videos
+- `artifacts/yzu-video/src/components/admin/TelegramVideoPicker.tsx` — NEW component
+- `artifacts/yzu-video/src/pages/admin/upload.tsx` — third source option + picker
+- `artifacts/yzu-video/src/pages/videos/detail.tsx` — Telegram stream ticket playback
+
 ## Netlify Deployment
 
 The repo is configured for one-click Netlify import & deploy via `netlify.toml`.

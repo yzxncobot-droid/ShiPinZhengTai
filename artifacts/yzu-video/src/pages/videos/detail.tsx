@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useLocation, useRoute } from "wouter";
 import { formatDistanceToNow } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { VideoCard } from "@/components/video/VideoCard";
 import { FunLogo } from "@/components/layout/AppLayout";
+import { tgApi } from "@/lib/telegram-api";
+import { getToken } from "@/lib/admin-api";
 
 export default function VideoDetailPage() {
   const [, params] = useRoute("/videos/:id");
@@ -40,6 +42,63 @@ export default function VideoDetailPage() {
   const addComment = useAddComment();
 
   const [commentText, setCommentText] = useState("");
+
+  // ── Telegram video streaming via short-lived playback ticket ──────────────
+  // When videoSourceType === "telegram", the videoUrl points to the Telegram
+  // stream endpoint which requires auth. The native <video> element cannot
+  // send the Authorization header, so we use the existing stream ticket system:
+  // 1. POST /api/telegram-videos/:id/stream-ticket → get a signed 60s ticket
+  // 2. Use the ticket URL as the <video src>
+  // 3. On error (ticket expiry mid-playback), retry once with a fresh ticket
+  const [tgStreamSrc, setTgStreamSrc] = useState<string | null>(null);
+  const [tgStreamLoading, setTgStreamLoading] = useState(false);
+  const [tgStreamError, setTgStreamError] = useState<string | null>(null);
+  const tgVideoRef = useRef<HTMLVideoElement>(null);
+  const tgTicketRetries = useRef(0);
+
+  // videoSourceType and telegramVideoId are returned by the backend but not in
+  // the generated VideoDetail type — cast to access them safely.
+  const videoExt = video as (typeof video & { videoSourceType?: string; telegramVideoId?: string }) | undefined;
+  const isTelegramVideo = videoExt?.videoSourceType === "telegram" && !!videoExt?.telegramVideoId;
+
+  const loadTgStreamTicket = useCallback((resumeAt?: number) => {
+    if (!videoExt?.telegramVideoId) return;
+    setTgStreamLoading(true);
+    setTgStreamError(null);
+    const token = getToken();
+    fetch(`/api/telegram-videos/${videoExt.telegramVideoId}/stream-ticket`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    })
+      .then(res => res.json())
+      .then(({ ticket }) => {
+        const url = `/api/telegram-videos/${videoExt.telegramVideoId}/stream?ticket=${encodeURIComponent(ticket)}`;
+        setTgStreamSrc(resumeAt && resumeAt > 0 ? `${url}#t=${resumeAt}` : url);
+      })
+      .catch(err => setTgStreamError(err.message || "Gagal menyiapkan streaming"))
+      .finally(() => setTgStreamLoading(false));
+  }, [videoExt?.telegramVideoId]);
+
+  useEffect(() => {
+    if (isTelegramVideo && video && video.hasAccess !== false) {
+      tgTicketRetries.current = 0;
+      loadTgStreamTicket();
+    }
+  }, [isTelegramVideo, video, loadTgStreamTicket]);
+
+  const handleTgVideoError = () => {
+    const el = tgVideoRef.current;
+    if (tgTicketRetries.current < 1) {
+      tgTicketRetries.current += 1;
+      loadTgStreamTicket(el?.currentTime ?? 0);
+      return;
+    }
+    const code = el?.error?.code;
+    setTgStreamError(`Stream gagal dimuat dari server.${code ? ` (Error code: ${code})` : ""}`);
+  };
 
   useEffect(() => {
     if (id && video && video.hasAccess !== false) {
@@ -143,13 +202,48 @@ export default function VideoDetailPage() {
               <Rocket className="h-6 w-6 text-white" />
             </div>
             <div className="w-full aspect-video bg-black rounded-3xl overflow-hidden shadow-md border-4 border-white">
-              <video 
-                controls 
-                autoPlay 
-                poster={video.thumbnail || ''} 
-                className="w-full h-full object-contain"
-                src={video.videoUrl || ''}
-              />
+              {isTelegramVideo ? (
+                tgStreamError ? (
+                  <div className="flex flex-col items-center justify-center gap-3 h-full py-20 px-4 text-center">
+                    <AlertCircle className="h-10 w-10 text-red-500" />
+                    <p className="text-sm font-semibold text-white">Video gagal diputar.</p>
+                    <p className="text-xs text-white/60">{tgStreamError}</p>
+                    <Button
+                      size="sm" variant="secondary"
+                      onClick={() => {
+                        tgTicketRetries.current = 0;
+                        loadTgStreamTicket(tgVideoRef.current?.currentTime ?? 0);
+                      }}
+                    >
+                      Coba Lagi
+                    </Button>
+                  </div>
+                ) : tgStreamLoading || !tgStreamSrc ? (
+                  <div className="flex items-center justify-center h-full">
+                    <Loader2 className="h-8 w-8 animate-spin text-white/60" />
+                  </div>
+                ) : (
+                  <video
+                    ref={tgVideoRef}
+                    controls
+                    autoPlay
+                    playsInline
+                    preload="metadata"
+                    poster={video.thumbnail || ''}
+                    className="w-full h-full object-contain"
+                    src={tgStreamSrc}
+                    onError={handleTgVideoError}
+                  />
+                )
+              ) : (
+                <video
+                  controls
+                  autoPlay
+                  poster={video.thumbnail || ''}
+                  className="w-full h-full object-contain"
+                  src={video.videoUrl || ''}
+                />
+              )}
             </div>
           </div>
         )}
