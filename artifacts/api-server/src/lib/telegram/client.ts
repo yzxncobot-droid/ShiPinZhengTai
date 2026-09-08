@@ -19,7 +19,7 @@ const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
  * Configurable API base. Defaults to the public Telegram Bot API.
  * Set TELEGRAM_API_BASE to a Local Bot API Server URL for large-file support.
  */
-const TELEGRAM_API_BASE = process.env.TELEGRAM_API_BASE || "https://api.telegram.org";
+const TELEGRAM_API_BASE = (process.env.TELEGRAM_API_BASE || "https://api.telegram.org").replace(/\/+$/, "");
 const API_BASE = `${TELEGRAM_API_BASE}/bot${BOT_TOKEN}`;
 const FILE_BASE = `${TELEGRAM_API_BASE}/file/bot${BOT_TOKEN}`;
 

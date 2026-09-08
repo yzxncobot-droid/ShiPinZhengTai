@@ -112,11 +112,10 @@ async function initDatabase(): Promise<void> {
       try {
         const { isTelegramConfigured, setWebhook, getBotInfo } = await import("./lib/telegram/client");
         if (isTelegramConfigured()) {
-          const suffix = process.env.BASE44_PUBLIC_HOST_SUFFIX;
-          const publicBaseUrl = process.env.PUBLIC_BASE_URL;
+            const publicBaseUrl = process.env.PUBLIC_BASE_URL;
           const webhookUrl = publicBaseUrl
             ? `${publicBaseUrl}/api/telegram/webhook`
-            : (suffix ? `https://3000-${suffix}/api/telegram/webhook` : null);
+            : null;
 
           if (webhookUrl) {
             const secretToken = process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -127,7 +126,7 @@ async function initDatabase(): Promise<void> {
               "[TELEGRAM] Webhook auto-registered on startup",
             );
           } else {
-            logger.warn("[TELEGRAM] Cannot auto-register webhook — no public URL configured");
+            logger.warn("[TELEGRAM] Cannot auto-register webhook — PUBLIC_BASE_URL not configured");
           }
         }
       } catch (e) {
