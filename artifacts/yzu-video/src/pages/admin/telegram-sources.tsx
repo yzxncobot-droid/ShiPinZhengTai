@@ -583,6 +583,7 @@ function HealthCheck({ health, onTest, testing, testResults }: {
     { label: "Sources", key: "sources", icon: Activity },
     { label: "Indexer", key: "indexer", icon: RefreshCw },
     { label: "Streaming", key: "streaming", icon: Server },
+    { label: "Local Bot API", key: "localBotApi", icon: Server },
   ];
   return (
     <Card className="p-3 space-y-2">
@@ -616,6 +617,17 @@ function HealthCheck({ health, onTest, testing, testResults }: {
               <span className="text-muted-foreground">{val.detail || val.status}</span>
             </div>
           ))}
+        </div>
+      )}
+      {health.streamingMode && health.streamingMode !== "NOT_AVAILABLE" && (
+        <div className="flex items-center gap-2 text-xs border-t pt-2">
+          <Server className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="font-medium">Streaming:</span>
+          <span className="text-muted-foreground">
+            {health.streamingMode === "LOCAL_BOT_API"
+              ? "Local Bot API — up to 2 GB file support"
+              : "Standard Bot API — 20 MB file limit"}
+          </span>
         </div>
       )}
     </Card>

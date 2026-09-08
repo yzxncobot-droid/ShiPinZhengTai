@@ -48,6 +48,7 @@ export interface TelegramHealth {
     syncing: number;
   };
   totalVideos: number;
+  activeSources: number;
   importQueue: {
     pending: number;
     processing: number;
@@ -59,13 +60,20 @@ export interface TelegramHealth {
     url: string;
     pendingUpdateCount: number;
     lastErrorMessage: string | null;
+    lastErrorDate: number | null;
   } | null;
+  botUsername: string | null;
+  streamingMode: "STANDARD_BOT_API" | "LOCAL_BOT_API" | "NOT_AVAILABLE";
+  largeFileStreaming: boolean;
+  lastSuccessfulImport: { createdAt: string; sourceName: string | null } | null;
+  lastFailedImport: { createdAt: string; errorMessage: string | null } | null;
   components: {
     telegramApi: string;
     webhook: string;
     database: string;
     indexer: string;
     streaming: string;
+    localBotApi: string;
   };
 }
 

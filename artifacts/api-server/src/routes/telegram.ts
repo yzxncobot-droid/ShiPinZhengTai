@@ -71,6 +71,8 @@ async function checkTelegramVideoAccess(
 // ═══════════════════════════════════════════════════════════════════════════
 
 router.post("/telegram/webhook", async (req, res) => {
+  logger.info({ updateId: req.body?.update_id ?? null }, "[TELEGRAM] Webhook received");
+
   // Verify webhook secret if configured.
   const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
   if (webhookSecret) {
@@ -319,11 +321,19 @@ router.post("/admin/telegram/webhook/setup", authenticate, requireRole("admin", 
       return;
     }
 
-    // Use provided URL, or construct from BASE44_PUBLIC_HOST_SUFFIX / PUBLIC_BASE_URL.
+    // Construct the webhook URL from PUBLIC_BASE_URL (env var, not hardcoded).
+    // The admin may also pass an explicit URL in the request body.
     const publicUrl = req.body.url ||
       (process.env.PUBLIC_BASE_URL
         ? `${process.env.PUBLIC_BASE_URL}/api/telegram/webhook`
-        : `https://3000-${process.env.BASE44_PUBLIC_HOST_SUFFIX}/api/telegram/webhook`);
+        : null);
+
+    if (!publicUrl) {
+      res.status(400).json({
+        error: "PUBLIC_BASE_URL not configured. Set the PUBLIC_BASE_URL environment variable (e.g. https://your-domain.com) so the webhook URL can be constructed.",
+      });
+      return;
+    }
 
     const secretToken = process.env.TELEGRAM_WEBHOOK_SECRET;
 
