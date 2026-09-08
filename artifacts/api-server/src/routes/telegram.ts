@@ -20,7 +20,7 @@ import { authenticate, optionalAuth, requireRole } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 import {
   isTelegramConfigured, isLocalBotApiConfigured, checkLocalBotApiHealth,
-  testConnection, getBotInfo,
+  testConnection, getBotInfo, testBotApi,
   setWebhook, getWebhookInfo, deleteWebhook,
 } from "../lib/telegram/client";
 import {
@@ -152,7 +152,7 @@ router.post("/admin/telegram/sources", authenticate, requireRole("admin", "owner
     if (isTelegramConfigured()) {
       testConnection(chatId.trim()).then(async (result) => {
         await db.update(telegramSourcesTable).set({
-          status: result.success ? "CONNECTED" : "ERROR",
+          status: result.success ? "CONNECTED" : (result.disconnected ? "DISCONNECTED" : "ERROR"),
           lastConnectionCheck: new Date(),
           errorMessage: result.success ? null : result.errorMessage,
           ...(result.success && result.type ? { type: result.type as "GROUP" | "CHANNEL" } : {}),
@@ -243,7 +243,7 @@ router.post("/admin/telegram/sources/:id/test", authenticate, requireRole("admin
     const result = await testConnection(source.chatId);
 
     await db.update(telegramSourcesTable).set({
-      status: result.success ? "CONNECTED" : "ERROR",
+      status: result.success ? "CONNECTED" : (result.disconnected ? "DISCONNECTED" : "ERROR"),
       lastConnectionCheck: new Date(),
       errorMessage: result.success ? null : result.errorMessage,
       ...(result.success && result.type ? { type: result.type as "GROUP" | "CHANNEL" } : {}),
@@ -267,7 +267,7 @@ router.post("/admin/telegram/sources/:id/sync", authenticate, requireRole("admin
     if (isTelegramConfigured()) {
       const testResult = await testConnection(source.chatId);
       await db.update(telegramSourcesTable).set({
-        status: testResult.success ? "CONNECTED" : "ERROR",
+        status: testResult.success ? "CONNECTED" : (testResult.disconnected ? "DISCONNECTED" : "ERROR"),
         lastConnectionCheck: new Date(),
         errorMessage: testResult.success ? null : testResult.errorMessage,
         updatedAt: new Date(),
@@ -332,12 +332,14 @@ router.post("/admin/telegram/webhook/setup", authenticate, requireRole("admin", 
       return;
     }
 
-    // Construct the webhook URL from PUBLIC_BASE_URL (env var, not hardcoded).
-    // The admin may also pass an explicit URL in the request body.
+    // Construct the webhook URL from PUBLIC_BASE_URL (preferred), falling back
+    // to the Base44 public host suffix. The admin may also pass an explicit URL.
     const publicUrl = req.body.url ||
       (process.env.PUBLIC_BASE_URL
         ? `${process.env.PUBLIC_BASE_URL}/api/telegram/webhook`
-        : null);
+        : process.env.BASE44_PUBLIC_HOST_SUFFIX
+          ? `https://3000-${process.env.BASE44_PUBLIC_HOST_SUFFIX}/api/telegram/webhook`
+          : null);
 
     if (!publicUrl) {
       res.status(400).json({
@@ -359,6 +361,20 @@ router.post("/admin/telegram/webhook/setup", authenticate, requireRole("admin", 
         error: "Webhook URL mismatch",
         detail: `Expected ${publicUrl} but Telegram reports ${info.url || "(empty)"}`,
         webhookUrl: info.url,
+      });
+      return;
+    }
+
+    // If Telegram reports a last_error_message, surface it as a webhook error.
+    if (info.lastErrorMessage) {
+      logger.warn({ lastError: info.lastErrorMessage }, "[TELEGRAM] Webhook has last_error_message");
+      res.json({
+        success: true,
+        warning: `Webhook set but Telegram reports an error: ${info.lastErrorMessage}`,
+        webhookUrl: publicUrl,
+        lastErrorMessage: info.lastErrorMessage,
+        lastErrorDate: info.lastErrorDate || null,
+        pendingUpdates: info.pendingUpdateCount,
       });
       return;
     }
@@ -429,27 +445,31 @@ router.get("/admin/telegram/webhook/test", authenticate, requireRole("admin", "o
 
   // 1. TELEGRAM_BOT_TOKEN exists
   if (!isTelegramConfigured()) {
+    // Still check the database even without a token — don't hide DB errors.
+    let dbOk = false;
+    try {
+      await db.execute(sql`SELECT 1`);
+      dbOk = true;
+    } catch (err) {
+      errors.push(`Database connection failed: ${err instanceof Error ? err.message : "Unknown"}`);
+    }
     res.json({
       botApi: "error",
       webhook: "error",
-      database: "error",
+      database: dbOk ? "ok" : "error",
       publicBaseUrl: process.env.PUBLIC_BASE_URL || null,
       webhookUrl: null,
       pendingUpdates: 0,
-      errors: ["TELEGRAM_BOT_TOKEN not configured"],
+      errors: ["TELEGRAM_BOT_TOKEN not configured", ...errors],
     });
     return;
   }
 
-  // 2. Telegram getMe succeeds
+  // 2. Telegram getMe succeeds (fresh call — never cached)
   let botApiOk = false;
-  try {
-    const me = await getBotInfo();
-    botApiOk = !!me;
-    if (!botApiOk) errors.push("getMe returned null");
-  } catch (err) {
-    errors.push(`getMe failed: ${err instanceof Error ? err.message : "Unknown"}`);
-  }
+  const botResult = await testBotApi();
+  botApiOk = botResult.ok;
+  if (!botApiOk) errors.push(`getMe failed: ${botResult.error}`);
 
   // 3. Telegram getWebhookInfo succeeds
   let webhookOk = false;
@@ -561,7 +581,7 @@ router.get("/admin/telegram/import-queue", authenticate, requireRole("admin", "o
     res.json(enriched);
   } catch (err) {
     logger.error({ err }, "GET /admin/telegram/import-queue failed");
-    res.json([]);
+    res.status(500).json({ error: "Failed to fetch import queue" });
   }
 });
 
@@ -572,7 +592,7 @@ router.get("/admin/telegram/import-queue/stats", authenticate, requireRole("admi
     res.json(stats);
   } catch (err) {
     logger.error({ err }, "GET /admin/telegram/import-queue/stats failed");
-    res.json({ pending: 0, processing: 0, completed: 0, failed: 0, total: 0 });
+    res.status(500).json({ error: "Failed to fetch queue stats" });
   }
 });
 
@@ -645,16 +665,19 @@ router.get("/admin/telegram/health", authenticate, requireRole("admin", "owner")
       }
     }
 
-    // ── Real bot API check via getMe ─────────────────────────────────────────
+    // ── Real bot API check via fresh getMe (NOT cached) ──────────────────────
+    // Never use "token exists" as proof — call getMe() every time.
     let botApiStatus: "ok" | "error" | "not_configured" = "not_configured";
     let botUsername: string | null = null;
+    let botApiError: string | null = null;
     if (telegramApi) {
-      try {
-        const me = await getBotInfo();
-        botApiStatus = me ? "ok" : "error";
-        botUsername = me?.username || null;
-      } catch {
+      const result = await testBotApi();
+      if (result.ok) {
+        botApiStatus = "ok";
+        botUsername = result.username;
+      } else {
         botApiStatus = "error";
+        botApiError = result.error;
       }
     }
 
@@ -706,6 +729,7 @@ router.get("/admin/telegram/health", authenticate, requireRole("admin", "owner")
       importQueue: queueStats,
       webhook: webhookInfo,
       botUsername,
+      botApiError,
       lastSuccessfulImport: lastImport ? { createdAt: lastImport.createdAt, sourceName: lastImport.sourceName } : null,
       lastFailedImport: lastFailedImport ? { createdAt: lastFailedImport.createdAt, errorMessage: lastFailedImport.errorMessage } : null,
       streamingMode,
@@ -730,18 +754,14 @@ router.post("/admin/telegram/test", authenticate, requireRole("admin", "owner"),
   try {
     const results: Record<string, { status: "ok" | "error"; detail?: string }> = {};
 
-    // 1. Bot API check (getMe)
+    // 1. Bot API check (fresh getMe — never cached)
     if (!isTelegramConfigured()) {
       results.botApi = { status: "error", detail: "TELEGRAM_BOT_TOKEN not configured" };
     } else {
-      try {
-        const me = await getBotInfo();
-        results.botApi = me
-          ? { status: "ok", detail: `@${me.username}` }
-          : { status: "error", detail: "getMe returned null" };
-      } catch (err) {
-        results.botApi = { status: "error", detail: err instanceof Error ? err.message : "Unknown" };
-      }
+      const result = await testBotApi();
+      results.botApi = result.ok
+        ? { status: "ok", detail: `@${result.username}` }
+        : { status: "error", detail: result.error };
     }
 
     // 2. Webhook check (getWebhookInfo)
@@ -880,7 +900,7 @@ router.get("/telegram-videos", optionalAuth, async (req, res) => {
     res.json({ data, total: Number(total), page: pageNum, limit: limitNum });
   } catch (err) {
     logger.error({ err }, "GET /telegram-videos failed");
-    res.json({ data: [], total: 0, page: 1, limit: 20 });
+    res.status(500).json({ error: "Failed to fetch Telegram videos" });
   }
 });
 
@@ -899,7 +919,7 @@ router.get("/telegram-videos/sources", optionalAuth, async (_req, res) => {
     res.json(sources);
   } catch (err) {
     logger.error({ err }, "GET /telegram-videos/sources failed");
-    res.json([]);
+    res.status(500).json({ error: "Failed to fetch video sources" });
   }
 });
 

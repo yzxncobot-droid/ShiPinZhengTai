@@ -63,6 +63,7 @@ export interface TelegramHealth {
     lastErrorDate: number | null;
   } | null;
   botUsername: string | null;
+  botApiError: string | null;
   streamingMode: "STANDARD_BOT_API" | "LOCAL_BOT_API" | "NOT_AVAILABLE";
   largeFileStreaming: boolean;
   lastSuccessfulImport: { createdAt: string; sourceName: string | null } | null;

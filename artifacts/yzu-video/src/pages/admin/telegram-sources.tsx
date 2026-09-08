@@ -361,6 +361,7 @@ function ImportQueueSection({ onRefresh, onAddChatId }: { onRefresh: () => void;
   const [stats, setStats] = useState({ pending: 0, processing: 0, completed: 0, failed: 0, total: 0 });
   const [entries, setEntries] = useState<ImportLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -370,7 +371,10 @@ function ImportQueueSection({ onRefresh, onAddChatId }: { onRefresh: () => void;
       ]);
       setStats(s);
       setEntries(e.slice(0, 20));
-    } catch { /* ignore */ }
+      setError(null);
+    } catch (err: any) {
+      setError(err.message || "Failed to load import queue");
+    }
     finally { setLoading(false); }
   }, []);
 
@@ -415,6 +419,12 @@ function ImportQueueSection({ onRefresh, onAddChatId }: { onRefresh: () => void;
       {loading ? (
         <div className="flex justify-center py-4">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : error ? (
+        <div className="flex items-center gap-2 py-2 text-sm">
+          <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
+          <span className="text-red-500 font-medium">❌ API/Database Error</span>
+          <span className="text-muted-foreground text-xs truncate">{error}</span>
         </div>
       ) : entries.length === 0 ? (
         <p className="text-sm text-muted-foreground py-2 text-center">
@@ -617,6 +627,13 @@ function HealthCheck({ health, onTest, testing, testResults }: {
               <span className="text-muted-foreground">{val.detail || val.status}</span>
             </div>
           ))}
+        </div>
+      )}
+      {health.botApiError && (
+        <div className="flex items-center gap-2 text-xs border-t pt-2 text-red-500">
+          <span>❌</span>
+          <span className="font-medium">Bot API Error:</span>
+          <span className="text-muted-foreground">{health.botApiError}</span>
         </div>
       )}
       {health.streamingMode && health.streamingMode !== "NOT_AVAILABLE" && (

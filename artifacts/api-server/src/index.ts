@@ -115,7 +115,9 @@ async function initDatabase(): Promise<void> {
             const publicBaseUrl = process.env.PUBLIC_BASE_URL;
           const webhookUrl = publicBaseUrl
             ? `${publicBaseUrl}/api/telegram/webhook`
-            : null;
+            : process.env.BASE44_PUBLIC_HOST_SUFFIX
+              ? `https://3000-${process.env.BASE44_PUBLIC_HOST_SUFFIX}/api/telegram/webhook`
+              : null;
 
           if (webhookUrl) {
             const secretToken = process.env.TELEGRAM_WEBHOOK_SECRET;
