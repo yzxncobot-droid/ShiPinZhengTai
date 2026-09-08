@@ -201,7 +201,15 @@ export const tgApi = {
   listVideoSources: () =>
     tgFetch<{ id: string; name: string; type: string; videoCount: number }[]>("/telegram-videos/sources"),
   getVideo: (id: string) => tgFetch<TelegramVideo>(`/telegram-videos/${id}`),
-  streamUrl: (id: string) => `/api/telegram-videos/${id}/stream`,
+  // Request a short-lived signed playback ticket — the native <video> element
+  // cannot attach the Authorization header, so playback authenticates via
+  // ?ticket= instead. Issued only after auth + premium checks server-side.
+  createStreamTicket: (videoId: string) =>
+    tgFetch<{ ticket: string; streamUrl: string; expiresIn: number }>(
+      `/telegram-videos/${videoId}/stream-ticket`, { method: "POST" },
+    ),
+  streamUrl: (videoId: string, ticket?: string) =>
+    `/api/telegram-videos/${videoId}/stream${ticket ? `?ticket=${encodeURIComponent(ticket)}` : ""}`,
   updateVideo: (id: string, body: { isPremium?: boolean; price?: number }) =>
     tgFetch<TelegramVideo>(`/admin/telegram/videos/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
 };

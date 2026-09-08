@@ -200,6 +200,8 @@ export async function streamTelegramVideo({
     return;
   }
 
+  logger.info({ videoId }, "[TELEGRAM STREAM] getFile succeeded");
+
   const fileSize = fileInfo.fileSize;
   const fileUrl = getFileUrl(fileInfo.filePath);
   const contentType = mimeType || "video/mp4";
@@ -256,6 +258,8 @@ export async function streamTelegramVideo({
     // honored. We inspect response.status directly.
     const requestedRange = isPartial || start > 0;
     const upstreamStatus = response.status;
+
+    logger.info({ videoId, upstreamStatus, requestedRange }, "[TELEGRAM STREAM] upstream status");
 
     if (upstreamStatus >= 400) {
       throw new Error(`Telegram file download failed: HTTP ${upstreamStatus}`);

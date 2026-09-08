@@ -9,7 +9,7 @@
  * Uses ONLY TELEGRAM_BOT_TOKEN — no API ID, API Hash, or Session required.
  * No existing route is modified or replaced.
  */
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
 import {
   telegramSourcesTable, telegramVideosTable, telegramSyncLogsTable,
@@ -28,6 +28,7 @@ import {
   retryImportLog, syncSource,
 } from "../lib/telegram/indexer";
 import { streamTelegramVideo } from "../lib/telegram/streamer";
+import { createStreamTicket, verifyStreamTicket } from "../lib/telegram/stream-tickets";
 
 const router = Router();
 
@@ -64,6 +65,59 @@ async function checkTelegramVideoAccess(
     .limit(1);
 
   return !!sub;
+}
+
+/**
+ * Stream authorization for GET /telegram-videos/:id/stream.
+ *
+ * Accepts EITHER:
+ *   A. a normal Bearer-authenticated request (verified by the standard
+ *      authenticate middleware), or
+ *   B. a valid short-lived playback ticket (?ticket=..., issued by the
+ *      stream-ticket endpoint after full auth + premium access checks).
+ *
+ * Requests with neither are rejected with 401 — the endpoint is never public
+ * and premium protection stays fully enforced (the route re-checks access
+ * via checkTelegramVideoAccess for every request).
+ */
+async function streamAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+  // A. Normal authenticated request with the Authorization header.
+  if (req.headers.authorization?.startsWith("Bearer ")) {
+    await authenticate(req, res, next);
+    return;
+  }
+
+  // B. Short-lived playback ticket.
+  const ticket = req.query.ticket;
+  if (typeof ticket !== "string" || !ticket) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const payload = verifyStreamTicket(ticket);
+  if (!payload || payload.videoId !== req.params.id) {
+    logger.info(
+      { videoId: req.params.id },
+      "[TELEGRAM STREAM] ticket invalid, expired, or video mismatch",
+    );
+    res.status(401).json({ error: "Invalid or expired stream ticket" });
+    return;
+  }
+
+  // The ticket proves the user had access when it was issued; re-verify the
+  // user still exists and is not banned (tickets can outlive a ban).
+  const [u] = await db.select({ isBanned: usersTable.isBanned })
+    .from(usersTable).where(eq(usersTable.id, payload.userId)).limit(1);
+  if (!u || u.isBanned) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+
+  logger.info({ videoId: req.params.id }, "[TELEGRAM STREAM] ticket validated");
+  // Minimal identity for the access check — checkTelegramVideoAccess
+  // re-resolves the live role from the DB for premium checks, so the
+  // placeholder role is never trusted.
+  req.user = { userId: payload.userId, role: "user", jti: "stream-ticket" };
+  next();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -469,7 +523,7 @@ router.get("/admin/telegram/webhook/test", authenticate, requireRole("admin", "o
   let botApiOk = false;
   const botResult = await testBotApi();
   botApiOk = botResult.ok;
-  if (!botApiOk) errors.push(`getMe failed: ${botResult.error}`);
+  if (!botResult.ok) errors.push(`getMe failed: ${botResult.error}`);
 
   // 3. Telegram getWebhookInfo succeeds
   let webhookOk = false;
@@ -951,8 +1005,13 @@ router.get("/telegram-videos/:id", optionalAuth, async (req, res) => {
   }
 });
 
-// ── GET /api/telegram-videos/:id/stream — stream video (Range support) ──────
-router.get("/telegram-videos/:id/stream", authenticate, async (req, res) => {
+// ── POST /api/telegram-videos/:id/stream-ticket — issue a playback ticket ──
+// The native HTML5 <video> element cannot attach an Authorization header to
+// its src request, so the frontend first asks for this short-lived signed
+// ticket (after full authentication + premium access checks) and then plays
+// GET .../stream?ticket=<ticket>. The ticket contains ONLY videoId + userId
+// with a 60 s expiry — never the bot token or a Telegram file_id.
+router.post("/telegram-videos/:id/stream-ticket", authenticate, async (req, res) => {
   try {
     const [row] = await db.select({
       video: telegramVideosTable,
@@ -967,7 +1026,51 @@ router.get("/telegram-videos/:id/stream", authenticate, async (req, res) => {
 
     if (!row) { res.status(404).json({ error: "Not found" }); return; }
 
-    const hasAccess = await checkTelegramVideoAccess(req.user?.userId, row.video);
+    const hasAccess = await checkTelegramVideoAccess(req.user!.userId, row.video);
+    if (!hasAccess) {
+      res.status(403).json({ error: "Access denied — premium subscription required" }); return;
+    }
+
+    const { ticket, expiresIn } = createStreamTicket(row.video.id, req.user!.userId);
+    res.json({
+      ticket,
+      streamUrl: `/api/telegram-videos/${row.video.id}/stream?ticket=${encodeURIComponent(ticket)}`,
+      expiresIn,
+    });
+  } catch (err) {
+    logger.error({ err }, "POST /telegram-videos/:id/stream-ticket failed");
+    res.status(500).json({ error: "Failed to create stream ticket" });
+  }
+});
+
+// ── GET /api/telegram-videos/:id/stream — stream video (Range support) ──────
+// Auth: Bearer header (normal API clients) OR ?ticket= playback ticket —
+// never public. See streamAuth above.
+router.get("/telegram-videos/:id/stream", streamAuth, async (req, res) => {
+  try {
+    const rangeHeader = req.headers.range;
+    logger.info(
+      { videoId: req.params.id, authMode: req.headers.authorization ? "bearer" : "ticket", hasRange: !!rangeHeader },
+      "[TELEGRAM STREAM] request",
+    );
+    if (rangeHeader) {
+      logger.info({ videoId: req.params.id, range: rangeHeader }, "[TELEGRAM STREAM] range request");
+    }
+
+    const [row] = await db.select({
+      video: telegramVideosTable,
+    }).from(telegramVideosTable)
+      .innerJoin(telegramSourcesTable,
+        eq(telegramVideosTable.telegramSourceId, telegramSourcesTable.id))
+      .where(and(
+        eq(telegramVideosTable.id, req.params.id as string),
+        eq(telegramSourcesTable.enabled, true),
+      ))
+      .limit(1);
+
+    if (!row) { res.status(404).json({ error: "Not found" }); return; }
+
+    const hasAccess = await checkTelegramVideoAccess(req.user!.userId, row.video);
     if (!hasAccess) {
       res.status(403).json({ error: "Access denied — premium subscription required" }); return;
     }
@@ -990,8 +1093,9 @@ router.get("/telegram-videos/:id/stream", authenticate, async (req, res) => {
       res,
       rangeHeader: req.headers.range,
     });
+    logger.info({ videoId: req.params.id }, "[TELEGRAM STREAM] completed");
   } catch (err) {
-    logger.error({ err }, "GET /telegram-videos/:id/stream failed");
+    logger.error({ err, videoId: req.params.id }, "[TELEGRAM STREAM] failed");
     if (!res.headersSent) {
       res.status(500).json({ error: "Streaming failed" });
     }
