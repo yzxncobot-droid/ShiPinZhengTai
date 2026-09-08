@@ -100,44 +100,70 @@ if (nodeFs.existsSync(frontendDist)) {
 // Catches any error thrown (or passed via next(err)) inside a route handler and
 // always responds with JSON — never with an HTML Express error page.
 app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-  const status: number = typeof err.status === "number" ? err.status
-    : typeof err.statusCode === "number" ? err.statusCode
-    : 500;
-
-  // Drizzle wraps the real PG error — unwrap it for a useful message
-  const pgErr = err?.cause ?? err;
-  const pgCode: string | undefined = pgErr?.code;
-  const pgMessage: string | undefined = pgErr?.message ?? err?.message;
-
-  logger.error(
-    { err, method: req.method, url: req.url, pgCode, pgMessage },
-    "Unhandled route error",
-  );
-
-  // Map common PG/app error codes to meaningful API responses
-  if (pgCode === "23505") {
-    res.status(409).json({
-      success: false,
-      code: "DUPLICATE_ENTRY",
-      message: "Username atau email sudah digunakan",
-    });
+  // Guard: if headers were already sent (e.g. by a streaming route), we can't
+  // send a new JSON response — just log and delegate to Express's default
+  // handler which will close the connection.
+  if (res.headersSent) {
+    logger.error({ err: err?.message, method: req.method, url: req.url }, "Error after headers sent");
+    _next(err);
     return;
   }
-  if (pgCode === "42703") {
-    // column does not exist — schema/DB mismatch
+
+  try {
+    const status: number = typeof err.status === "number" ? err.status
+      : typeof err.statusCode === "number" ? err.statusCode
+      : 500;
+
+    // Drizzle wraps the real PG error — unwrap it for a useful message
+    const pgErr = err?.cause ?? err;
+    const pgCode: string | undefined = pgErr?.code;
+    // Ensure message is always a string (never an object/undefined that breaks
+    // JSON serialization or leaks a stack trace).
+    const pgMessage: string = typeof pgErr?.message === "string"
+      ? pgErr.message
+      : typeof err?.message === "string" ? err.message : "Terjadi kesalahan server";
+
+    logger.error(
+      { err: err?.message ?? String(err), method: req.method, url: req.url, pgCode, pgMessage },
+      "Unhandled route error",
+    );
+
+    // Map common PG/app error codes to meaningful API responses
+    if (pgCode === "23505") {
+      res.status(409).json({
+        success: false,
+        code: "DUPLICATE_ENTRY",
+        message: "Username atau email sudah digunakan",
+      });
+      return;
+    }
+    if (pgCode === "42703") {
+      // column does not exist — schema/DB mismatch
+      res.status(500).json({
+        success: false,
+        code: "DB_SCHEMA_MISMATCH",
+        message: `Database schema mismatch: ${pgMessage}`,
+      });
+      return;
+    }
+
+    // Don't expose internal error codes or stack traces — use a safe string
+    const safeCode = typeof err.code === "string" ? err.code : "INTERNAL_ERROR";
+    res.status(status).json({
+      success: false,
+      code: safeCode,
+      message: pgMessage,
+    });
+  } catch (handlerErr) {
+    // Absolute last resort: if the error handler itself fails, send a minimal
+    // JSON response so the frontend never receives a non-JSON body.
+    logger.error({ err: (handlerErr as any)?.message }, "Error handler itself failed");
     res.status(500).json({
       success: false,
-      code: "DB_SCHEMA_MISMATCH",
-      message: `Database schema mismatch: ${pgMessage}`,
+      code: "INTERNAL_ERROR",
+      message: "Terjadi kesalahan server",
     });
-    return;
   }
-
-  res.status(status).json({
-    success: false,
-    code: err.code ?? "INTERNAL_ERROR",
-    message: pgMessage ?? "Terjadi kesalahan server",
-  });
 });
 
 export default app;
