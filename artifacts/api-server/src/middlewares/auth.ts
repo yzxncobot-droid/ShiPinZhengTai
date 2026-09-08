@@ -17,7 +17,7 @@ if (!JWT_SECRET) {
       "Set SESSION_SECRET in your environment for production.",
   );
 }
-const EFFECTIVE_JWT_SECRET = JWT_SECRET ?? "insecure-dev-fallback-secret-change-me";
+export const EFFECTIVE_JWT_SECRET = JWT_SECRET ?? "insecure-dev-fallback-secret-change-me";
 
 export interface JwtPayload {
   /** UUID of the authenticated user. */

@@ -16,7 +16,7 @@ docker compose -f docker-compose.base44.yml up -d --build
 
 1. `db` — Postgres, healthchecked.
 2. `setup` — one-shot `pnpm install --no-frozen-lockfile` (writes `node_modules` into the bind-mounted repo, shared by all services).
-3. `migrate` — one-shot `drizzle-kit push --force` against the local DB to create the schema. Uses `NODE_TLS_REJECT_UNAUTHORIZED=0` because `lib/db/drizzle.config.ts` hardcodes `ssl: true` and the local cert is self-signed. Runs after `db` is healthy and `setup` completes.
+3. `migrate` — one-shot `drizzle-kit push --force` against the active DB (Neon when NEON_DATABASE_URL is set, local otherwise) to create the schema. The local fallback `DATABASE_URL` carries `?sslmode=no-verify` because `lib/db/drizzle.config.ts` hardcodes `ssl: true` and the local cert is self-signed — the relaxation is scoped to that one connection (a process-global `NODE_TLS_REJECT_UNAUTHORIZED=0` would also disable Neon's valid-cert verification and trips a Node security warning; Neon TLS is verified normally). Runs after `db` is healthy and `setup` completes. The seed service needs no override at all — its pg pool already uses `ssl: { rejectUnauthorized: false }`.
 4. `api` — `pnpm --filter @workspace/api-server run dev` (esbuild bundle once → `node dist/index.mjs`). **No file watcher** — restart the `api` service after backend edits, then `reload_preview`.
 5. `web` — `pnpm --filter @workspace/yzu-video run dev` (Vite HMR, live reload).
 
@@ -52,7 +52,20 @@ Bot API cannot read message history, so videos arrive via **webhook**:
    and updates the log status. Failed entries retry with exponential backoff (max 5
    attempts, max 60 s between retries).
 
-### Streaming — Bot API getFile + HTTP proxy
+### Streaming — short-lived playback tickets + Bot API getFile + HTTP proxy
+- A native `<video src>` request cannot attach the `Authorization` header, so the
+  frontend first calls `POST /api/telegram-videos/:id/stream-ticket` (authenticated,
+  full premium access check) → receives a **signed 60 s ticket** (JWT with the same
+  `JWT_SECRET`/`SESSION_SECRET` secret; payload = only `videoId` + `userId`) → plays
+  `GET /api/telegram-videos/:id/stream?ticket=<ticket>`.
+- The stream endpoint accepts EITHER a Bearer header (normal API clients) OR a valid
+  ticket (`streamAuth` in `routes/telegram.ts`): signature + expiry + videoId match +
+  user still exists/not banned, then the route re-checks premium access on EVERY request.
+  It is never public. Frontend auto-retries once with a fresh ticket if playback dies
+  mid-stream (ticket expiry) and shows "Video gagal diputar." with an error code.
+- Diagnostic logs (`[TELEGRAM STREAM] request/ticket validated/getFile succeeded/
+  upstream status/range request/completed/failed`) never log the bot token, JWTs,
+  tickets, or Telegram file_ids.
 - `GET /api/telegram-videos/:id/stream` → access check → `getFile(file_id)` → proxy
   `https://api.telegram.org/file/bot<token>/<file_path>` with Range headers → 206 Partial Content.
 - File is **piped** (never loaded fully into RAM).

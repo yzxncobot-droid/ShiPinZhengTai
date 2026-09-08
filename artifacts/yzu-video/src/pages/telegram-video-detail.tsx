@@ -7,7 +7,7 @@
  *
  * If the video is premium and the user lacks access, a lock screen is shown.
  */
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useRoute, useLocation, Link } from "wouter";
 import {
   ArrowLeft, Film, Lock, HardDrive, Clock, Loader2, AlertCircle, Star,
@@ -29,6 +29,12 @@ export default function TelegramVideoDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Short-lived stream ticket flow — the native <video> element cannot send
+  // the Authorization header, so playback authenticates via ?ticket=.
+  const [streamSrc, setStreamSrc] = useState<string | null>(null);
+  const [streamLoading, setStreamLoading] = useState(true);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const ticketRetriesRef = useRef(0);
 
   useEffect(() => {
     if (!id) return;
@@ -38,6 +44,46 @@ export default function TelegramVideoDetailPage() {
       .catch((err) => setError(err.message || "Failed to load video"))
       .finally(() => setLoading(false));
   }, [id]);
+
+  // True once the user is known, the video is loaded, and access is confirmed
+  // (the premium-locked / not-logged-in early returns below already handle
+  // the cases where this stays false).
+  const canStream = !!video && !!user && !(video.isPremium && video.hasAccess === false);
+
+  const loadStreamTicket = useCallback((resumeAt?: number) => {
+    if (!id) return;
+    setStreamLoading(true);
+    setStreamError(null);
+    tgApi.createStreamTicket(id)
+      .then(({ ticket }) => {
+        const url = tgApi.streamUrl(id, ticket);
+        // "#t=" media fragment resumes at resumeAt after a ticket refresh.
+        setStreamSrc(resumeAt && resumeAt > 0 ? `${url}#t=${resumeAt}` : url);
+      })
+      .catch((err) => setStreamError(err.message || "Gagal menyiapkan streaming"))
+      .finally(() => setStreamLoading(false));
+  }, [id]);
+
+  useEffect(() => {
+    if (!canStream) return;
+    ticketRetriesRef.current = 0;
+    loadStreamTicket();
+  }, [canStream, loadStreamTicket]);
+
+  const handleVideoError = () => {
+    const el = videoRef.current;
+    // Tickets expire after 60 s — a mid-playback Range request can then fail.
+    // Retry once with a fresh ticket, resuming at the current position.
+    if (ticketRetriesRef.current < 1) {
+      ticketRetriesRef.current += 1;
+      loadStreamTicket(el?.currentTime ?? 0);
+      return;
+    }
+    const code = el?.error?.code;
+    setStreamError(
+      `Stream gagal dimuat dari server.${code ? ` (Error code: ${code})` : ""}`,
+    );
+  };
 
   if (loading) {
     return (
@@ -108,8 +154,6 @@ export default function TelegramVideoDetailPage() {
     );
   }
 
-  const streamUrl = tgApi.streamUrl(id);
-
   return (
     <AppLayout>
       <div className="container mx-auto px-4 py-4 max-w-4xl">
@@ -120,17 +164,39 @@ export default function TelegramVideoDetailPage() {
           </Button>
         </Link>
 
-        {/* Video Player */}
+        {/* Video Player — authenticates via the short-lived ?ticket= URL */}
         <div className="bg-black rounded-lg overflow-hidden">
-          <video
-            ref={videoRef}
-            controls
-            playsInline
-            preload="metadata"
-            className="w-full max-h-[70vh]"
-            src={streamUrl}
-            controlsList="nodownload"
-          />
+          {streamError ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-20 px-4 text-center">
+              <AlertCircle className="h-10 w-10 text-red-500" />
+              <p className="text-sm font-semibold text-white">Video gagal diputar.</p>
+              <p className="text-xs text-white/60">{streamError}</p>
+              <Button
+                size="sm" variant="secondary"
+                onClick={() => {
+                  ticketRetriesRef.current = 0;
+                  loadStreamTicket(videoRef.current?.currentTime ?? 0);
+                }}
+              >
+                Coba Lagi
+              </Button>
+            </div>
+          ) : streamLoading || !streamSrc ? (
+            <div className="flex items-center justify-center py-24">
+              <Loader2 className="h-8 w-8 animate-spin text-white/60" />
+            </div>
+          ) : (
+            <video
+              ref={videoRef}
+              controls
+              playsInline
+              preload="metadata"
+              className="w-full max-h-[70vh]"
+              src={streamSrc}
+              controlsList="nodownload"
+              onError={handleVideoError}
+            />
+          )}
         </div>
 
         {/* Info */}
