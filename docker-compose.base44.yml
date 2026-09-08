@@ -135,6 +135,10 @@ services:
       PORT: "3000"
       BASE_PATH: "/"
       NODE_ENV: development
+      # Docker Compose uses service names; the Vite proxy forwards /api to the
+      # api service. On Replit (no Docker), the default in vite.config.ts is
+      # http://localhost:8080 which works because both run on the same machine.
+      API_PROXY_TARGET: "http://api:8080"
     command: pnpm --filter @workspace/yzu-video run dev
     ports:
       - "3000:3000"

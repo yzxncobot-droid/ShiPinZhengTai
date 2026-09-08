@@ -59,6 +59,16 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 // even when maintenance mode is active.
 app.use("/api", optionalAuth, maintenanceGuard(), router);
 
+// ── 404 catch-all for API routes ──────────────────────────────────────────────
+// Ensures unmatched /api/* paths return JSON instead of Express's default HTML.
+app.use("/api", (req: Request, res: Response) => {
+  res.status(404).json({
+    success: false,
+    code: "NOT_FOUND",
+    message: `Endpoint tidak ditemukan: ${req.method} ${req.url}`,
+  });
+});
+
 // ── Global JSON error handler ─────────────────────────────────────────────────
 // Catches any error thrown (or passed via next(err)) inside a route handler and
 // always responds with JSON — never with an HTML Express error page.

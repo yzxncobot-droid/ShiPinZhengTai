@@ -18,7 +18,7 @@ export const handler = serverless(app, {
   // serverless-http receives the original /api/* path, but some Netlify
   // configurations pass the rewritten /.netlify/functions/api/* path instead.
   // Strip the function prefix so Express routes (mounted at /api) match.
-  request: (request) => {
+  request: (request: any) => {
     if (request.url?.startsWith("/.netlify/functions/api")) {
       request.url = request.url.replace(
         /^\/\.netlify\/functions\/api/,

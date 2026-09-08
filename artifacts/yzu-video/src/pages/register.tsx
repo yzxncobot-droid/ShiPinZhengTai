@@ -62,7 +62,21 @@ export default function Register() {
           referralCode: payload.referralCode?.trim().toUpperCase() || undefined,
         }),
       });
-      const data = await res.json();
+
+      // Safely parse the response — the server may return non-JSON (e.g. proxy
+      // error, server crash) which would throw on res.json().
+      const contentType = res.headers.get("content-type") ?? "";
+      let data: any;
+      if (contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        toast({
+          title: "Koneksi gagal",
+          description: `Server mengembalikan respons tidak valid (HTTP ${res.status}). Coba lagi beberapa saat.`,
+          variant: "destructive",
+        });
+        return;
+      }
 
       if (!res.ok) {
         // Show the exact message from the API — never a generic fallback
