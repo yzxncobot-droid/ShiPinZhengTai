@@ -7,6 +7,7 @@ import {
   bundlesTable, bundleVideosTable, bundlePurchasesTable,
   walletTransactionsTable, walletsTable, revenueSharesTable,
   customRolesTable, userCustomRolesTable,
+  telegramVideosTable, telegramSourcesTable,
 } from "@workspace/db";
 import { legacyToVisibility, visibilityToLegacy } from "@workspace/db";
 import { eq, and, desc, asc, ilike, gte, ne, or, sql, count, isNull } from "drizzle-orm";
@@ -285,18 +286,75 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
       uploaderType, thumbnailPath, storageFolder, bucketName,
       // Multi-storage provider tracking
       videoStorageProvider, bunnyVideoId, bunnyPlaybackUrl, bunnyLibraryId,
+      // Telegram video reference
+      telegramVideoId,
     } = req.body;
 
     // ── Required field guards ─────────────────────────────────────────────────
     if (!title?.trim()) {
       res.status(400).json({ error: "Judul video wajib diisi" }); return;
     }
-    if (!videoUrl?.trim()) {
-      res.status(400).json({ error: "Video wajib diupload atau link video wajib diisi" }); return;
-    }
 
     // ── Type coercion & validation ────────────────────────────────────────────
     const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    // ── Telegram video source validation ──────────────────────────────────────
+    // When videoSourceType is "telegram", the admin selects an existing
+    // telegram_videos record — no file upload or external link needed.
+    // The video binary stays in Telegram; we store only the reference.
+    let resolvedVideoUrl = videoUrl?.trim() || "";
+    let resolvedDuration = duration ? Number(duration) : null;
+    let resolvedTelegramVideoId: string | null = null;
+
+    if (videoSourceType === "telegram") {
+      if (!telegramVideoId || typeof telegramVideoId !== "string" || !uuidPattern.test(telegramVideoId)) {
+        res.status(400).json({ error: "Telegram Video ID tidak valid" }); return;
+      }
+
+      // Verify the telegram_videos record exists and is active
+      const [tgVideo] = await db.select({
+        video: telegramVideosTable,
+        sourceEnabled: telegramSourcesTable.enabled,
+      }).from(telegramVideosTable)
+        .innerJoin(telegramSourcesTable,
+          eq(telegramVideosTable.telegramSourceId, telegramSourcesTable.id))
+        .where(eq(telegramVideosTable.id, telegramVideoId))
+        .limit(1);
+
+      if (!tgVideo) {
+        res.status(400).json({ error: "Video Telegram tidak ditemukan" }); return;
+      }
+      if (!tgVideo.sourceEnabled) {
+        res.status(400).json({ error: "Source Telegram video ini sudah dinonaktifkan" }); return;
+      }
+      if (tgVideo.video.status === "error" || tgVideo.video.status === "unavailable") {
+        res.status(400).json({ error: "Video Telegram tidak tersedia untuk dipilih" }); return;
+      }
+
+      // Prevent duplicate: check if this telegram video is already linked to another video
+      const [existing] = await db.select({ id: videosTable.id, title: videosTable.title })
+        .from(videosTable)
+        .where(and(
+          eq(videosTable.telegramVideoId, telegramVideoId),
+          isNull(videosTable.deletedAt),
+        ))
+        .limit(1);
+      if (existing) {
+        res.status(409).json({
+          error: `Video Telegram ini sudah digunakan oleh video "${existing.title}"`,
+        }); return;
+      }
+
+      resolvedTelegramVideoId = telegramVideoId;
+      // Store the stream endpoint as the videoUrl reference
+      resolvedVideoUrl = `/api/telegram-videos/${telegramVideoId}/stream`;
+      // Copy duration from the telegram video metadata if available
+      if (tgVideo.video.duration && !resolvedDuration) {
+        resolvedDuration = tgVideo.video.duration;
+      }
+    } else if (!resolvedVideoUrl) {
+      res.status(400).json({ error: "Video wajib diupload atau link video wajib diisi" }); return;
+    }
 
     // creator_id: must be a valid UUID (comes from JWT — guard against token corruption)
     if (!userId || !uuidPattern.test(userId)) {
@@ -351,15 +409,16 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
       title:           title.trim(),
       description:     description?.trim() || null,
       thumbnail:       thumbnail || null,
-      videoUrl:        videoUrl.trim(),
+      videoUrl:        resolvedVideoUrl,
       price:           safePrice,
       downloadable:    safeDownloadable,
       isFeatured:      safeIsFeatured,
       categoryId:      safeCategoryId,
       videoSourceType: videoSourceType ?? "upload",
       videoFilePath:   videoFilePath || null,
+      telegramVideoId: resolvedTelegramVideoId,
       tags:            tags ? JSON.stringify(tags) : null,
-      duration:        duration ? Number(duration) : null,
+      duration:        resolvedDuration,
       scheduledAt:     scheduledAt ? new Date(scheduledAt) : null,
       status,
       creatorId:       userId,

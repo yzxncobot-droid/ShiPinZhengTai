@@ -19,10 +19,13 @@ import { Switch } from "@/components/ui/switch";
 import {
   Loader2, UploadCloud, Video as VideoIcon, Image as ImageIcon,
   Link as LinkIcon, CheckCircle2, Globe, Sparkles, Package, Users, Star, Lock,
+  Send,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { adminFetch } from "@/lib/admin-api";
+import { TelegramVideoPicker } from "@/components/admin/TelegramVideoPicker";
+import { formatFileSize, formatDuration, type TelegramVideo } from "@/lib/telegram-api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -88,7 +91,7 @@ const CONTENT_TYPE_OPTIONS = [
   },
 ] as const;
 
-type VideoSourceType = "upload" | "external_link";
+type VideoSourceType = "upload" | "external_link" | "telegram";
 
 // ─── URL Validator ────────────────────────────────────────────────────────────
 
@@ -115,9 +118,10 @@ const uploadSchema = z.object({
   bundleId:        z.string().optional(),
   price:           z.coerce.number().min(0).optional(),
   downloadable:    z.boolean().default(false),
-  videoSourceType: z.enum(["upload", "external_link"]).default("upload"),
+  videoSourceType: z.enum(["upload", "external_link", "telegram"]).default("upload"),
   videoUrl:        z.string().min(1, "Video wajib diisi"),
   videoFilePath:   z.string().optional(),
+  telegramVideoId: z.string().optional(),
   thumbnail:       z.string().optional(),
   uploaderType:    z.enum(["Public", "Owner", "Media"]).optional(),
   rewardEnabled:   z.boolean().default(false),
@@ -130,6 +134,14 @@ const uploadSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["videoUrl"],
       message: "Link tidak valid. Gunakan YouTube, Vimeo, Google Drive, atau link MP4/M3U8 langsung.",
+    });
+  }
+  // Telegram source: telegramVideoId is required (videoUrl is set internally)
+  if (data.videoSourceType === "telegram" && !data.telegramVideoId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["telegramVideoId"],
+      message: "Pilih video Telegram terlebih dahulu",
     });
   }
   if (data.visibility !== "home_video" && !data.categoryId) {
@@ -199,6 +211,7 @@ export default function AdminUploadVideo() {
   const [isUploadingThumb, setIsUploadingThumb]   = useState(false);
   const [isSubmitting, setIsSubmitting]           = useState(false);
   const [uploadProgress, setUploadProgress]       = useState(0);
+  const [selectedTelegramVideo, setSelectedTelegramVideo] = useState<TelegramVideo | null>(null);
 
   // Storage metadata returned from upload endpoints — stored and forwarded to POST /videos
   const [uploadMeta, setUploadMeta] = useState<{
@@ -229,6 +242,7 @@ export default function AdminUploadVideo() {
       videoSourceType: "upload",
       videoUrl: "",
       videoFilePath: "",
+      telegramVideoId: "",
       thumbnail: "",
       uploaderType: undefined,
       rewardEnabled: false,
@@ -348,6 +362,18 @@ export default function AdminUploadVideo() {
     form.setValue("videoSourceType", t);
     form.setValue("videoUrl", "");
     form.setValue("videoFilePath", "");
+    form.setValue("telegramVideoId", "");
+    setSelectedTelegramVideo(null);
+    form.clearErrors("videoUrl");
+    form.clearErrors("telegramVideoId");
+  };
+
+  // ── Telegram video selection ───────────────────────────────────────────────
+  const handleSelectTelegramVideo = (video: TelegramVideo) => {
+    setSelectedTelegramVideo(video);
+    form.setValue("telegramVideoId", video.id, { shouldValidate: true });
+    // Set videoUrl to the stream endpoint so the notNull constraint is satisfied
+    form.setValue("videoUrl", `/api/telegram-videos/${video.id}/stream`, { shouldValidate: true });
     form.clearErrors("videoUrl");
   };
 
@@ -547,18 +573,18 @@ export default function AdminUploadVideo() {
                 gradient="bg-gradient-to-r from-sky-400 to-blue-500"
               >
                 {/* Source toggle */}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-3">
                   <button
                     type="button"
                     onClick={() => switchSource("upload")}
-                    className={`flex flex-col items-center gap-2 py-4 px-3 rounded-xl border-2 transition-all font-medium text-sm
+                    className={`flex flex-col items-center gap-2 py-4 px-2 rounded-xl border-2 transition-all font-medium text-sm
                       ${videoSourceType === "upload"
                         ? "border-sky-400 bg-sky-50 text-sky-700 shadow-sm"
                         : "border-gray-200 bg-gray-50 text-gray-500 hover:border-sky-200"
                       }`}
                   >
                     <UploadCloud className={`h-6 w-6 ${videoSourceType === "upload" ? "text-sky-500" : "text-gray-400"}`} />
-                    <span>Upload File</span>
+                    <span className="text-xs sm:text-sm">Upload File</span>
                     {videoSourceType === "upload" && (
                       <span className="text-xs text-sky-400">✓ Dipilih</span>
                     )}
@@ -567,16 +593,32 @@ export default function AdminUploadVideo() {
                   <button
                     type="button"
                     onClick={() => switchSource("external_link")}
-                    className={`flex flex-col items-center gap-2 py-4 px-3 rounded-xl border-2 transition-all font-medium text-sm
+                    className={`flex flex-col items-center gap-2 py-4 px-2 rounded-xl border-2 transition-all font-medium text-sm
                       ${videoSourceType === "external_link"
                         ? "border-orange-400 bg-orange-50 text-orange-700 shadow-sm"
                         : "border-gray-200 bg-gray-50 text-gray-500 hover:border-orange-200"
                       }`}
                   >
                     <LinkIcon className={`h-6 w-6 ${videoSourceType === "external_link" ? "text-orange-500" : "text-gray-400"}`} />
-                    <span>Link Video</span>
+                    <span className="text-xs sm:text-sm">Link Video</span>
                     {videoSourceType === "external_link" && (
                       <span className="text-xs text-orange-400">✓ Dipilih</span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => switchSource("telegram")}
+                    className={`flex flex-col items-center gap-2 py-4 px-2 rounded-xl border-2 transition-all font-medium text-sm
+                      ${videoSourceType === "telegram"
+                        ? "border-cyan-400 bg-cyan-50 text-cyan-700 shadow-sm"
+                        : "border-gray-200 bg-gray-50 text-gray-500 hover:border-cyan-200"
+                      }`}
+                  >
+                    <Send className={`h-6 w-6 ${videoSourceType === "telegram" ? "text-cyan-500" : "text-gray-400"}`} />
+                    <span className="text-xs sm:text-sm">Telegram</span>
+                    {videoSourceType === "telegram" && (
+                      <span className="text-xs text-cyan-400">✓ Dipilih</span>
                     )}
                   </button>
                 </div>
@@ -671,6 +713,69 @@ export default function AdminUploadVideo() {
                       </div>
                     </FormItem>
                   )} />
+                )}
+
+                {/* ── Telegram Video ── */}
+                {videoSourceType === "telegram" && (
+                  <div className="space-y-3">
+                    {selectedTelegramVideo ? (
+                      <div className="border-2 border-cyan-200 bg-cyan-50 rounded-xl p-4 flex items-center gap-3">
+                        <CheckCircle2 className="h-8 w-8 text-cyan-500 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-cyan-700">Telegram Video Dipilih</p>
+                          <p className="text-sm font-medium text-cyan-600 truncate">
+                            {selectedTelegramVideo.title || selectedTelegramVideo.fileName || "Video Tanpa Judul"}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1">
+                            {selectedTelegramVideo.duration != null && (
+                              <span className="text-xs text-cyan-500">
+                                Durasi: {formatDuration(selectedTelegramVideo.duration)}
+                              </span>
+                            )}
+                            {selectedTelegramVideo.fileSize != null && (
+                              <span className="text-xs text-cyan-500">
+                                Ukuran: {formatFileSize(selectedTelegramVideo.fileSize)}
+                              </span>
+                            )}
+                            {selectedTelegramVideo.sourceName && (
+                              <span className="text-xs text-cyan-500">
+                                Source: {selectedTelegramVideo.sourceName}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <Button
+                          type="button" variant="outline" size="sm"
+                          onClick={() => {
+                            setSelectedTelegramVideo(null);
+                            form.setValue("telegramVideoId", "");
+                            form.setValue("videoUrl", "");
+                          }}
+                          className="border-cyan-300 text-cyan-600 hover:bg-cyan-100 shrink-0"
+                        >
+                          Ganti
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-sm font-semibold text-gray-700">
+                          Pilih Video Telegram <span className="text-red-500">*</span>
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          Video tetap berada di Telegram dan diputar melalui sistem streaming yang sudah ada.
+                        </p>
+                        <TelegramVideoPicker
+                          selectedId={null}
+                          onSelect={handleSelectTelegramVideo}
+                        />
+                        <FormField control={form.control} name="telegramVideoId" render={() => (
+                          <FormItem>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      </>
+                    )}
+                  </div>
                 )}
               </SectionCard>
 

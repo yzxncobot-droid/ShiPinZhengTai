@@ -6,6 +6,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
 import { categoriesTable } from "./categories";
+import { telegramVideosTable } from "./telegram";
 
 /** Legacy type enum – kept for API compat; derived from visibility on write. */
 export const videoTypeEnum = pgEnum("video_type", ["free", "premium"]);
@@ -53,6 +54,14 @@ export const videosTable = pgTable(
     videoSourceType: text("video_source_type").notNull().default("upload"),
     /** Supabase storage path for uploaded files (e.g. videos/abc.mp4). Null for external links. */
     videoFilePath: text("video_file_path"),
+    /**
+     * Reference to a telegram_videos record when videoSourceType = "telegram".
+     * The video binary stays in Telegram — playback uses the existing Telegram
+     * streaming system (stream ticket + /api/telegram-videos/:id/stream).
+     */
+    telegramVideoId: uuid("telegram_video_id").references(
+      () => telegramVideosTable.id, { onDelete: "set null" },
+    ),
     /**
      * Multi-storage metadata — set at upload time, stored for auditing & path resolution.
      *  uploaderType   → "creator" | "verified_creator" | "owner"
