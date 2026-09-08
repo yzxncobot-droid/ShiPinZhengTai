@@ -16,7 +16,7 @@ docker compose -f docker-compose.base44.yml up -d --build
 
 1. `db` — Postgres, healthchecked.
 2. `setup` — one-shot `pnpm install --no-frozen-lockfile` (writes `node_modules` into the bind-mounted repo, shared by all services).
-3. `migrate` — one-shot `drizzle-kit push --force` against the local DB to create the schema. Uses `NODE_TLS_REJECT_UNAUTHORIZED=0` because `lib/db/drizzle.config.ts` hardcodes `ssl: true` and the local cert is self-signed. Runs after `db` is healthy and `setup` completes.
+3. `migrate` — one-shot `drizzle-kit push --force` against the active DB (Neon when NEON_DATABASE_URL is set, local otherwise) to create the schema. The local fallback `DATABASE_URL` carries `?sslmode=no-verify` because `lib/db/drizzle.config.ts` hardcodes `ssl: true` and the local cert is self-signed — the relaxation is scoped to that one connection (a process-global `NODE_TLS_REJECT_UNAUTHORIZED=0` would also disable Neon's valid-cert verification and trips a Node security warning; Neon TLS is verified normally). Runs after `db` is healthy and `setup` completes. The seed service needs no override at all — its pg pool already uses `ssl: { rejectUnauthorized: false }`.
 4. `api` — `pnpm --filter @workspace/api-server run dev` (esbuild bundle once → `node dist/index.mjs`). **No file watcher** — restart the `api` service after backend edits, then `reload_preview`.
 5. `web` — `pnpm --filter @workspace/yzu-video run dev` (Vite HMR, live reload).
 
