@@ -56,6 +56,14 @@ export interface TelegramHealth {
     failed: number;
     total: number;
   };
+  streamQueue: {
+    maxConcurrency: number;
+    active: number;
+    waiting: number;
+    totalProcessed: number;
+    totalFailed: number;
+    totalTimedOut: number;
+  };
   webhook: {
     url: string;
     pendingUpdateCount: number;
@@ -64,7 +72,7 @@ export interface TelegramHealth {
   } | null;
   botUsername: string | null;
   botApiError: string | null;
-  streamingMode: "STANDARD_BOT_API" | "LOCAL_BOT_API" | "NOT_AVAILABLE";
+  streamingMode: "MTPROTO" | "STANDARD_BOT_API" | "LOCAL_BOT_API" | "NOT_AVAILABLE";
   largeFileStreaming: boolean;
   lastSuccessfulImport: { createdAt: string; sourceName: string | null } | null;
   lastFailedImport: { createdAt: string; errorMessage: string | null } | null;
@@ -75,6 +83,17 @@ export interface TelegramHealth {
     indexer: string;
     streaming: string;
     localBotApi: string;
+    mtproto: string;
+  };
+  mtproto: {
+    enabled: boolean;
+    connected: boolean;
+    authenticated: boolean;
+    sessionManagedAutomatically: boolean;
+    authType: string;
+    apiIdConfigured: boolean;
+    state: string;
+    error: string | null;
   };
 }
 
@@ -176,6 +195,17 @@ export const tgApi = {
     tgFetch<{ results: Record<string, { status: "ok" | "error"; detail?: string }> }>(
       "/admin/telegram/test", { method: "POST" },
     ),
+
+  // ── Stream queue ───────────────────────────────────────────────────────────
+  getStreamQueueStats: () =>
+    tgFetch<{
+      maxConcurrency: number;
+      active: number;
+      waiting: number;
+      totalProcessed: number;
+      totalFailed: number;
+      totalTimedOut: number;
+    }>("/admin/telegram/stream-queue/stats"),
 
   // ── Import queue ────────────────────────────────────────────────────────────
   getImportQueue: (status?: string) =>

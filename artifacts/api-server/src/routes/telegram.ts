@@ -28,12 +28,25 @@ import {
   retryImportLog, syncSource,
 } from "../lib/telegram/indexer";
 import { streamTelegramVideo } from "../lib/telegram/streamer";
+import { enqueueStream, getStreamQueueStats } from "../lib/telegram/stream-queue";
 import { createStreamTicket, verifyStreamTicket } from "../lib/telegram/stream-tickets";
+import {
+  isMtProtoConfigured, isMtProtoReady, getMtProtoStatus, initMtProto,
+} from "../lib/telegram/mtproto";
 
 const router = Router();
 
 // Start the import queue processor when the module loads.
 startQueueProcessor();
+
+// Initialize MTProto client (best-effort, non-blocking). If it fails, Bot API
+// continues to work for files ≤20 MB. MTProto is needed for files >20 MB.
+initMtProto().catch((err) => {
+  logger.warn(
+    { err: err instanceof Error ? err.message : String(err) },
+    "[TELEGRAM] MTProto initialization failed (non-fatal) — Bot API continues to work",
+  );
+});
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -577,6 +590,27 @@ router.get("/admin/telegram/webhook/test", authenticate, requireRole("admin", "o
   });
 });
 
+// ── GET /api/admin/telegram/mtproto/health — MTProto diagnostic (admin-only) ─
+router.get("/admin/telegram/mtproto/health", authenticate, requireRole("admin", "owner"), async (_req, res) => {
+  try {
+    const status = getMtProtoStatus();
+    // Return only sanitized fields — never expose tokens, hashes, or session.
+    res.json({
+      enabled: status.enabled,
+      connected: status.connected,
+      authenticated: status.authenticated,
+      sessionManagedAutomatically: status.sessionManagedAutomatically,
+      authType: status.authType,
+      apiIdConfigured: status.apiIdConfigured,
+      state: status.state,
+      error: status.error,
+    });
+  } catch (err) {
+    logger.error({ err }, "GET /admin/telegram/mtproto/health failed");
+    res.status(500).json({ error: "Failed to get MTProto status" });
+  }
+});
+
 // ── GET /api/admin/telegram/bot-info — get bot username ──────────────────────
 router.get("/admin/telegram/bot-info", authenticate, requireRole("admin", "owner"), async (_req, res) => {
   try {
@@ -650,6 +684,16 @@ router.get("/admin/telegram/import-queue/stats", authenticate, requireRole("admi
   }
 });
 
+// ── GET /api/admin/telegram/stream-queue/stats — stream queue statistics ──
+router.get("/admin/telegram/stream-queue/stats", authenticate, requireRole("admin", "owner"), async (_req, res) => {
+  try {
+    res.json(getStreamQueueStats());
+  } catch (err) {
+    logger.error({ err }, "GET /admin/telegram/stream-queue/stats failed");
+    res.status(500).json({ error: "Failed to fetch stream queue stats" });
+  }
+});
+
 // ── POST /api/admin/telegram/import-queue/:id/retry — retry failed import ───
 router.post("/admin/telegram/import-queue/:id/retry", authenticate, requireRole("admin", "owner"), async (req, res) => {
   try {
@@ -677,6 +721,7 @@ router.get("/admin/telegram/health", authenticate, requireRole("admin", "owner")
     }).from(telegramVideosTable);
 
     const queueStats = await getQueueStats();
+    const streamQueueStats = getStreamQueueStats();
 
     const telegramApi = isTelegramConfigured();
 
@@ -743,25 +788,31 @@ router.get("/admin/telegram/health", authenticate, requireRole("admin", "owner")
       localBotApiStatus = (await checkLocalBotApiHealth()) ? "ok" : "error";
     }
 
+    // ── MTProto status ────────────────────────────────────────────────────────
+    const mtProtoStatus = getMtProtoStatus();
+
     // ── Streaming mode ─────────────────────────────────────────────────────────
-    // streaming reflects the actual Bot API endpoint in use:
+    // streaming reflects the actual download providers available:
+    //   - MTPROTO:         MTProto is connected — supports files of any size.
     //   - STANDARD_BOT_API: using api.telegram.org (20 MB getFile limit)
-    //   - LOCAL_BOT_API:    using a Local Bot API Server (up to 2 GB) — but only
-    //                       reported as LOCAL_BOT_API when the server is actually
-    //                       reachable, not merely configured.
+    //   - LOCAL_BOT_API:   using a Local Bot API Server (up to 2 GB) — but only
+    //                      reported as LOCAL_BOT_API when the server is actually
+    //                      reachable, not merely configured.
     //   - NOT_AVAILABLE:    no bot token configured.
-    let streamingMode: "STANDARD_BOT_API" | "LOCAL_BOT_API" | "NOT_AVAILABLE" = "NOT_AVAILABLE";
+    let streamingMode: "MTPROTO" | "STANDARD_BOT_API" | "LOCAL_BOT_API" | "NOT_AVAILABLE" = "NOT_AVAILABLE";
     let largeFileStreaming = false;
     if (!telegramApi) {
       streamingMode = "NOT_AVAILABLE";
       largeFileStreaming = false;
+    } else if (mtProtoStatus.connected) {
+      // MTProto is connected — supports files of any size.
+      streamingMode = "MTPROTO";
+      largeFileStreaming = true;
     } else if (isLocalBotApiConfigured()) {
-      // Only claim large-file support if the server is actually reachable.
       if (localBotApiStatus === "ok") {
         streamingMode = "LOCAL_BOT_API";
         largeFileStreaming = true;
       } else {
-        // Configured but unreachable — fall back to standard mode, no large file.
         streamingMode = "STANDARD_BOT_API";
         largeFileStreaming = false;
       }
@@ -781,6 +832,7 @@ router.get("/admin/telegram/health", authenticate, requireRole("admin", "owner")
       totalVideos: videos.total,
       activeSources: activeSources.count,
       importQueue: queueStats,
+      streamQueue: streamQueueStats,
       webhook: webhookInfo,
       botUsername,
       botApiError,
@@ -795,6 +847,17 @@ router.get("/admin/telegram/health", authenticate, requireRole("admin", "owner")
         indexer: telegramApi ? "ok" : "not_configured",
         streaming: streamingMode === "NOT_AVAILABLE" ? "not_configured" : "ok",
         localBotApi: localBotApiStatus,
+        mtproto: mtProtoStatus.connected ? "ok" : mtProtoStatus.enabled ? "error" : "not_configured",
+      },
+      mtproto: {
+        enabled: mtProtoStatus.enabled,
+        connected: mtProtoStatus.connected,
+        authenticated: mtProtoStatus.authenticated,
+        sessionManagedAutomatically: mtProtoStatus.sessionManagedAutomatically,
+        authType: mtProtoStatus.authType,
+        apiIdConfigured: mtProtoStatus.apiIdConfigured,
+        state: mtProtoStatus.state,
+        error: mtProtoStatus.error,
       },
     });
   } catch (err) {
@@ -885,6 +948,16 @@ router.post("/admin/telegram/test", authenticate, requireRole("admin", "owner"),
         status: healthy ? "ok" : "error",
         detail: healthy ? "Reachable" : "Configured but unreachable",
       };
+    }
+
+    // 8. MTProto — large-file streaming (>20 MB)
+    if (!isMtProtoConfigured()) {
+      results.mtproto = { status: "error", detail: "Not configured (set TELEGRAM_API_ID + TELEGRAM_API_HASH + TELEGRAM_BOT_TOKEN)" };
+    } else if (isMtProtoReady()) {
+      results.mtproto = { status: "ok", detail: "Connected — large-file streaming (>20 MB) available" };
+    } else {
+      const status = getMtProtoStatus();
+      results.mtproto = { status: "error", detail: `Configured but ${status.state}${status.error ? `: ${status.error}` : ""}` };
     }
 
     res.json({ results });
@@ -1084,15 +1157,22 @@ router.get("/telegram-videos/:id/stream", streamAuth, async (req, res) => {
       res.status(503).json({ error: "Video sedang tidak tersedia", detail: row.video.status }); return;
     }
 
-    await streamTelegramVideo({
-      fileId: row.video.telegramFileId,
-      videoId: row.video.id,
-      chatId: row.video.telegramChatId,
-      messageId: row.video.telegramMessageId,
+    // Capture narrowed values — closures lose TypeScript's null-narrowing.
+    const fileId = row.video.telegramFileId;
+    const videoId = row.video.id;
+    const chatId = row.video.telegramChatId;
+    const messageId = row.video.telegramMessageId;
+
+    await enqueueStream(() => streamTelegramVideo({
+      fileId,
+      videoId,
+      chatId,
+      messageId,
       mimeType: row.video.mimeType || "video/mp4",
       res,
       rangeHeader: req.headers.range,
-    });
+      fileSize: row.video.fileSize ?? null,
+    }));
     logger.info({ videoId: req.params.id }, "[TELEGRAM STREAM] completed");
   } catch (err) {
     logger.error({ err, videoId: req.params.id }, "[TELEGRAM STREAM] failed");

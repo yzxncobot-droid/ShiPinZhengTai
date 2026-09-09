@@ -138,6 +138,20 @@ async function initDatabase(): Promise<void> {
         );
       }
 
+      // ── Initialize Telegram MTProto (best-effort, non-blocking) ────────────
+      // MTProto is needed for streaming files >20 MB. If it fails, Bot API
+      // continues to work for files ≤20 MB. This is additive — it does not
+      // affect the existing Bot API webhook/indexing system.
+      try {
+        const { initMtProto } = await import("./lib/telegram/mtproto");
+        await initMtProto();
+      } catch (e) {
+        logger.warn(
+          { err: e instanceof Error ? e.message : String(e) },
+          "[TELEGRAM] MTProto initialization failed (non-fatal) — Bot API continues to work for files ≤20 MB",
+        );
+      }
+
       // ── Mark ready ──
       app.set("isReady", true);
       logger.info("[SERVER] Initialization complete — ready");

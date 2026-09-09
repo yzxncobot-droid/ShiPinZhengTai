@@ -592,6 +592,7 @@ function HealthCheck({ health, onTest, testing, testResults }: {
     { label: "Database", key: "database", icon: Database },
     { label: "Sources", key: "sources", icon: Activity },
     { label: "Indexer", key: "indexer", icon: RefreshCw },
+    { label: "MTProto", key: "mtproto", icon: Server },
     { label: "Streaming", key: "streaming", icon: Server },
     { label: "Local Bot API", key: "localBotApi", icon: Server },
   ];
@@ -641,9 +642,11 @@ function HealthCheck({ health, onTest, testing, testResults }: {
           <Server className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="font-medium">Streaming:</span>
           <span className="text-muted-foreground">
-            {health.streamingMode === "LOCAL_BOT_API"
-              ? "Local Bot API — up to 2 GB file support"
-              : "Standard Bot API — 20 MB file limit"}
+            {health.streamingMode === "MTPROTO"
+              ? "MTProto — no file size limit (large-file streaming active)"
+              : health.streamingMode === "LOCAL_BOT_API"
+                ? "Local Bot API — up to 2 GB file support"
+                : "Standard Bot API — 20 MB file limit (set TELEGRAM_API_ID + API_HASH for MTProto)"}
           </span>
         </div>
       )}
@@ -715,7 +718,7 @@ export default function AdminTelegramSources() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold">Telegram Video Storage</h1>
-            <p className="text-sm text-muted-foreground">Bot API only — no session/API ID/Hash needed</p>
+            <p className="text-sm text-muted-foreground">Bot API + MTProto streaming (auto session, no manual session needed)</p>
           </div>
           <div className="flex items-center gap-2">
             <Link href="/admin/telegram-import">
