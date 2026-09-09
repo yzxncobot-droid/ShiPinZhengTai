@@ -14,20 +14,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  formatFileSize, formatDuration, type TelegramVideo,
+  tgApi, formatFileSize, formatDuration, type TelegramVideo,
 } from "@/lib/telegram-api";
-import { getToken } from "@/lib/admin-api";
 
 interface TelegramVideoPickerProps {
   selectedId: string | null;
   onSelect: (video: TelegramVideo) => void;
-}
-
-interface ListResponse {
-  data: TelegramVideo[];
-  total: number;
-  page: number;
-  limit: number;
 }
 
 export function TelegramVideoPicker({ selectedId, onSelect }: TelegramVideoPickerProps) {
@@ -51,24 +43,14 @@ export function TelegramVideoPicker({ selectedId, onSelect }: TelegramVideoPicke
     setError(null);
 
     try {
-      const token = getToken();
-      const qs = new URLSearchParams();
-      qs.set("page", String(pageNum));
-      qs.set("limit", String(LIMIT));
-      if (searchTerm) qs.set("search", searchTerm);
-
-      const res = await fetch(`/api/telegram-videos?${qs}`, {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+      // Use the shared tgApi helper — same service as the public
+      // /telegram-videos page, ensuring a single source of data.
+      const json = await tgApi.listVideos({
+        page: pageNum,
+        limit: LIMIT,
+        search: searchTerm || undefined,
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error ?? data?.message ?? `Error ${res.status}`);
-      }
-
-      const json: ListResponse = await res.json();
       setVideos(prev => append ? [...prev, ...json.data] : json.data);
       setTotal(json.total);
       setHasMore(json.page * json.limit < json.total);
@@ -142,7 +124,7 @@ export function TelegramVideoPicker({ selectedId, onSelect }: TelegramVideoPicke
     return (
       <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
         <Film className="h-10 w-10 text-gray-300" />
-        <p className="text-sm font-semibold text-gray-500">Belum ada video Telegram</p>
+        <p className="text-sm font-semibold text-gray-500">Belum ada video Telegram yang siap digunakan</p>
         <p className="text-xs text-gray-400 max-w-xs">
           Import video dari Telegram terlebih dahulu melalui menu Telegram Sources.
         </p>

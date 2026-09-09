@@ -109,7 +109,7 @@ export default function TelegramVideosPage() {
         ) : videos.length === 0 ? (
           <div className="text-center py-16">
             <Film className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-            <p className="text-muted-foreground">No Telegram videos found.</p>
+            <p className="text-muted-foreground">Belum ada video Telegram</p>
           </div>
         ) : (
           <>
