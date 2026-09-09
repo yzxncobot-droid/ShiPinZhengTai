@@ -82,7 +82,7 @@ function AutoUpContent() {
       setConfigs(data.configs);
       setStats(data.stats);
     } catch (err) {
-      toast({ title: "Gagal memuat data", description: String(err.message || err), variant: "destructive" });
+      toast({ title: "Gagal memuat data", description: String((err as Error).message || err), variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -96,7 +96,7 @@ function AutoUpContent() {
       toast({ title: config.enabled ? "AutoUP dinonaktifkan" : "AutoUP diaktifkan" });
       loadData();
     } catch (err) {
-      toast({ title: "Gagal mengubah status", description: String(err.message || err), variant: "destructive" });
+      toast({ title: "Gagal mengubah status", description: String((err as Error).message || err), variant: "destructive" });
     }
   };
 
@@ -107,7 +107,7 @@ function AutoUpContent() {
       toast({ title: "AutoUP berhasil dihapus" });
       loadData();
     } catch (err) {
-      toast({ title: "Gagal menghapus", description: String(err.message || err), variant: "destructive" });
+      toast({ title: "Gagal menghapus", description: String((err as Error).message || err), variant: "destructive" });
     }
   };
 
