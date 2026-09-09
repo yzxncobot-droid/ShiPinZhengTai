@@ -99,7 +99,7 @@ export default function MaintenancePage() {
   const description =
     status?.maintenanceDescription ||
     "Kami sedang melakukan peningkatan untuk memberikan pengalaman yang lebih baik. Mohon tunggu sebentar.";
-  const siteName = status?.siteName || "Yzu视频";
+  const siteName = status?.siteName || "KIDZOO";
   const hasButton = !!(status?.maintenanceRedirectUrl && status?.maintenanceButtonText);
   const etaFormatted = status?.maintenanceEta
     ? new Date(status.maintenanceEta).toLocaleString("id-ID", {

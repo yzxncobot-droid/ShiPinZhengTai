@@ -215,7 +215,7 @@ function SidebarContent({
             </div>
             {!collapsed && (
               <div>
-                <p className="font-bold text-base leading-none">Yzu视频</p>
+                <p className="font-bold text-base leading-none">KIDZOO</p>
                 <p className="text-xs text-sidebar-foreground/50 leading-none mt-0.5">
                   {isOwner ? "Owner Panel" : "Admin Panel"}
                 </p>

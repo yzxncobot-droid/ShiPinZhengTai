@@ -42,7 +42,7 @@ export default function AdminRevenue() {
         <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
           <div>
             <h1 className="text-2xl font-bold">Pendapatan</h1>
-            <p className="text-sm text-muted-foreground">Laporan pendapatan platform Yzu视频</p>
+            <p className="text-sm text-muted-foreground">Laporan pendapatan platform KIDZOO</p>
           </div>
 
           {/* Summary Cards */}

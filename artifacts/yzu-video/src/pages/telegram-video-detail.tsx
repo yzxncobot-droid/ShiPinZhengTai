@@ -17,6 +17,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { tgApi, formatFileSize, formatDuration, type TelegramVideo } from "@/lib/telegram-api";
+import { probeStreamError } from "@/lib/probe-stream-error";
 import { useAuth } from "@/lib/auth";
 
 export default function TelegramVideoDetailPage() {
@@ -35,6 +36,11 @@ export default function TelegramVideoDetailPage() {
   const [streamLoading, setStreamLoading] = useState(true);
   const [streamError, setStreamError] = useState<string | null>(null);
   const ticketRetriesRef = useRef(0);
+  // Metadata-load timeout: if the <video> never receives even metadata within
+  // this window, the stream is stalled (not merely slow) — probe the endpoint
+  // for the real error and surface it instead of an infinite native spinner.
+  const metadataTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const METADATA_TIMEOUT_MS = 25000;
 
   useEffect(() => {
     if (!id) return;
@@ -70,7 +76,7 @@ export default function TelegramVideoDetailPage() {
     loadStreamTicket();
   }, [canStream, loadStreamTicket]);
 
-  const handleVideoError = () => {
+  const handleVideoError = async () => {
     const el = videoRef.current;
     // Tickets expire after 60 s — a mid-playback Range request can then fail.
     // Retry once with a fresh ticket, resuming at the current position.
@@ -79,11 +85,48 @@ export default function TelegramVideoDetailPage() {
       loadStreamTicket(el?.currentTime ?? 0);
       return;
     }
+    // The <video> element can only tell us "network error" (code 4) — it
+    // cannot read the HTTP status or the backend's JSON error. Probe the
+    // stream endpoint to surface the real reason (file too big, token
+    // missing, file_id expired, …) instead of a cryptic error code.
     const code = el?.error?.code;
-    setStreamError(
-      `Stream gagal dimuat dari server.${code ? ` (Error code: ${code})` : ""}`,
-    );
+    const fallback = `Stream gagal dimuat dari server.${code ? ` (Error code: ${code})` : ""}`;
+    if (streamSrc) {
+      const probed = await probeStreamError(streamSrc);
+      setStreamError(probed ?? fallback);
+    } else {
+      setStreamError(fallback);
+    }
   };
+
+  // Clear the metadata timeout as soon as the video has enough data to play.
+  const handleLoadedMetadata = () => {
+    if (metadataTimeoutRef.current) {
+      clearTimeout(metadataTimeoutRef.current);
+      metadataTimeoutRef.current = null;
+    }
+  };
+
+  // Start a metadata-load watchdog whenever a new stream URL is set. If the
+  // video receives no data at all within the timeout, the stream is stalled —
+  // probe for the real error and show it instead of an infinite spinner.
+  useEffect(() => {
+    if (!streamSrc) return;
+    if (metadataTimeoutRef.current) clearTimeout(metadataTimeoutRef.current);
+    metadataTimeoutRef.current = setTimeout(async () => {
+      const el = videoRef.current;
+      // readyState 0 (HAVE_NOTHING) → no data arrived at all → stalled.
+      if (el && el.readyState === 0) {
+        const probed = await probeStreamError(streamSrc);
+        setStreamError(
+          probed ?? "Video lambat dimuat dari server. Periksa koneksi dan coba lagi.",
+        );
+      }
+    }, METADATA_TIMEOUT_MS);
+    return () => {
+      if (metadataTimeoutRef.current) clearTimeout(metadataTimeoutRef.current);
+    };
+  }, [streamSrc]);
 
   if (loading) {
     return (
@@ -195,6 +238,7 @@ export default function TelegramVideoDetailPage() {
               src={streamSrc}
               controlsList="nodownload"
               onError={handleVideoError}
+              onLoadedMetadata={handleLoadedMetadata}
             />
           )}
         </div>

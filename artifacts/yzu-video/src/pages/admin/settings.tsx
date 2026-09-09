@@ -86,7 +86,7 @@ export default function AdminSettings() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">Pengaturan Website</h1>
-              <p className="text-sm text-muted-foreground">Konfigurasi platform Yzu视频</p>
+              <p className="text-sm text-muted-foreground">Konfigurasi platform KIDZOO</p>
             </div>
             <Button onClick={() => updateMut.mutate(form)} disabled={updateMut.isPending} className="gap-2">
               {updateMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -103,7 +103,7 @@ export default function AdminSettings() {
               {/* General */}
               <Section icon={Globe} title="Informasi Website" desc="Nama, logo, dan metadata utama">
                 <div className="grid grid-cols-2 gap-4">
-                  <Field label="Nama Website" field="siteName" placeholder="Yzu视频" />
+                  <Field label="Nama Website" field="siteName" placeholder="KIDZOO" />
                   <Field label="Tagline" field="tagline" placeholder="Platform video premium" />
                 </div>
                 <div className="space-y-1.5">
@@ -167,7 +167,7 @@ export default function AdminSettings() {
               {/* SEO */}
               <Section icon={Settings} title="SEO & Analytics" desc="Pengaturan mesin pencari dan tracking">
                 <div className="space-y-4">
-                  <Field label="Meta Title" field="metaTitle" placeholder="Yzu视频 - Platform Video Premium" />
+                  <Field label="Meta Title" field="metaTitle" placeholder="KIDZOO - Platform Video Premium" />
                   <Field label="Google Analytics ID" field="googleAnalyticsId" placeholder="G-XXXXXXXXXX" />
                   <Field label="Google Search Console" field="googleSearchConsoleId" placeholder="verification code" />
                 </div>
