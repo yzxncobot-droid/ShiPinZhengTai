@@ -115,10 +115,20 @@ export async function ensureBucket(
   bucket: string,
   label: string,
 ): Promise<void> {
-  // Step 1 — try to fetch the bucket; if it exists we're done.
+  // Step 1 — try to fetch the bucket; if it exists, ensure it's public.
   const { data: existing, error: getErr } = await client.storage.getBucket(bucket);
   if (existing) {
-    logger.info({ bucket, label }, "Storage: bucket exists — OK");
+    // Ensure the bucket is public — update if needed.
+    if (!(existing as any).public) {
+      const { error: updateErr } = await client.storage.updateBucket(bucket, { public: true });
+      if (!updateErr) {
+        logger.info({ bucket, label }, "Storage: bucket updated to public");
+      } else {
+        logger.warn({ bucket, label, error: updateErr.message }, "Storage: could not update bucket to public (non-fatal)");
+      }
+    } else {
+      logger.info({ bucket, label }, "Storage: bucket exists (public) — OK");
+    }
     return;
   }
 
@@ -130,7 +140,7 @@ export async function ensureBucket(
     public: true,
   });
   if (!createErr) {
-    logger.info({ bucket, label }, "Storage: bucket created");
+    logger.info({ bucket, label }, "Storage: bucket created (public)");
     return;
   }
 
@@ -149,6 +159,77 @@ export async function ensureBucket(
 
   // Anything else is unexpected — warn but don't crash the server.
   logger.warn({ bucket, label, error: createErr.message }, "Storage: ensureBucket warning (non-fatal)");
+}
+
+/**
+ * Ensure the expected folder structure exists inside the bucket by uploading
+ * zero-byte placeholder files (.keep) at each folder path. Supabase Storage
+ * has no explicit "create folder" API — folders are implicit path prefixes
+ * that appear when objects are uploaded. The placeholders make the structure
+ * visible and ready before the first real upload.
+ *
+ * All folders use the consolidated bucket "yzx" with these prefixes:
+ *   owner/videos/            ← owner/admin video uploads
+ *   owner/thumbnails/        ← owner/admin thumbnail uploads
+ *   videos/{userId}/         ← creator video uploads (per-user)
+ *   thumbnails/{userId}/     ← creator thumbnail uploads (per-user)
+ *   verified-creator/payments/{userId}/  ← VC payment proofs
+ *   media/autoup-thumbnails/ ← AutoUP generated thumbnails
+ *   media/avatars/           ← profile photos
+ *   media/banners/           ← site/user/category banners
+ *   media/bundle-thumbnails/ ← bundle cover images
+ *   media/bundle-banners/    ← bundle banner images
+ *   media/qris/              ← QRIS payment images
+ *   media/home-feed/         ← home feed videos & thumbnails
+ *   media/chat/              ← chat images, videos, voice, files
+ *
+ * Access model:
+ *   - Bucket is public=true → all objects are readable via public URLs.
+ *   - service_role key bypasses RLS → all writes succeed.
+ *   - No additional RLS policies needed for the current architecture.
+ */
+export async function ensureFolderStructure(
+  client: SupabaseClient,
+  bucket: string,
+  label: string,
+): Promise<void> {
+  const folders = [
+    "owner/videos",
+    "owner/thumbnails",
+    "videos",
+    "thumbnails",
+    "verified-creator/payments",
+    "media/autoup-thumbnails",
+    "media/avatars",
+    "media/banners",
+    "media/bundle-thumbnails",
+    "media/bundle-banners",
+    "media/qris",
+    "media/home-feed/videos",
+    "media/home-feed/thumbnails",
+    "media/chat/images",
+    "media/chat/videos",
+    "media/chat/voice",
+    "media/chat/files",
+  ];
+
+  let created = 0;
+  for (const folder of folders) {
+    const placeholderPath = `${folder}/.keep`;
+    // Upload a 0-byte placeholder — upsert so it's idempotent.
+    const { error } = await client.storage
+      .from(bucket)
+      .upload(placeholderPath, Buffer.alloc(0), {
+        contentType: "application/octet-stream",
+        upsert: true,
+      });
+    if (!error) {
+      created++;
+    } else if (!error.message.toLowerCase().includes("already exists")) {
+      logger.warn({ bucket, folder, error: error.message }, "Storage: folder placeholder upload failed (non-fatal)");
+    }
+  }
+  logger.info({ bucket, label, folders: created }, "Storage: folder structure ensured");
 }
 
 export async function supabaseDeleteFile(
