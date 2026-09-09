@@ -434,6 +434,26 @@ export async function processQueueItem(log: typeof telegramImportLogsTable.$infe
       ))
       .limit(1);
 
+    // ── Read the source's premium defaults for NEW videos ────────────────────
+    // When a source is marked premium with a defaultPrice, all NEW videos
+    // imported from it get isPremium=true + that price. EXISTING videos are
+    // never changed — the update path below deliberately omits isPremium/price.
+    let sourcePremium = false;
+    let sourceDefaultPrice: number | null = null;
+    const [sourceRow] = await db.select({
+      isPremium: telegramSourcesTable.isPremium,
+      defaultPrice: telegramSourcesTable.defaultPrice,
+    }).from(telegramSourcesTable)
+      .where(eq(telegramSourcesTable.id, metadata.sourceId)).limit(1);
+    if (sourceRow) {
+      sourcePremium = sourceRow.isPremium;
+      sourceDefaultPrice = sourceRow.defaultPrice;
+    }
+
+    // Fields updated on BOTH insert and update (metadata that always refreshes).
+    // NOTE: isPremium and price are intentionally EXCLUDED from here so that
+    // editing a source's premium settings never overwrites a video that was
+    // already imported with its own individual premium/price values.
     const videoData = {
       telegramFileId: metadata.fileId,
       telegramFileUniqueId: metadata.fileUniqueId || null,
@@ -454,25 +474,33 @@ export async function processQueueItem(log: typeof telegramImportLogsTable.$infe
     };
 
     if (existing) {
+      // Update existing video — do NOT touch isPremium/price.
       await db.update(telegramVideosTable).set(videoData)
         .where(eq(telegramVideosTable.id, existing.id));
       logger.info({ videoId: existing.id }, "[TELEGRAM] Video updated (duplicate protection)");
     } else {
+      // Insert NEW video — apply the source's premium defaults.
       // DB-level duplicate protection: the unique index on
       // (telegram_source_id, telegram_message_id) is the last line of defense.
       // If two identical webhooks race past the select above, onConflictDoUpdate
       // ensures only one row is created and the other becomes an update — never
-      // two duplicate records.
+      // two duplicate records. The onConflict set also omits isPremium/price
+      // so a race never overwrites an already-set premium value.
       await db.insert(telegramVideosTable).values({
         telegramSourceId: metadata.sourceId,
         telegramChatId: metadata.effectiveChatId,
         telegramMessageId: metadata.telegramMessageId,
+        isPremium: sourcePremium,
+        price: sourcePremium ? sourceDefaultPrice : null,
         ...videoData,
       }).onConflictDoUpdate({
         target: [telegramVideosTable.telegramSourceId, telegramVideosTable.telegramMessageId],
         set: videoData,
       });
-      logger.info({ sourceId: metadata.sourceId, messageId: metadata.telegramMessageId }, "[TELEGRAM] Video indexed");
+      logger.info(
+        { sourceId: metadata.sourceId, messageId: metadata.telegramMessageId, isPremium: sourcePremium, price: sourceDefaultPrice },
+        "[TELEGRAM] Video indexed",
+      );
     }
 
     // Update video count on the source.

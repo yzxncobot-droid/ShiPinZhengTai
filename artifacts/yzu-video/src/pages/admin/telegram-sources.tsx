@@ -72,8 +72,8 @@ function SourceModal({
 }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState<{ name: string; chatId: string; type: "GROUP" | "CHANNEL"; description: string; enabled: boolean }>({
-    name: "", chatId: "", type: "CHANNEL", description: "", enabled: true,
+  const [form, setForm] = useState<{ name: string; chatId: string; type: "GROUP" | "CHANNEL"; description: string; enabled: boolean; isPremium: boolean; defaultPrice: string }>({
+    name: "", chatId: "", type: "CHANNEL", description: "", enabled: true, isPremium: false, defaultPrice: "",
   });
 
   useEffect(() => {
@@ -81,6 +81,8 @@ function SourceModal({
       setForm({
         name: source.name, chatId: source.chatId, type: source.type,
         description: source.description || "", enabled: source.enabled,
+        isPremium: source.isPremium ?? false,
+        defaultPrice: source.defaultPrice != null ? String(source.defaultPrice) : "",
       });
     } else {
       const prefillChatId = (window as any).__tgPrefillChatId || "";
@@ -88,7 +90,7 @@ function SourceModal({
       setForm({
         name: "", chatId: prefillChatId, type: "CHANNEL",
         description: prefillChatId ? "Added from unregistered webhook update" : "",
-        enabled: true,
+        enabled: true, isPremium: false, defaultPrice: "",
       });
     }
   }, [source, open]);
@@ -100,11 +102,20 @@ function SourceModal({
     }
     setSaving(true);
     try {
+      const payload = {
+        name: form.name,
+        chatId: form.chatId,
+        type: form.type,
+        description: form.description,
+        enabled: form.enabled,
+        isPremium: form.isPremium,
+        defaultPrice: form.isPremium && form.defaultPrice ? parseFloat(form.defaultPrice) : null,
+      };
       if (source) {
-        await tgApi.updateSource(source.id, form);
+        await tgApi.updateSource(source.id, payload);
         toast({ title: "Source updated" });
       } else {
-        await tgApi.createSource(form);
+        await tgApi.createSource(payload);
         toast({ title: "Source created", description: "Testing connection..." });
       }
       onSaved();
@@ -168,6 +179,34 @@ function SourceModal({
               onCheckedChange={(v) => setForm({ ...form, enabled: v })}
             />
             <Label>Enabled</Label>
+          </div>
+
+          {/* Premium default for this source */}
+          <div className="space-y-3 rounded-lg border p-3 bg-muted/30">
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={form.isPremium}
+                onCheckedChange={(v) => setForm({ ...form, isPremium: v })}
+              />
+              <Label>Premium (semua video baru)</Label>
+            </div>
+            {form.isPremium && (
+              <div>
+                <Label>Harga default (nominal)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={form.defaultPrice}
+                  onChange={(e) => setForm({ ...form, defaultPrice: e.target.value })}
+                  placeholder="e.g. 100"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Semua video baru yang di-import dari source ini akan otomatis
+                  menggunakan harga ini. Video yang sudah ter-upload tidak akan berubah.
+                </p>
+              </div>
+            )}
           </div>
         </div>
         <DialogFooter>
@@ -321,6 +360,12 @@ function SourceCard({
 
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span><Film className="h-3 w-3 inline mr-1" />{source.videoCount} videos</span>
+          {source.isPremium && (
+            <Badge variant="secondary" className="h-5 px-1.5 text-xs gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              Premium {source.defaultPrice != null ? `· ${source.defaultPrice}` : ""}
+            </Badge>
+          )}
           <span>Last sync: {relativeTime(source.lastSyncAt)}</span>
           <span>Checked: {relativeTime(source.lastConnectionCheck)}</span>
         </div>
