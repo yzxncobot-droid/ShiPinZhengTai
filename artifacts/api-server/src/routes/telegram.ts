@@ -179,11 +179,16 @@ router.post("/telegram/webhook", async (req, res) => {
 // ── GET /api/admin/telegram/sources — list all sources ──────────────────────
 router.get("/admin/telegram/sources", authenticate, requireRole("admin", "owner"), async (_req, res) => {
   try {
+    logger.info({ userId: _req.user?.userId }, "[TELEGRAM_SOURCE][GET] Admin sources request");
     const sources = await db.select().from(telegramSourcesTable)
       .orderBy(desc(telegramSourcesTable.createdAt));
+    logger.info({ sourceCount: sources.length }, "[TELEGRAM_SOURCE][GET] Success");
     res.json(sources);
   } catch (err) {
-    logger.error({ err }, "GET /admin/telegram/sources failed");
+    logger.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      "[TELEGRAM_SOURCE][GET][ERROR] Failed to list sources",
+    );
     res.status(500).json({ error: "Failed to list sources" });
   }
 });
@@ -988,6 +993,11 @@ router.get("/telegram-videos", optionalAuth, async (req, res) => {
     const limitNum = Math.min(parseInt(limit) || 20, 100);
     const offset = (pageNum - 1) * limitNum;
 
+    logger.info(
+      { userId: req.user?.userId, role: req.user?.role, page: pageNum, limit: limitNum, search, sourceId },
+      "[TELEGRAM_VIDEOS][GET] Request received",
+    );
+
     // Only show COMPLETED (or legacy "active") videos to the public.
     // Non-completed videos (queued, uploading, processing, failed, etc.)
     // are NOT accessible to users — only to admins.
@@ -1035,9 +1045,17 @@ router.get("/telegram-videos", optionalAuth, async (req, res) => {
       telegramFileId: undefined,
     }));
 
+    logger.info(
+      { resultCount: data.length, total: Number(total) },
+      "[TELEGRAM_VIDEOS][DB] Query success",
+    );
+
     res.json({ data, total: Number(total), page: pageNum, limit: limitNum });
   } catch (err) {
-    logger.error({ err }, "GET /telegram-videos failed");
+    logger.error(
+      { err: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined },
+      "[TELEGRAM_VIDEOS][GET][ERROR] Failed to fetch Telegram videos",
+    );
     res.status(500).json({ error: "Failed to fetch Telegram videos" });
   }
 });
@@ -1054,9 +1072,13 @@ router.get("/telegram-videos/sources", optionalAuth, async (_req, res) => {
       .where(eq(telegramSourcesTable.enabled, true))
       .orderBy(telegramSourcesTable.name);
 
+    logger.info({ sourceCount: sources.length }, "[TELEGRAM_SOURCE][GET] Sources fetched");
     res.json(sources);
   } catch (err) {
-    logger.error({ err }, "GET /telegram-videos/sources failed");
+    logger.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      "[TELEGRAM_SOURCE][GET][ERROR] Failed to fetch video sources",
+    );
     res.status(500).json({ error: "Failed to fetch video sources" });
   }
 });

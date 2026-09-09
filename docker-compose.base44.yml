@@ -127,11 +127,11 @@ services:
       - /run/base44/app.env
     command: pnpm --filter @workspace/api-server run dev
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/api/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/api/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 5s
       timeout: 5s
-      retries: 20
-      start_period: 15s
+      retries: 30
+      start_period: 10s
     depends_on:
       seed:
         condition: service_completed_successfully
