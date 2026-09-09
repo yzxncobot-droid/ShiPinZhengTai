@@ -18,6 +18,7 @@ docker compose -f docker-compose.base44.yml up -d --build
 2. `setup` — one-shot `pnpm install --no-frozen-lockfile` (writes `node_modules` into the bind-mounted repo, shared by all services).
 3. `migrate` — one-shot `drizzle-kit push --force` against the active DB (Neon when NEON_DATABASE_URL is set, local otherwise) to create the schema. The local fallback `DATABASE_URL` carries `?sslmode=no-verify` because `lib/db/drizzle.config.ts` hardcodes `ssl: true` and the local cert is self-signed — the relaxation is scoped to that one connection (a process-global `NODE_TLS_REJECT_UNAUTHORIZED=0` would also disable Neon's valid-cert verification and trips a Node security warning; Neon TLS is verified normally). Runs after `db` is healthy and `setup` completes. The seed service needs no override at all — its pg pool already uses `ssl: { rejectUnauthorized: false }`.
 4. `api` — `pnpm --filter @workspace/api-server run dev` (esbuild bundle once → `node dist/index.mjs`). **No file watcher** — restart the `api` service after backend edits, then `reload_preview`.
+   - **Stream concurrency**: `MAX_CONCURRENT_STREAMS = 20` (default, via `STREAM_MAX_CONCURRENCY` env). Up to 20 simultaneous Telegram streaming operations (MTProto chunk streaming + Bot API). The 21st request enters a FIFO waiting queue with a 30 s timeout. Slots are acquired after auth+premium checks and always released via try/finally (success, error, disconnect, cancellation). Client disconnect cancels the upstream MTProto/Bot API transfer.
 5. `web` — `pnpm --filter @workspace/yzu-video run dev` (Vite HMR, live reload).
 
 ## Telegram Video Storage & Streaming (isolated module)
@@ -217,7 +218,7 @@ The repo is configured for one-click Netlify import & deploy via `netlify.toml`.
 
 ### Optional Netlify environment variables
 Same as the Base44 dev secrets list (SESSION_SECRET, TELEGRAM_BOT_TOKEN, BUATQRIS_*,
-*_SUPABASE_*, KV_REST_API_*, etc.). Set them in Netlify → Settings → Environment.
+*_SUPABASE_*, etc.). Set them in Netlify → Settings → Environment.
 
 ### Notes
 - `serverless-http` wraps the Express app; all routes (mounted at `/api` in `app.ts`)
@@ -261,7 +262,7 @@ The app has **two payment methods**, both crediting the wallet through a single
 
 ## Secrets
 
-External credentials (Neon DB, BuatQris, Supabase ×3, Layerbase Valkey) are
+External credentials (Neon DB, BuatQris, Supabase ×3) are
 **optional for boot** — the app degrades gracefully without them. They are
 delivered via `/run/base44/app.env` (last `env_file` entry, always wins over
 `.env.base44-defaults`).
@@ -274,10 +275,9 @@ delivered via `/run/base44/app.env` (last `env_file` entry, always wins over
   callback URL (`PUBLIC_BASE_URL + /api/webhooks/buatqris`). Falls back to
   `BASE44_PUBLIC_HOST_SUFFIX` when not set. The callback URL is shown on the
   admin BuatQris config page (`/admin/buatqris`).
-- `KV_REST_API_URL` / `KV_REST_API_TOKEN` — Layerbase Valkey (Redis-compatible
-  REST API) used for sessions, caching, and view buffering. Optional — without
-  them the app degrades gracefully (no session invalidation or caching).
-  Token is server-only, never sent to the frontend or logged.
+- Sessions, caching, rate limiting, and view buffering use an in-memory
+  TTL cache (`lib/cache/memory-cache.ts`) — no external Redis/Valkey required.
+  All cached data is ephemeral; Neon PostgreSQL remains the source of truth.
 - Supabase — see above. Without them, uploads/payments-cache are
   disabled but the UI renders.
 

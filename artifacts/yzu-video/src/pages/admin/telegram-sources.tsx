@@ -638,16 +638,28 @@ function HealthCheck({ health, onTest, testing, testResults }: {
         </div>
       )}
       {health.streamingMode && health.streamingMode !== "NOT_AVAILABLE" && (
-        <div className="flex items-center gap-2 text-xs border-t pt-2">
-          <Server className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="font-medium">Streaming:</span>
-          <span className="text-muted-foreground">
-            {health.streamingMode === "MTPROTO"
-              ? "MTProto — no file size limit (large-file streaming active)"
-              : health.streamingMode === "LOCAL_BOT_API"
-                ? "Local Bot API — up to 2 GB file support"
-                : "Standard Bot API — 20 MB file limit (set TELEGRAM_API_ID + API_HASH for MTProto)"}
-          </span>
+        <div className="space-y-1 border-t pt-2">
+          <div className="flex items-center gap-2 text-xs">
+            <Server className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="font-medium">Streaming:</span>
+            <span className="text-muted-foreground">
+              {health.streamingMode === "MTPROTO"
+                ? "MTProto — large-file streaming active"
+                : health.streamingMode === "LOCAL_BOT_API"
+                  ? "Local Bot API — up to 2 GB file support"
+                  : "Standard Bot API — 20 MB file limit (set TELEGRAM_API_ID + API_HASH for MTProto)"}
+            </span>
+          </div>
+          {health.streamQueue && (
+            <div className="flex items-center gap-4 text-xs pl-5">
+              <span className="text-muted-foreground">
+                Concurrency: <span className="font-medium text-foreground">{health.streamQueue.active} / {health.streamQueue.maxConcurrency}</span>
+              </span>
+              <span className="text-muted-foreground">
+                Queue: <span className="font-medium text-foreground">{health.streamQueue.waiting} waiting</span>
+              </span>
+            </div>
+          )}
         </div>
       )}
     </Card>

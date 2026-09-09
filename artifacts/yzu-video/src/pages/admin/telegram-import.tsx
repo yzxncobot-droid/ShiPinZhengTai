@@ -178,12 +178,11 @@ export default function AdminTelegramImport() {
             <Activity className="h-4 w-4" /> Stream Queue Status
           </h2>
           <p className="text-xs text-muted-foreground">
-            Antrean streaming video — membatasi jumlah unduhan paralel dari Telegram agar performa stabil.
-            Maksimal {streamStats.maxConcurrency} stream berjalan bersamaan.
+            Maksimal {streamStats.maxConcurrency} stream berjalan bersamaan. Streaming menggunakan MTProto dengan HTTP Range dan antrean otomatis saat seluruh slot penuh.
           </p>
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="p-2 rounded-lg bg-green-500/10">
-              <p className="text-2xl font-bold text-green-600">{streamStats.active}</p>
+              <p className="text-2xl font-bold text-green-600">{streamStats.active} / {streamStats.maxConcurrency}</p>
               <p className="text-xs text-muted-foreground">▶️ Aktif</p>
             </div>
             <div className="p-2 rounded-lg bg-yellow-500/10">

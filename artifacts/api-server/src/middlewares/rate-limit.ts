@@ -14,8 +14,13 @@ interface RateLimitOptions {
 }
 
 /**
- * Redis-backed sliding-window rate limiter.
+ * In-memory sliding-window rate limiter (per-instance).
  * Identifies clients by IP (falls back to "unknown").
+ *
+ * This limiter is per-process — sufficient for a single Replit backend.
+ * If multiple backend instances are used, each instance counts independently
+ * (the effective limit becomes max × instance_count). For a single-instance
+ * deployment this is exact.
  */
 export function rateLimit(opts: RateLimitOptions) {
   const {
