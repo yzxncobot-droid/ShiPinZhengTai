@@ -68,17 +68,25 @@ async function pipeWithBackpressure(
   res: Response,
   isAborted: () => boolean,
 ): Promise<void> {
-  while (!isAborted()) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      if (!res.write(value)) {
-        await new Promise<void>(resolve => {
-          const done = () => { res.off("close", done); res.off("drain", done); resolve(); };
-          res.once("drain", done);
-          res.once("close", done);
-        });
+  try {
+    while (!isAborted()) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        if (!res.write(value)) {
+          await new Promise<void>(resolve => {
+            const done = () => { res.off("close", done); res.off("drain", done); resolve(); };
+            res.once("drain", done);
+            res.once("close", done);
+          });
+        }
       }
+    }
+  } finally {
+    // Cancel the underlying fetch connection when the client disconnects
+    // so the Bot API transfer stops — don't keep downloading in the background.
+    if (isAborted()) {
+      reader.cancel().catch(() => {});
     }
   }
 }
@@ -90,14 +98,22 @@ async function pipeGeneratorWithBackpressure(
   res: Response,
   isAborted: () => boolean,
 ): Promise<void> {
-  for await (const chunk of iter) {
-    if (isAborted()) break;
-    if (!res.write(chunk)) {
-      await new Promise<void>(resolve => {
-        const done = () => { res.off("close", done); res.off("drain", done); resolve(); };
-        res.once("drain", done);
-        res.once("close", done);
-      });
+  try {
+    for await (const chunk of iter) {
+      if (isAborted()) break;
+      if (!res.write(chunk)) {
+        await new Promise<void>(resolve => {
+          const done = () => { res.off("close", done); res.off("drain", done); resolve(); };
+          res.once("drain", done);
+          res.once("close", done);
+        });
+      }
+    }
+  } finally {
+    // Ensure the MTProto download generator is properly cleaned up on abort
+    // so the Telegram transfer stops — don't keep downloading in the background.
+    if (isAborted()) {
+      await iter.return(undefined).catch(() => {});
     }
   }
 }
