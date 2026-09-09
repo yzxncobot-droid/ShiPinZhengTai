@@ -842,6 +842,7 @@ export async function processVideoFromWebhook(
   sourceId: string,
   telegramVideoId: string,
 ): Promise<void> {
+  console.log("[DEBUG-AUTOUP] processVideoFromWebhook ENTERED", { sourceId, telegramVideoId });
   // 1. Find enabled AutoUP configs for this source.
   const configs = await db.select({
     config: autoupConfigsTable,

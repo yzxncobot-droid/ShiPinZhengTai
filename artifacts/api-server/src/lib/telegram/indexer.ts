@@ -516,6 +516,7 @@ export async function processQueueItem(log: typeof telegramImportLogsTable.$infe
       // Non-blocking — errors are caught and logged inside processVideoFromWebhook.
       import("./autoup")
         .then(({ processVideoFromWebhook }) => {
+          console.log("[DEBUG-AUTOUP] processVideoFromWebhook called", { sourceId: metadata.sourceId, videoId });
           processVideoFromWebhook(metadata.sourceId, videoId).catch((err) => {
             logger.warn(
               { err: err instanceof Error ? err.message : String(err), videoId, sourceId: metadata.sourceId },
