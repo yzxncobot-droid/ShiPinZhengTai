@@ -281,6 +281,54 @@ delivered via `/run/base44/app.env` (last `env_file` entry, always wins over
 - Supabase — see above. Without them, uploads/payments-cache are
   disabled but the UI renders.
 
+## Supabase Storage (consolidated)
+
+OWNER and PUBLIC Supabase projects are **consolidated into 1 project**. The
+OWNER storage service (`lib/storage/owner.ts`) falls back to
+`PUBLIC_SUPABASE_URL` / `PUBLIC_SUPABASE_SERVICE_KEY` when
+`OWNER_SUPABASE_URL` / `OWNER_SUPABASE_SERVICE_KEY` are not set. This allows
+using a single Supabase project for both owner and creator uploads.
+
+- **Bucket**: `yzx` (public=true, shared by all storage types)
+- **Folder structure** (auto-created as `.keep` placeholders at startup via
+  `ensureFolderStructure` in `supabase-helpers.ts`):
+  - `owner/videos/`, `owner/thumbnails/` — owner/admin uploads
+  - `videos/{userId}/`, `thumbnails/{userId}/` — creator uploads
+  - `verified-creator/payments/{userId}/` — VC payment proofs
+  - `media/autoup-thumbnails/` — AutoUP generated thumbnails
+  - `media/avatars/`, `media/banners/`, `media/qris/`, etc. — media assets
+- **Access model**: bucket is `public=true` (all objects readable via public
+  URLs); `service_role` key bypasses RLS (all writes succeed). No additional
+  RLS policies needed.
+- `ensureBucket` also updates an existing bucket to `public=true` if it was
+  created as private.
+
+## AutoUP — webhook-triggered video import (2026-09-09)
+
+**Problem**: AutoUP polled Telegram sources via MTProto `getNewVideoMessages()`
+which calls `messages.getHistory` — bots get `BOT_METHOD_INVALID` on channels,
+so AutoUP never detected new videos in channels.
+
+**Fix**: Added a **webhook-triggered AutoUP path** as the primary detection
+mechanism for channels:
+
+1. Video forwarded to channel → Telegram webhook receives it in real-time
+2. Webhook indexer (`indexer.ts`) creates `telegram_videos` record (status=completed)
+3. After completion, indexer calls `processVideoFromWebhook(sourceId, telegramVideoId)`
+   via dynamic import (avoids circular dependency)
+4. `processVideoFromWebhook` finds enabled AutoUP configs matching the source
+5. For each config, creates a `videos` catalog entry with the config's settings
+   (premium/price/description) — same as the MTProto path
+6. Thumbnail: downloads via Bot API `getFile` (from `telegram_videos.thumbnailFileId`)
+   → falls back to FFmpeg via MTProto if no Bot API thumbnail
+7. Result logged in `autoup_processing_logs`
+
+The MTProto polling path is kept as a fallback for groups where it works.
+The webhook path is the **only** way to detect new videos in channels.
+
+**Flow**: Forward video to channel → webhook → telegram_videos (completed) →
+AutoUP → videos catalog (published, with config's premium/price settings)
+
 ## Notes / quirks
 
 - `lib/db/src/index.ts` hardcodes `ssl: { rejectUnauthorized: false }`, so the local Postgres must run with SSL on (hence the self-signed cert). Do not disable SSL on the `db` service.
