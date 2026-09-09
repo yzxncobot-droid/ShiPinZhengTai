@@ -19,9 +19,26 @@ export const telegramSyncStatusEnum = pgEnum("telegram_sync_status", [
   "success", "error", "in_progress",
 ]);
 
+/**
+ * Video processing lifecycle.
+ *
+ * New videos from Telegram go through a processing pipeline before they
+ * are accessible to users:
+ *
+ *   DETECTED → QUEUED → UPLOADING → PROCESSING → COMPLETED
+ *                                          ↘ FAILED (retryable)
+ *
+ * Only COMPLETED videos are shown in the public catalog / streamable.
+ * Legacy "active" is treated as equivalent to "completed" for backward
+ * compatibility with data created before the pipeline existed.
+ */
 export const telegramVideoStatusEnum = pgEnum("telegram_video_status", [
-  "active", "error", "unavailable",
+  "active", "error", "unavailable",           // legacy — active ≈ completed
+  "detected", "queued", "uploading", "processing", "completed", "failed",
 ]);
+
+/** Statuses that mean "fully processed and accessible to users". */
+export const TELEGRAM_VIDEO_PUBLIC_STATUSES = ["completed", "active"] as const;
 
 // ── telegram_sources ─────────────────────────────────────────────────────────
 // Admin-registered Telegram channels/groups. Relational — no limit on count.
@@ -42,13 +59,13 @@ export const telegramSourcesTable = pgTable(
     videoCount: integer("video_count").notNull().default(0),
     errorMessage: text("error_message"),
     /**
-     * Premium default for this source — when true, all NEW videos imported
-     * from this source are automatically marked premium with `defaultPrice`.
-     * Editing this does NOT affect videos already imported (they keep their
-     * individual isPremium / price values).
+     * @deprecated Premium is NO LONGER determined at the Telegram Source level.
+     * Use AutoUP configs (autoup_configs.isPremium / price) to control
+     * FREE/PREMIUM status. This column is kept for backward compatibility
+     * with existing data but is ignored by all new logic.
      */
     isPremium: boolean("is_premium").notNull().default(false),
-    /** Default price applied to NEW videos when isPremium is true. */
+    /** @deprecated See isPremium above. Kept for backward compatibility. */
     defaultPrice: doublePrecision("default_price"),
     /** Highest Telegram message ID processed — used for incremental sync. */
     lastSyncedMessageId: text("last_synced_message_id"),
