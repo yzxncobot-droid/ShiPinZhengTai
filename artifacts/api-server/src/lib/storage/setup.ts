@@ -66,17 +66,19 @@ async function setupOwnerStorage(): Promise<void> {
 }
 
 async function setupMediaStorage(): Promise<void> {
-  const url    = process.env.MEDIA_SUPABASE_URL ?? "";
-  const key    = process.env.MEDIA_SUPABASE_SERVICE_KEY ?? "";
+  // Consolidated: MEDIA falls back to PUBLIC Supabase project.
+  const url    = process.env.MEDIA_SUPABASE_URL || process.env.PUBLIC_SUPABASE_URL || "";
+  const key    = process.env.MEDIA_SUPABASE_SERVICE_KEY || process.env.PUBLIC_SUPABASE_SERVICE_KEY || "";
   const bucket = process.env.MEDIA_SUPABASE_BUCKET ?? "yzx";
   if (!url || !key) {
-    logger.warn("Storage setup: MEDIA_SUPABASE_URL / MEDIA_SUPABASE_SERVICE_KEY not set — skipping");
+    logger.warn("Storage setup: MEDIA_SUPABASE_URL / MEDIA_SUPABASE_SERVICE_KEY (or PUBLIC fallback) not set — skipping");
     return;
   }
-  validateKey(key, "MEDIA_SUPABASE_SERVICE_KEY");
+  const label = process.env.MEDIA_SUPABASE_URL ? "MEDIA project" : "MEDIA project (via PUBLIC — consolidated)";
+  validateKey(key, process.env.MEDIA_SUPABASE_URL ? "MEDIA_SUPABASE_SERVICE_KEY" : "PUBLIC_SUPABASE_SERVICE_KEY");
   const client = buildSupabaseClient(url, key);
-  await ensureBucket(client, bucket, "MEDIA project");
-  await ensureFolderStructure(client, bucket, "MEDIA project");
+  await ensureBucket(client, bucket, label);
+  await ensureFolderStructure(client, bucket, label);
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
