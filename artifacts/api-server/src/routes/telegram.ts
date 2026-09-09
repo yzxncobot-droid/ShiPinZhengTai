@@ -16,6 +16,7 @@ import {
   telegramImportLogsTable, usersTable, userSubscriptionsTable,
 } from "@workspace/db";
 import { eq, and, desc, ilike, sql, inArray } from "drizzle-orm";
+import { TELEGRAM_VIDEO_PUBLIC_STATUSES } from "@workspace/db";
 import { authenticate, optionalAuth, requireRole } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 import {
@@ -190,7 +191,7 @@ router.get("/admin/telegram/sources", authenticate, requireRole("admin", "owner"
 // ── POST /api/admin/telegram/sources — create a source ──────────────────────
 router.post("/admin/telegram/sources", authenticate, requireRole("admin", "owner"), async (req, res) => {
   try {
-    const { name, chatId, type, description, enabled = true, isPremium = false, defaultPrice = null } = req.body;
+    const { name, chatId, type, description, enabled = true } = req.body;
 
     if (!name?.trim()) { res.status(400).json({ error: "Source name is required" }); return; }
     if (!chatId?.trim()) { res.status(400).json({ error: "Telegram Chat ID is required" }); return; }
@@ -204,6 +205,9 @@ router.post("/admin/telegram/sources", authenticate, requireRole("admin", "owner
       res.status(409).json({ error: "A source with this Telegram Chat ID already exists" }); return;
     }
 
+    // Premium is NO LONGER set at the Telegram Source level.
+    // isPremium and defaultPrice are kept in the DB for backward compat but
+    // are always false/null for new sources.
     const [source] = await db.insert(telegramSourcesTable).values({
       name: name.trim(),
       chatId: chatId.trim(),
@@ -211,8 +215,6 @@ router.post("/admin/telegram/sources", authenticate, requireRole("admin", "owner
       description: description?.trim() || null,
       enabled: enabled !== false,
       status: "UNKNOWN",
-      isPremium: isPremium === true,
-      defaultPrice: isPremium ? (typeof defaultPrice === "number" ? defaultPrice : null) : null,
     }).returning();
 
     logger.info({ sourceId: source.id, name, chatId }, "[TELEGRAM] Source created");
@@ -253,26 +255,19 @@ router.get("/admin/telegram/sources/:id", authenticate, requireRole("admin", "ow
 // ── PATCH /api/admin/telegram/sources/:id — update a source ────────────────
 router.patch("/admin/telegram/sources/:id", authenticate, requireRole("admin", "owner"), async (req, res) => {
   try {
-    const { name, chatId, type, description, enabled, isPremium, defaultPrice } = req.body;
+    const { name, chatId, type, description, enabled } = req.body;
 
     const [existing] = await db.select().from(telegramSourcesTable)
       .where(eq(telegramSourcesTable.id, req.params.id as string)).limit(1);
     if (!existing) { res.status(404).json({ error: "Source not found" }); return; }
 
+    // Premium is NO LONGER managed at the Telegram Source level.
     const updates: Record<string, any> = { updatedAt: new Date() };
     if (name !== undefined) updates.name = name.trim();
     if (chatId !== undefined) updates.chatId = chatId.trim();
     if (type !== undefined) updates.type = type;
     if (description !== undefined) updates.description = description?.trim() || null;
     if (enabled !== undefined) updates.enabled = enabled;
-    if (isPremium !== undefined) {
-      updates.isPremium = isPremium === true;
-      // When turning premium off, clear the default price too.
-      if (!isPremium) updates.defaultPrice = null;
-    }
-    if (defaultPrice !== undefined && (isPremium === true || (isPremium === undefined && existing.isPremium))) {
-      updates.defaultPrice = typeof defaultPrice === "number" ? defaultPrice : null;
-    }
 
     const [updated] = await db.update(telegramSourcesTable).set(updates)
       .where(eq(telegramSourcesTable.id, req.params.id as string)).returning();
@@ -993,7 +988,13 @@ router.get("/telegram-videos", optionalAuth, async (req, res) => {
     const limitNum = Math.min(parseInt(limit) || 20, 100);
     const offset = (pageNum - 1) * limitNum;
 
-    const filterConditions: any[] = [eq(telegramSourcesTable.enabled, true)];
+    // Only show COMPLETED (or legacy "active") videos to the public.
+    // Non-completed videos (queued, uploading, processing, failed, etc.)
+    // are NOT accessible to users — only to admins.
+    const filterConditions: any[] = [
+      eq(telegramSourcesTable.enabled, true),
+      inArray(telegramVideosTable.status, [...TELEGRAM_VIDEO_PUBLIC_STATUSES]),
+    ];
 
     if (search) {
       filterConditions.push(ilike(telegramVideosTable.title, `%${search}%`));
@@ -1074,6 +1075,13 @@ router.get("/telegram-videos/:id", optionalAuth, async (req, res) => {
 
     if (!row) { res.status(404).json({ error: "Not found" }); return; }
 
+    // Block non-completed videos from public access.
+    // Admins can see all statuses; non-admins get 404.
+    const isStaff = req.user && ["admin", "owner"].includes(req.user.role);
+    if (!isStaff && !TELEGRAM_VIDEO_PUBLIC_STATUSES.includes(row.video.status as any)) {
+      res.status(404).json({ error: "Not found" }); return;
+    }
+
     const hasAccess = await checkTelegramVideoAccess(req.user?.userId, row.video);
 
     res.json({
@@ -1108,6 +1116,11 @@ router.post("/telegram-videos/:id/stream-ticket", authenticate, async (req, res)
       .limit(1);
 
     if (!row) { res.status(404).json({ error: "Not found" }); return; }
+
+    // Block non-completed videos — no stream ticket for unprocessed videos.
+    if (!TELEGRAM_VIDEO_PUBLIC_STATUSES.includes(row.video.status as any)) {
+      res.status(404).json({ error: "Not found" }); return;
+    }
 
     const hasAccess = await checkTelegramVideoAccess(req.user!.userId, row.video);
     if (!hasAccess) {
@@ -1152,6 +1165,13 @@ router.get("/telegram-videos/:id/stream", streamAuth, async (req, res) => {
       .limit(1);
 
     if (!row) { res.status(404).json({ error: "Not found" }); return; }
+
+    // Block non-completed videos — no streaming for unprocessed videos.
+    // Admins can still stream for debugging/monitoring.
+    const isStaff = req.user && ["admin", "owner"].includes(req.user.role);
+    if (!isStaff && !TELEGRAM_VIDEO_PUBLIC_STATUSES.includes(row.video.status as any)) {
+      res.status(404).json({ error: "Not found" }); return;
+    }
 
     const hasAccess = await checkTelegramVideoAccess(req.user!.userId, row.video);
     if (!hasAccess) {

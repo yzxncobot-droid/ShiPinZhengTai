@@ -434,26 +434,15 @@ export async function processQueueItem(log: typeof telegramImportLogsTable.$infe
       ))
       .limit(1);
 
-    // ── Read the source's premium defaults for NEW videos ────────────────────
-    // When a source is marked premium with a defaultPrice, all NEW videos
-    // imported from it get isPremium=true + that price. EXISTING videos are
-    // never changed — the update path below deliberately omits isPremium/price.
-    let sourcePremium = false;
-    let sourceDefaultPrice: number | null = null;
-    const [sourceRow] = await db.select({
-      isPremium: telegramSourcesTable.isPremium,
-      defaultPrice: telegramSourcesTable.defaultPrice,
-    }).from(telegramSourcesTable)
-      .where(eq(telegramSourcesTable.id, metadata.sourceId)).limit(1);
-    if (sourceRow) {
-      sourcePremium = sourceRow.isPremium;
-      sourceDefaultPrice = sourceRow.defaultPrice;
-    }
+    // ── Premium is NO LONGER set at the Telegram Source level ────────────────
+    // Telegram Source is just a media source. FREE/PREMIUM is determined by
+    // AutoUP configs or the website catalog, NOT by the source.
+    // New videos always start with isPremium=false, price=null.
 
     // Fields updated on BOTH insert and update (metadata that always refreshes).
-    // NOTE: isPremium and price are intentionally EXCLUDED from here so that
-    // editing a source's premium settings never overwrites a video that was
-    // already imported with its own individual premium/price values.
+    // NOTE: isPremium and price are intentionally EXCLUDED — they are managed
+    // by AutoUP or the admin via the website catalog, never by the source.
+    // status starts as "queued" — the video is NOT accessible until verified.
     const videoData = {
       telegramFileId: metadata.fileId,
       telegramFileUniqueId: metadata.fileUniqueId || null,
@@ -469,38 +458,62 @@ export async function processQueueItem(log: typeof telegramImportLogsTable.$infe
       thumbnailHeight: metadata.thumbnailHeight,
       caption: metadata.caption,
       telegramDate: new Date(metadata.telegramDate),
-      status: "active" as const,
+      status: "queued" as const,
       updatedAt: new Date(),
     };
+
+    let videoId: string;
 
     if (existing) {
       // Update existing video — do NOT touch isPremium/price.
       await db.update(telegramVideosTable).set(videoData)
         .where(eq(telegramVideosTable.id, existing.id));
+      videoId = existing.id;
       logger.info({ videoId: existing.id }, "[TELEGRAM] Video updated (duplicate protection)");
     } else {
-      // Insert NEW video — apply the source's premium defaults.
+      // Insert NEW video — isPremium=false, price=null (source no longer controls premium).
       // DB-level duplicate protection: the unique index on
       // (telegram_source_id, telegram_message_id) is the last line of defense.
-      // If two identical webhooks race past the select above, onConflictDoUpdate
-      // ensures only one row is created and the other becomes an update — never
-      // two duplicate records. The onConflict set also omits isPremium/price
-      // so a race never overwrites an already-set premium value.
-      await db.insert(telegramVideosTable).values({
+      const [created] = await db.insert(telegramVideosTable).values({
         telegramSourceId: metadata.sourceId,
         telegramChatId: metadata.effectiveChatId,
         telegramMessageId: metadata.telegramMessageId,
-        isPremium: sourcePremium,
-        price: sourcePremium ? sourceDefaultPrice : null,
+        isPremium: false,
+        price: null,
         ...videoData,
       }).onConflictDoUpdate({
         target: [telegramVideosTable.telegramSourceId, telegramVideosTable.telegramMessageId],
         set: videoData,
-      });
+      }).returning();
+      videoId = created.id;
       logger.info(
-        { sourceId: metadata.sourceId, messageId: metadata.telegramMessageId, isPremium: sourcePremium, price: sourceDefaultPrice },
-        "[TELEGRAM] Video indexed",
+        { sourceId: metadata.sourceId, messageId: metadata.telegramMessageId, videoId },
+        "[TELEGRAM] Video indexed (status=queued)",
       );
+    }
+
+    // ── Storage verification before marking as COMPLETED ─────────────────────
+    // The video binary stays in Telegram — "storage verification" means
+    // confirming the Telegram file reference is valid and the metadata is sane.
+    // Only after verification does the video become accessible to users.
+    const verificationPassed =
+      !!metadata.fileId &&           // file_id must exist
+      metadata.fileSize > 0 &&       // file size must be > 0
+      !!metadata.mimeType &&          // mime type must exist
+      metadata.mimeType.startsWith("video/");  // must be a video
+
+    if (verificationPassed) {
+      await db.update(telegramVideosTable).set({
+        status: "completed",
+        updatedAt: new Date(),
+      }).where(eq(telegramVideosTable.id, videoId));
+      logger.info({ videoId }, "[TELEGRAM] Video verified → status=completed");
+    } else {
+      await db.update(telegramVideosTable).set({
+        status: "failed",
+        updatedAt: new Date(),
+      }).where(eq(telegramVideosTable.id, videoId));
+      logger.warn({ videoId, fileId: metadata.fileId, fileSize: metadata.fileSize, mimeType: metadata.mimeType }, "[TELEGRAM] Video verification failed → status=failed");
     }
 
     // Update video count on the source.

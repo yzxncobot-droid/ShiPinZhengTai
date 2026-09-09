@@ -298,6 +298,8 @@ async function processVideo(
     status: "processing",
   }).returning();
 
+  let telegramVideoId: string | null = null;
+
   try {
     // ── 3. Create/link telegram_videos record ─────────────────────────────
     const [existingTgVideo] = await db.select({ id: telegramVideosTable.id })
@@ -308,8 +310,9 @@ async function processVideo(
       ))
       .limit(1);
 
-    let telegramVideoId: string;
-
+    // Telegram Source no longer controls premium — isPremium=false, price=null.
+    // Premium is determined by the AutoUP config when creating the catalog entry.
+    // status starts as "queued" — the video is NOT accessible until verified.
     const tgVideoData = {
       telegramFileId: null, // MTProto uses chatId + messageId, not file_id
       telegramFileUniqueId: msg.documentId,
@@ -322,9 +325,9 @@ async function processVideo(
       height: msg.height,
       caption: msg.caption,
       telegramDate: msg.date,
-      status: "active" as const,
-      isPremium: config.isPremium,
-      price: config.isPremium ? (config.price ?? 0) : null,
+      status: "queued" as const,
+      isPremium: false,
+      price: null,
       updatedAt: new Date(),
     };
 
@@ -388,7 +391,33 @@ async function processVideo(
       }
     }
 
-    // ── 6. Resolve creator ID ─────────────────────────────────────────────
+    // ── 6. Storage verification before COMPLETED ──────────────────────────
+    // Verify the video metadata is valid before marking as COMPLETED.
+    // Only COMPLETED videos are accessible to users.
+    const verificationPassed =
+      (msg.fileSize ?? 0) > 0 &&           // file size must be > 0
+      !!msg.mimeType &&                     // mime type must exist
+      msg.mimeType.startsWith("video/");   // must be a video
+
+    if (!verificationPassed) {
+      // Mark telegram video as FAILED — do NOT publish to catalog.
+      await db.update(telegramVideosTable).set({
+        status: "failed",
+        updatedAt: new Date(),
+      }).where(eq(telegramVideosTable.id, telegramVideoId));
+
+      throw new Error(`Storage verification failed: fileSize=${msg.fileSize}, mimeType=${msg.mimeType}`);
+    }
+
+    // Verification passed → mark telegram video as COMPLETED.
+    await db.update(telegramVideosTable).set({
+      status: "completed",
+      updatedAt: new Date(),
+    }).where(eq(telegramVideosTable.id, telegramVideoId));
+
+    logger.info({ telegramVideoId }, "[AUTOUP] Telegram video verified → status=completed");
+
+    // ── 7. Resolve creator ID ─────────────────────────────────────────────
     let creatorId = config.createdBy;
     if (!creatorId) {
       // Fallback: find the first owner/admin user
@@ -403,7 +432,9 @@ async function processVideo(
       throw new Error("No creator user found — cannot create video entry");
     }
 
-    // ── 7. Create videos table entry (the website catalog) ───────────────
+    // ── 8. Create videos table entry (the website catalog) ───────────────
+    // Only published AFTER telegram video is verified + COMPLETED.
+    // Premium/Free is determined by the AutoUP config, NOT the Telegram source.
     const visibility = config.isPremium ? "premium" : "public";
     const videoUrl = `/api/telegram-videos/${telegramVideoId}/stream`;
 
@@ -452,6 +483,14 @@ async function processVideo(
   } catch (err) {
     const errMsg = err instanceof Error ? err.message.substring(0, 500) : String(err);
     logger.error({ err: errMsg, configId: config.id, messageId: msg.messageId }, "[AUTOUP] Processing failed");
+
+    // Mark the telegram video as FAILED if it was created.
+    if (telegramVideoId) {
+      await db.update(telegramVideosTable).set({
+        status: "failed",
+        updatedAt: new Date(),
+      }).where(eq(telegramVideosTable.id, telegramVideoId)).catch(() => {});
+    }
 
     await db.update(autoupProcessingLogsTable).set({
       status: "failed",

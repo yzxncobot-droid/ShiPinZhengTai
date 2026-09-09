@@ -9,7 +9,7 @@ import {
   customRolesTable, userCustomRolesTable,
   telegramVideosTable, telegramSourcesTable,
 } from "@workspace/db";
-import { legacyToVisibility, visibilityToLegacy } from "@workspace/db";
+import { legacyToVisibility, visibilityToLegacy, TELEGRAM_VIDEO_PUBLIC_STATUSES } from "@workspace/db";
 import { eq, and, desc, asc, ilike, gte, ne, or, sql, count, isNull } from "drizzle-orm";
 import { authenticate, optionalAuth, requireRole } from "../middlewares/auth";
 import { incrementVideoViews, resetVideoViewBuffer, invalidateCache, keys, TTL } from "../lib/redis";
@@ -162,6 +162,15 @@ router.get("/videos", optionalAuth, async (req, res) => {
       conditions.push(ne(videosTable.visibility, "hidden_bundle"));
     }
 
+    // Exclude telegram-sourced videos that are NOT completed/active.
+    // Only COMPLETED telegram videos should appear in the public catalog.
+    conditions.push(
+      sql`(${videosTable.videoSourceType} != 'telegram' OR ${videosTable.telegramVideoId} IS NULL OR EXISTS (
+        SELECT 1 FROM ${telegramVideosTable} WHERE ${telegramVideosTable.id} = ${videosTable.telegramVideoId}
+        AND ${telegramVideosTable.status} IN ('completed', 'active')
+      ))`
+    );
+
     if (search) conditions.push(ilike(videosTable.title, `%${search}%`));
     if (categoryId) conditions.push(eq(videosTable.categoryId, categoryId));
     if (visibility) conditions.push(eq(videosTable.visibility, visibility as any));
@@ -209,6 +218,11 @@ router.get("/videos/featured", optionalAuth, async (req, res) => {
         eq(videosTable.status, "published"),
         ne(videosTable.visibility, "hidden_bundle"),
         isNull(videosTable.deletedAt),
+        // Exclude non-completed telegram videos from featured
+        sql`(${videosTable.videoSourceType} != 'telegram' OR ${videosTable.telegramVideoId} IS NULL OR EXISTS (
+          SELECT 1 FROM ${telegramVideosTable} WHERE ${telegramVideosTable.id} = ${videosTable.telegramVideoId}
+          AND ${telegramVideosTable.status} IN ('completed', 'active')
+        ))`,
       ))
       .orderBy(desc(videosTable.createdAt))
       .limit(10);
@@ -234,6 +248,20 @@ router.get("/videos/:id", optionalAuth, async (req, res) => {
 
   if (!isStaff && !isCreator && video.status !== "published") {
     res.status(404).json({ error: "Not found" }); return;
+  }
+
+  // Block non-completed telegram videos from public access.
+  // Only COMPLETED (or legacy "active") telegram videos are accessible.
+  if (video.videoSourceType === "telegram" && video.telegramVideoId) {
+    const [tgVideo] = await db.select({ status: telegramVideosTable.status })
+      .from(telegramVideosTable)
+      .where(eq(telegramVideosTable.id, video.telegramVideoId))
+      .limit(1);
+    if (tgVideo && !TELEGRAM_VIDEO_PUBLIC_STATUSES.includes(tgVideo.status as any)) {
+      if (!isStaff && !isCreator) {
+        res.status(404).json({ error: "Not found" }); return;
+      }
+    }
   }
 
   const hasAccess = await checkAccess(userId, video);
@@ -327,8 +355,10 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
       if (!tgVideo.sourceEnabled) {
         res.status(400).json({ error: "Source Telegram video ini sudah dinonaktifkan" }); return;
       }
-      if (tgVideo.video.status === "error" || tgVideo.video.status === "unavailable") {
-        res.status(400).json({ error: "Video Telegram tidak tersedia untuk dipilih" }); return;
+      // Only COMPLETED (or legacy "active") telegram videos can be linked to
+      // the website catalog. Non-completed videos are not accessible.
+      if (!TELEGRAM_VIDEO_PUBLIC_STATUSES.includes(tgVideo.video.status as any)) {
+        res.status(400).json({ error: "Video Telegram belum selesai diproses (status: " + tgVideo.video.status + ")" }); return;
       }
 
       // Prevent duplicate: check if this telegram video is already linked to another video
