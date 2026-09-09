@@ -32,4 +32,5 @@ export * from "./custom-roles";
 export * from "./home-feed";
 export * from "./gamification";
 export * from "./telegram";
+export * from "./autoup";
 export * from "./app-secrets";

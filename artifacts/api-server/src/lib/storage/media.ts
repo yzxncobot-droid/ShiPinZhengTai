@@ -153,6 +153,29 @@ export async function uploadToMediaStorage(
  * Convenience wrapper specifically for bundle thumbnails.
  * Always routes to media/bundle-thumbnails/.
  */
+/**
+ * Upload a raw thumbnail buffer (from AutoUP FFmpeg) to the MEDIA Supabase project.
+ * Returns null when media storage is not configured (non-fatal — thumbnail stays null).
+ */
+export async function uploadThumbnailBufferToMedia(
+  buffer: Buffer,
+  contentType: string = "image/jpeg",
+): Promise<{ path: string; url: string } | null> {
+  if (!isMediaStorageAvailable) return null;
+
+  const folder = "media/autoup-thumbnails";
+  const ext = contentType === "image/png" ? ".png" : ".jpg";
+  const storagePath = generateStoragePath(folder, `thumbnail${ext}`);
+
+  const { path, url } = await supabaseUploadWithRetry(
+    client, MEDIA_URL, BUCKET, storagePath, buffer, contentType,
+  );
+
+  logger.info({ path, size: buffer.length }, "MediaStorage: AutoUP thumbnail uploaded");
+
+  return { path, url };
+}
+
 export async function uploadBundleThumbnailToMedia(
   file: Express.Multer.File,
 ): Promise<{ path: string; url: string; folder: string }> {

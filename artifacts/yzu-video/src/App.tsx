@@ -64,6 +64,7 @@ import AchievementsPage from "@/pages/achievements";
 import AdminGamificationPage from "@/pages/admin/gamification";
 import AdminTelegramSources from "@/pages/admin/telegram-sources";
 import AdminTelegramImport from "@/pages/admin/telegram-import";
+import AdminAutoUpPage from "@/pages/admin/autoup";
 import TelegramVideosPage from "@/pages/telegram-videos";
 import TelegramVideoDetailPage from "@/pages/telegram-video-detail";
 
@@ -152,6 +153,7 @@ function AppRouter() {
       <Route path="/admin/gamification" component={AdminGamificationPage} />
       <Route path="/admin/telegram-sources" component={AdminTelegramSources} />
       <Route path="/admin/telegram-import" component={AdminTelegramImport} />
+      <Route path="/admin/autoup" component={AdminAutoUpPage} />
       <Route path="/admin/maintenance" component={AdminMaintenancePage} />
 
       {/* Maintenance page — always accessible */}
@@ -168,6 +170,7 @@ function AppRouter() {
       <Route path="/owner/verifications" component={AdminVerificationsPage} />
       <Route path="/owner/drops" component={AdminDropsPage} />
       <Route path="/owner/redeem" component={AdminRedeemPage} />
+      <Route path="/owner/autoup" component={AdminAutoUpPage} />
 
       <Route component={NotFound} />
     </Switch>
