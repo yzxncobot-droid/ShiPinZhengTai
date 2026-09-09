@@ -491,6 +491,106 @@ function sanitizeError(message: string): string {
     .substring(0, 500);
 }
 
+// ── Message polling (for AutoUP) ─────────────────────────────────────────────
+
+export interface MtProtoVideoMessage {
+  messageId: string;
+  caption: string | null;
+  date: Date;
+  /** Telegram document ID (used as fileUniqueId for dedup). */
+  documentId: string;
+  fileSize: number;
+  mimeType: string;
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+  fileName: string | null;
+}
+
+/**
+ * Fetch new video messages from a chat via MTProto, starting after `minMessageId`.
+ *
+ * Uses the existing singleton MTProto client — no new connection is created.
+ * Returns only messages that contain a video document (mime type starts with
+ * "video/"). Non-video messages are filtered out but their IDs are still
+ * accounted for (the caller updates lastProcessedMessageId to the highest
+ * message ID seen, not just video IDs).
+ *
+ * @param chatId        Telegram chat ID (string, e.g. "-100123456789")
+ * @param minMessageId  Return messages with ID > this value (string, "0" for all)
+ * @param limit         Max messages to fetch per call (default 50)
+ * @returns Array of video messages + the highest message ID seen (any type)
+ */
+export async function getNewVideoMessages(
+  chatId: string,
+  minMessageId: string,
+  limit: number = 50,
+): Promise<{ videos: MtProtoVideoMessage[]; maxMessageId: string }> {
+  if (!isMtProtoReady() || !client) {
+    throw new Error("MTProto client not initialized");
+  }
+
+  const chatIdNum = parseInt(chatId, 10);
+  const minIdNum = parseInt(minMessageId, 10) || 0;
+
+  if (Number.isNaN(chatIdNum)) {
+    throw new Error(`Invalid chat ID: ${chatId}`);
+  }
+
+  const messages = await client.getMessages(chatIdNum, {
+    minId: minIdNum,
+    limit,
+  });
+
+  const videos: MtProtoVideoMessage[] = [];
+  let maxId = minIdNum;
+
+  for (const msg of messages) {
+    if (!msg || (msg as any).empty === true) continue;
+
+    const msgId = Number((msg as any).id);
+    if (msgId > maxId) maxId = msgId;
+
+    const media = (msg as any).media;
+    if (!media || !media.document) continue;
+
+    const doc = media.document;
+    const mimeType: string = doc.mimeType || "";
+    if (!mimeType.startsWith("video/")) continue;
+
+    // Extract video attributes (duration, dimensions, filename).
+    let duration: number | null = null;
+    let width: number | null = null;
+    let height: number | null = null;
+    let fileName: string | null = null;
+
+    for (const attr of doc.attributes || []) {
+      if (attr instanceof Api.DocumentAttributeVideo) {
+        duration = Number((attr as any).duration) || null;
+        width = Number((attr as any).w) || null;
+        height = Number((attr as any).h) || null;
+      } else if (attr instanceof Api.DocumentAttributeFilename) {
+        fileName = (attr as any).fileName || null;
+      }
+    }
+
+    videos.push({
+      messageId: String(msgId),
+      caption: (msg as any).message || null,
+      date: new Date(Number((msg as any).date) * 1000),
+      documentId: String(doc.id),
+      fileSize: Number(doc.size) || 0,
+      mimeType,
+      duration,
+      width,
+      height,
+      fileName,
+    });
+  }
+
+  return { videos, maxMessageId: String(maxId) };
+}
+
 // ── Graceful shutdown ───────────────────────────────────────────────────────
 
 export async function shutdownMtProto(): Promise<void> {

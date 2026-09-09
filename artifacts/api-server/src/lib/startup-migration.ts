@@ -487,6 +487,17 @@ export async function runBestEffortStartupMigration(): Promise<void> {
       CREATE INDEX IF NOT EXISTS level_badge_tiers_min_level_idx ON level_badge_tiers(min_level);
     `);
 
+    // ── 8b. Telegram sources: premium default columns ────────────────────────
+    // When isPremium is true on a source, all NEW videos imported from it
+    // are automatically marked premium with defaultPrice. Editing the source
+    // does NOT change already-imported videos.
+    await runStep(client, "telegram_sources: premium default columns", `
+      ALTER TABLE telegram_sources
+        ADD COLUMN IF NOT EXISTS is_premium boolean NOT NULL DEFAULT false;
+      ALTER TABLE telegram_sources
+        ADD COLUMN IF NOT EXISTS default_price double precision;
+    `);
+
     // ── 9. Home Feed tables (TikTok-style vertical video feed) ───────────────
     // These tables are created by drizzle-kit push, but also here so the API
     // can boot safely on a production DB where the standalone migration has

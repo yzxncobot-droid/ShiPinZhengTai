@@ -18,7 +18,7 @@ import {
   ArrowUpFromLine, TrendingUp, Star, BarChart3, FileBarChart, Bell,
   Settings, ShieldCheck, Server, Upload, LogOut, Home, ChevronLeft,
   ChevronRight, Menu, PlaySquare, Search, User as UserIcon, X, Gift,
-  CheckCircle2, Wrench, Award, QrCode, Send,
+  CheckCircle2, Wrench, Award, QrCode, Send, Zap,
 } from "lucide-react";
 
 // ── Navigation Config ──────────────────────────────────────────────────────────
@@ -99,6 +99,7 @@ const useNavGroups = (pendingPayments: number = 0, unreadNotifs: number = 0): Na
       { label: "BuatQris", href: "/admin/buatqris", icon: QrCode },
       { label: "Telegram Storage", href: "/admin/telegram-sources", icon: Send },
       { label: "Telegram Import", href: "/admin/telegram-import", icon: Send },
+      { label: "AutoUP", href: "/admin/autoup", icon: Zap },
       { label: "Maintenance", href: "/admin/maintenance", icon: Wrench },
       { label: "Audit Log", href: "/admin/audit-logs", icon: ShieldCheck },
       { label: "Sistem", href: "/admin/system", icon: Server },
@@ -130,6 +131,7 @@ const PATH_LABELS: Record<string, string> = {
   "/admin/verifications": "Verifikasi Creator",
   "/admin/settings": "Pengaturan",
   "/admin/buatqris": "BuatQris",
+  "/admin/autoup": "AutoUP",
   "/admin/maintenance": "Maintenance Mode",
   "/admin/audit-logs": "Audit Log",
   "/admin/system": "Sistem",

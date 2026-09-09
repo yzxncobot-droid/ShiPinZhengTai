@@ -41,6 +41,15 @@ export const telegramSourcesTable = pgTable(
     lastSyncAt: timestamp("last_sync_at"),
     videoCount: integer("video_count").notNull().default(0),
     errorMessage: text("error_message"),
+    /**
+     * Premium default for this source — when true, all NEW videos imported
+     * from this source are automatically marked premium with `defaultPrice`.
+     * Editing this does NOT affect videos already imported (they keep their
+     * individual isPremium / price values).
+     */
+    isPremium: boolean("is_premium").notNull().default(false),
+    /** Default price applied to NEW videos when isPremium is true. */
+    defaultPrice: doublePrecision("default_price"),
     /** Highest Telegram message ID processed — used for incremental sync. */
     lastSyncedMessageId: text("last_synced_message_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),

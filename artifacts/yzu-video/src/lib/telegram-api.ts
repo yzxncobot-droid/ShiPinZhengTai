@@ -17,6 +17,8 @@ export interface TelegramSource {
   videoCount: number;
   errorMessage: string | null;
   lastSyncedMessageId: string | null;
+  isPremium: boolean;
+  defaultPrice: number | null;
   createdAt: string;
   updatedAt: string;
 }

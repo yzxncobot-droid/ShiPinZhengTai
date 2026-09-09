@@ -152,6 +152,21 @@ async function initDatabase(): Promise<void> {
         );
       }
 
+      // ── Start AutoUP processor (best-effort, non-blocking) ────────────────
+      // AutoUP polls Telegram sources via MTProto for new videos and imports
+      // them into the website catalog automatically. Uses the existing MTProto
+      // singleton — no new connection. Additive — does not affect existing
+      // systems.
+      try {
+        const { startAutoUpProcessor } = await import("./lib/telegram/autoup");
+        startAutoUpProcessor();
+      } catch (e) {
+        logger.warn(
+          { err: e instanceof Error ? e.message : String(e) },
+          "[AUTOUP] Processor failed to start (non-fatal)",
+        );
+      }
+
       // ── Mark ready ──
       app.set("isReady", true);
       logger.info("[SERVER] Initialization complete — ready");

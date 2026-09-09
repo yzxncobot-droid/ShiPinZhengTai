@@ -35,6 +35,7 @@ import gamificationRouter from "./gamification";
 import adminGamificationRouter from "./admin-gamification";
 
 import telegramRouter from "./telegram";
+import autoupRouter from "./autoup";
 
 const router: IRouter = Router();
 
@@ -74,6 +75,7 @@ router.use(gamificationRouter);
 router.use(adminGamificationRouter);
 
 router.use(telegramRouter);
+router.use(autoupRouter);
 
 
 export default router;
