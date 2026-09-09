@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "bash", "postgresql-16"]
+modules = ["nodejs-22", "web", "bash", "postgresql-16"]
 
 [deployment]
 router = "application"
@@ -17,20 +17,15 @@ runButton = "Project"
 
 [[workflows.workflow]]
 name = "Project"
-mode = "parallel"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "artifacts/api-server: API Server"
+[workflows.workflow.metadata]
+outputType = "webview"
 
 [[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "artifacts/yzu-video: web"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "artifacts/mockup-sandbox: Component Preview Server"
+task = "shell.exec"
+args = "pnpm install --no-frozen-lockfile && (PORT=8080 pnpm --filter @workspace/api-server run dev &) && PORT=21561 BASE_PATH=/ pnpm --filter @workspace/yzu-video run dev"
+waitForPort = 21561
 
 [[workflows.workflow]]
 name = "artifacts/api-server: API Server"

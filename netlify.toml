@@ -21,7 +21,7 @@
   node_bundler = "esbuild"
 
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "22"
   # Vite config requires PORT and BASE_PATH at config-load time, even for build.
   PORT = "3000"
   BASE_PATH = "/"
