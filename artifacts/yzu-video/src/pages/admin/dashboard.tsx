@@ -108,7 +108,7 @@ export default function AdminDashboard() {
           <div>
             <h1 className="text-2xl font-bold">Selamat datang, {user?.username} 👋</h1>
             <p className="text-muted-foreground text-sm mt-0.5">
-              Ringkasan platform Yzu视频 per hari ini
+              Ringkasan platform KIDZOO per hari ini
             </p>
           </div>
 

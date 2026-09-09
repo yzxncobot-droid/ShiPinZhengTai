@@ -45,7 +45,7 @@ export default function OwnerSettings() {
   const form = useForm<z.infer<typeof settingsSchema>>({
     resolver: zodResolver(settingsSchema),
     defaultValues: {
-      siteName: "Yzu视频",
+      siteName: "KIDZOO",
       siteDescription: "",
       logo: "",
       banner: "",
@@ -58,7 +58,7 @@ export default function OwnerSettings() {
   useEffect(() => {
     if (settings) {
       form.reset({
-        siteName: settings.siteName || "Yzu视频",
+        siteName: settings.siteName || "KIDZOO",
         siteDescription: settings.siteDescription || "",
         logo: settings.logo || "",
         banner: settings.banner || "",
