@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Link } from "wouter";
 import {
   Bot, Inbox, ArrowRight, Film, Send, CheckCircle2, Loader2, AlertTriangle,
+  Activity,
 } from "lucide-react";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Card } from "@/components/ui/card";
@@ -17,16 +18,21 @@ import { tgApi, type BotInfo } from "@/lib/telegram-api";
 export default function AdminTelegramImport() {
   const [botInfo, setBotInfo] = useState<BotInfo | null>(null);
   const [queueStats, setQueueStats] = useState({ pending: 0, processing: 0, completed: 0, failed: 0, total: 0 });
+  const [streamStats, setStreamStats] = useState({
+    maxConcurrency: 0, active: 0, waiting: 0, totalProcessed: 0, totalFailed: 0, totalTimedOut: 0,
+  });
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
-      const [info, stats] = await Promise.all([
+      const [info, stats, sStats] = await Promise.all([
         tgApi.getBotInfo().catch(() => null),
         tgApi.getQueueStats().catch(() => null),
+        tgApi.getStreamQueueStats().catch(() => null),
       ]);
       setBotInfo(info);
       if (stats) setQueueStats(stats);
+      if (sStats) setStreamStats(sStats);
     } catch { /* ignore */ }
     finally { setLoading(false); }
   }, []);
@@ -164,6 +170,37 @@ export default function AdminTelegramImport() {
               {queueStats.completed} videos imported successfully.
             </div>
           ) : null}
+        </Card>
+
+        {/* Stream Queue Status */}
+        <Card className="p-4 space-y-3">
+          <h2 className="font-semibold flex items-center gap-2">
+            <Activity className="h-4 w-4" /> Stream Queue Status
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Antrean streaming video — membatasi jumlah unduhan paralel dari Telegram agar performa stabil.
+            Maksimal {streamStats.maxConcurrency} stream berjalan bersamaan.
+          </p>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="p-2 rounded-lg bg-green-500/10">
+              <p className="text-2xl font-bold text-green-600">{streamStats.active}</p>
+              <p className="text-xs text-muted-foreground">▶️ Aktif</p>
+            </div>
+            <div className="p-2 rounded-lg bg-yellow-500/10">
+              <p className="text-2xl font-bold text-yellow-600">{streamStats.waiting}</p>
+              <p className="text-xs text-muted-foreground">⏳ Menunggu</p>
+            </div>
+            <div className="p-2 rounded-lg bg-muted/50">
+              <p className="text-2xl font-bold">{streamStats.totalProcessed}</p>
+              <p className="text-xs text-muted-foreground">✅ Selesai</p>
+            </div>
+          </div>
+          {(streamStats.totalFailed > 0 || streamStats.totalTimedOut > 0) && (
+            <div className="flex items-center gap-2 text-sm text-red-500">
+              <AlertTriangle className="h-4 w-4" />
+              {streamStats.totalFailed} gagal, {streamStats.totalTimedOut} timeout
+            </div>
+          )}
         </Card>
 
         {/* Link to catalog */}

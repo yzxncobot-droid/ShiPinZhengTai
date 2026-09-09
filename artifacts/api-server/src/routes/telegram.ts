@@ -28,6 +28,7 @@ import {
   retryImportLog, syncSource,
 } from "../lib/telegram/indexer";
 import { streamTelegramVideo } from "../lib/telegram/streamer";
+import { enqueueStream, getStreamQueueStats } from "../lib/telegram/stream-queue";
 import { createStreamTicket, verifyStreamTicket } from "../lib/telegram/stream-tickets";
 import {
   isMtProtoConfigured, isMtProtoReady, getMtProtoStatus, initMtProto,
@@ -683,6 +684,16 @@ router.get("/admin/telegram/import-queue/stats", authenticate, requireRole("admi
   }
 });
 
+// ── GET /api/admin/telegram/stream-queue/stats — stream queue statistics ──
+router.get("/admin/telegram/stream-queue/stats", authenticate, requireRole("admin", "owner"), async (_req, res) => {
+  try {
+    res.json(getStreamQueueStats());
+  } catch (err) {
+    logger.error({ err }, "GET /admin/telegram/stream-queue/stats failed");
+    res.status(500).json({ error: "Failed to fetch stream queue stats" });
+  }
+});
+
 // ── POST /api/admin/telegram/import-queue/:id/retry — retry failed import ───
 router.post("/admin/telegram/import-queue/:id/retry", authenticate, requireRole("admin", "owner"), async (req, res) => {
   try {
@@ -710,6 +721,7 @@ router.get("/admin/telegram/health", authenticate, requireRole("admin", "owner")
     }).from(telegramVideosTable);
 
     const queueStats = await getQueueStats();
+    const streamQueueStats = getStreamQueueStats();
 
     const telegramApi = isTelegramConfigured();
 
@@ -820,6 +832,7 @@ router.get("/admin/telegram/health", authenticate, requireRole("admin", "owner")
       totalVideos: videos.total,
       activeSources: activeSources.count,
       importQueue: queueStats,
+      streamQueue: streamQueueStats,
       webhook: webhookInfo,
       botUsername,
       botApiError,
@@ -1144,16 +1157,22 @@ router.get("/telegram-videos/:id/stream", streamAuth, async (req, res) => {
       res.status(503).json({ error: "Video sedang tidak tersedia", detail: row.video.status }); return;
     }
 
-    await streamTelegramVideo({
-      fileId: row.video.telegramFileId,
-      videoId: row.video.id,
-      chatId: row.video.telegramChatId,
-      messageId: row.video.telegramMessageId,
+    // Capture narrowed values — closures lose TypeScript's null-narrowing.
+    const fileId = row.video.telegramFileId;
+    const videoId = row.video.id;
+    const chatId = row.video.telegramChatId;
+    const messageId = row.video.telegramMessageId;
+
+    await enqueueStream(() => streamTelegramVideo({
+      fileId,
+      videoId,
+      chatId,
+      messageId,
       mimeType: row.video.mimeType || "video/mp4",
       res,
       rangeHeader: req.headers.range,
       fileSize: row.video.fileSize ?? null,
-    });
+    }));
     logger.info({ videoId: req.params.id }, "[TELEGRAM STREAM] completed");
   } catch (err) {
     logger.error({ err, videoId: req.params.id }, "[TELEGRAM STREAM] failed");

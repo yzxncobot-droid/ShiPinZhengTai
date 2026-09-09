@@ -107,7 +107,7 @@ async function buildAll() {
       // GramJS (MTProto) — large library with auto-generated TL schema;
       // externalized to avoid bundling issues and keep the bundle small.
       "telegram",
-      "telegram/sessions",
+      "telegram/sessions/*",
       "telegram/events",
       "telegram/tl",
       "big-integer",

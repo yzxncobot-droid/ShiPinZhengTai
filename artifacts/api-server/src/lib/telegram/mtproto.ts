@@ -20,7 +20,7 @@
  * MTProto is used ONLY for file download/streaming.
  */
 import { TelegramClient, Api } from "telegram";
-import { StringSession } from "telegram/sessions";
+import { StringSession } from "telegram/sessions/index.js";
 import bigInt from "big-integer";
 import nodeFs from "node:fs";
 import nodePath from "node:path";
@@ -168,7 +168,7 @@ async function doInit(): Promise<void> {
 
     if (!authorized) {
       logger.info("[TELEGRAM] MTProto: session not authorized, authenticating as bot...");
-      await client.signInBot(botToken);
+      await client.signInBot({ apiId, apiHash }, { botAuthToken: botToken });
       const sessionString = (client.session as any).save() as string;
       await saveSession(new StringSession(sessionString) as StringSession);
       logger.info("[TELEGRAM] MTProto: bot authenticated, session saved automatically");

@@ -56,6 +56,14 @@ export interface TelegramHealth {
     failed: number;
     total: number;
   };
+  streamQueue: {
+    maxConcurrency: number;
+    active: number;
+    waiting: number;
+    totalProcessed: number;
+    totalFailed: number;
+    totalTimedOut: number;
+  };
   webhook: {
     url: string;
     pendingUpdateCount: number;
@@ -187,6 +195,17 @@ export const tgApi = {
     tgFetch<{ results: Record<string, { status: "ok" | "error"; detail?: string }> }>(
       "/admin/telegram/test", { method: "POST" },
     ),
+
+  // ── Stream queue ───────────────────────────────────────────────────────────
+  getStreamQueueStats: () =>
+    tgFetch<{
+      maxConcurrency: number;
+      active: number;
+      waiting: number;
+      totalProcessed: number;
+      totalFailed: number;
+      totalTimedOut: number;
+    }>("/admin/telegram/stream-queue/stats"),
 
   // ── Import queue ────────────────────────────────────────────────────────────
   getImportQueue: (status?: string) =>
