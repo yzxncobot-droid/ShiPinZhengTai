@@ -9,10 +9,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, Loader2, AlertCircle, Film, Clock, HardDrive,
-  CheckCircle2, Send, Calendar,
+  CheckCircle2, Send, Calendar, Filter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import {
   tgApi, formatFileSize, formatDuration, type TelegramVideo,
 } from "@/lib/telegram-api";
@@ -28,6 +31,8 @@ export function TelegramVideoPicker({ selectedId, onSelect }: TelegramVideoPicke
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
+  const [sourceId, setSourceId] = useState<string>("");
+  const [sources, setSources] = useState<{ id: string; name: string; type: string; videoCount: number }[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -37,7 +42,7 @@ export function TelegramVideoPicker({ selectedId, onSelect }: TelegramVideoPicke
 
   const LIMIT = 12;
 
-  const fetchVideos = useCallback(async (pageNum: number, searchTerm: string, append: boolean) => {
+  const fetchVideos = useCallback(async (pageNum: number, searchTerm: string, srcId: string, append: boolean) => {
     if (!append) setLoading(true);
     else setLoadingMore(true);
     setError(null);
@@ -49,6 +54,7 @@ export function TelegramVideoPicker({ selectedId, onSelect }: TelegramVideoPicke
         page: pageNum,
         limit: LIMIT,
         search: searchTerm || undefined,
+        sourceId: srcId || undefined,
       });
 
       setVideos(prev => append ? [...prev, ...json.data] : json.data);
@@ -64,9 +70,12 @@ export function TelegramVideoPicker({ selectedId, onSelect }: TelegramVideoPicke
     }
   }, []);
 
-  // Initial load
+  // Initial load — fetch sources + videos
   useEffect(() => {
-    fetchVideos(1, "", false);
+    tgApi.listVideoSources()
+      .then(setSources)
+      .catch(() => {});
+    fetchVideos(1, "", "", false);
   }, [fetchVideos]);
 
   // Debounced search
@@ -76,8 +85,15 @@ export function TelegramVideoPicker({ selectedId, onSelect }: TelegramVideoPicke
     searchTimer.current = setTimeout(() => {
       setSearch(value);
       setPage(1);
-      fetchVideos(1, value, false);
+      fetchVideos(1, value, sourceId, false);
     }, 400);
+  };
+
+  // Channel/group filter change
+  const handleSourceChange = (value: string) => {
+    setSourceId(value === "all" ? "" : value);
+    setPage(1);
+    fetchVideos(1, search, value === "all" ? "" : value, false);
   };
 
   // Infinite scroll
@@ -85,9 +101,9 @@ export function TelegramVideoPicker({ selectedId, onSelect }: TelegramVideoPicke
     const el = scrollRef.current;
     if (!el || loadingMore || !hasMore) return;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 100) {
-      fetchVideos(page + 1, search, true);
+      fetchVideos(page + 1, search, sourceId, true);
     }
-  }, [loadingMore, hasMore, page, search, fetchVideos]);
+  }, [loadingMore, hasMore, page, search, sourceId, fetchVideos]);
 
   // ── Loading state ─────────────────────────────────────────────────────────
   if (loading) {
@@ -110,7 +126,7 @@ export function TelegramVideoPicker({ selectedId, onSelect }: TelegramVideoPicke
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => fetchVideos(1, search, false)}
+          onClick={() => fetchVideos(1, search, sourceId, false)}
           className="mt-1"
         >
           Coba Lagi
@@ -134,16 +150,36 @@ export function TelegramVideoPicker({ selectedId, onSelect }: TelegramVideoPicke
 
   return (
     <div className="space-y-3">
-      {/* Search bar */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-        <Input
-          type="text"
-          placeholder="Cari video Telegram…"
-          value={searchInput}
-          onChange={(e) => handleSearchChange(e.target.value)}
-          className="pl-9 border-sky-200 focus:border-sky-400 bg-sky-50/30"
-        />
+      {/* Channel/Group filter + Search bar */}
+      <div className="flex gap-2">
+        <Select
+          value={sourceId || "all"}
+          onValueChange={handleSourceChange}
+        >
+          <SelectTrigger className="w-[160px] shrink-0 border-sky-200 focus:border-sky-400 bg-sky-50/30 text-sm">
+            <Filter className="h-3.5 w-3.5 text-gray-400 mr-1" />
+            <SelectValue placeholder="Semua Channel" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Semua Channel</SelectItem>
+            {sources.map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                {s.name} ({s.videoCount})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input
+            type="text"
+            placeholder="Cari video Telegram…"
+            value={searchInput}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            className="pl-9 border-sky-200 focus:border-sky-400 bg-sky-50/30"
+          />
+        </div>
       </div>
 
       {/* Video list */}
