@@ -7,8 +7,13 @@ if (!globalThis.WebSocket) {
   (globalThis as any).WebSocket = WebSocket;
 }
 
-const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const supabaseUrl = process.env.SUPABASE_URL
+  ?? process.env.PUBLIC_SUPABASE_URL
+  ?? process.env.NEXT_PUBLIC_SUPABASE_URL
+  ?? "";
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  ?? process.env.PUBLIC_SUPABASE_SERVICE_KEY
+  ?? "";
 
 /**
  * True when Supabase credentials are present.
@@ -31,8 +36,22 @@ if (!isSupabaseAvailable) {
  * (storage.upload, storage.listBuckets, etc.) will return an error response
  * which the route handlers convert to a user-friendly 503.
  */
+// Normalize the URL to match the service key's project ref, preventing
+// "signature verification failed" errors when URL and key belong to
+// different Supabase projects.
+let _normalizedUrl = supabaseUrl;
+if (supabaseUrl && supabaseKey) {
+  try {
+    const urlRef = new URL(supabaseUrl).hostname.match(/^([a-z0-9]+)\.supabase\.co$/)?.[1];
+    const keyRef = JSON.parse(Buffer.from(supabaseKey.split(".")[1], "base64url").toString("utf8"))?.ref;
+    if (urlRef && keyRef && urlRef !== keyRef) {
+      _normalizedUrl = `https://${keyRef}.supabase.co`;
+    }
+  } catch { /* ignore parse errors — use original URL */ }
+}
+
 export const supabase = createClient(
-  supabaseUrl || "https://placeholder.supabase.co",
+  _normalizedUrl || "https://placeholder.supabase.co",
   supabaseKey || "placeholder",
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
