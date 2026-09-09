@@ -82,6 +82,7 @@ function AutoUpContent() {
       setConfigs(data.configs);
       setStats(data.stats);
     } catch (err) {
+      console.error("[AUTOUP] Failed to load data:", err);
       toast({ title: "Gagal memuat data", description: String((err as Error).message || err), variant: "destructive" });
     } finally {
       setLoading(false);
@@ -316,6 +317,7 @@ function AutoUpFormDialog({
   const { toast } = useToast();
   const [sources, setSources] = useState<AutoUpSource[]>([]);
   const [saving, setSaving] = useState(false);
+  const [priceError, setPriceError] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: editingConfig?.name ?? "",
     telegramSourceId: editingConfig?.telegramSourceId ?? "",
@@ -326,12 +328,34 @@ function AutoUpFormDialog({
   });
 
   useEffect(() => {
-    autoupApi.sources().then(setSources).catch(() => {});
+    autoupApi.sources()
+      .then(setSources)
+      .catch((err) => {
+        console.error("[AUTOUP] Failed to load sources:", err);
+      });
   }, []);
 
   const handleSubmit = async () => {
     if (!form.name.trim()) { toast({ title: "Nama wajib diisi", variant: "destructive" }); return; }
     if (!form.telegramSourceId) { toast({ title: "Sumber Telegram wajib dipilih", variant: "destructive" }); return; }
+
+    // Premium price validation
+    if (form.isPremium) {
+      const priceNum = Number(form.price);
+      if (!priceNum || isNaN(priceNum)) {
+        setPriceError("Nominal wajib diisi");
+        return;
+      }
+      if (!Number.isInteger(priceNum)) {
+        setPriceError("Nominal harus berupa angka bulat");
+        return;
+      }
+      if (priceNum < 100) {
+        setPriceError("Minimum nominal Rp100");
+        return;
+      }
+    }
+    setPriceError(null);
 
     try {
       setSaving(true);
@@ -352,6 +376,7 @@ function AutoUpFormDialog({
       }
       onSaved();
     } catch (err) {
+      console.error("[AUTOUP] Failed to save:", err);
       toast({ title: "Gagal menyimpan", description: String((err as Error).message || err), variant: "destructive" });
     } finally {
       setSaving(false);
@@ -439,24 +464,35 @@ function AutoUpFormDialog({
             </div>
           </div>
 
-          {/* Price (if premium) */}
+          {/* Price (if premium) — manual input, not dropdown */}
           {form.isPremium && (
             <div className="space-y-1.5">
               <Label>Nominal</Label>
-              <Select
-                value={String(form.price)}
-                onValueChange={(v) => setForm({ ...form, price: Number(v) })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1000">Rp1.000</SelectItem>
-                  <SelectItem value="5000">Rp5.000</SelectItem>
-                  <SelectItem value="10000">Rp10.000</SelectItem>
-                  <SelectItem value="20000">Rp20.000</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">Rp</span>
+                <Input
+                  type="number"
+                  min={100}
+                  step={1}
+                  value={form.price || ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setForm({ ...form, price: val ? Number(val) : 0 });
+                    setPriceError(null);
+                  }}
+                  placeholder="1000"
+                  className="pl-9"
+                />
+              </div>
+              {priceError && (
+                <p className="text-xs text-red-500 flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3" />
+                  {priceError}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Minimum Rp100. Hanya angka bulat, tanpa desimal.
+              </p>
             </div>
           )}
 

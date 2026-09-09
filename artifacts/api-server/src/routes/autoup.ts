@@ -26,6 +26,8 @@ router.use(authenticate, requireRole("admin", "owner"));
 
 router.get("/admin/autoup", async (_req, res) => {
   try {
+    logger.info({ userId: _req.user?.userId }, "[AUTOUP][GET] Fetching configs + stats");
+
     const configs = await db.select({
       config: autoupConfigsTable,
       source: telegramSourcesTable,
@@ -36,6 +38,8 @@ router.get("/admin/autoup", async (_req, res) => {
       .orderBy(desc(autoupConfigsTable.createdAt));
 
     const stats = await getAutoUpStats();
+
+    logger.info({ configCount: configs.length }, "[AUTOUP][GET] Success");
 
     res.json({
       configs: configs.map((row) => ({
@@ -52,8 +56,8 @@ router.get("/admin/autoup", async (_req, res) => {
       stats,
     });
   } catch (err) {
-    logger.error({ err }, "[AUTOUP] GET /admin/autoup failed");
-    res.status(500).json({ error: "Gagal memuat data AutoUP" });
+    logger.error({ err: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined }, "[AUTOUP][GET][ERROR] Failed to fetch configs");
+    res.status(500).json({ error: "Gagal memuat data AutoUP", detail: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -62,6 +66,8 @@ router.get("/admin/autoup", async (_req, res) => {
 router.post("/admin/autoup", async (req, res) => {
   try {
     const { name, telegramSourceId, isPremium, price, description, enabled } = req.body;
+
+    logger.info({ userId: req.user?.userId, name, telegramSourceId, isPremium }, "[AUTOUP][CREATE] Request received");
 
     if (!name?.trim()) {
       res.status(400).json({ error: "Nama AutoUP wajib diisi" });
@@ -82,7 +88,25 @@ router.post("/admin/autoup", async (req, res) => {
     }
 
     const isPremiumBool = !!isPremium;
-    const safePrice = isPremiumBool ? Number(price) || 0 : null;
+
+    // Price validation for premium configs.
+    if (isPremiumBool) {
+      const priceNum = Number(price);
+      if (!priceNum || isNaN(priceNum)) {
+        res.status(400).json({ error: "Nominal wajib diisi untuk Premium" });
+        return;
+      }
+      if (!Number.isInteger(priceNum)) {
+        res.status(400).json({ error: "Nominal harus berupa angka bulat" });
+        return;
+      }
+      if (priceNum < 100) {
+        res.status(400).json({ error: "Minimum nominal Rp100" });
+        return;
+      }
+    }
+
+    const safePrice = isPremiumBool ? Number(price) : null;
 
     const [config] = await db.insert(autoupConfigsTable).values({
       name: name.trim(),
@@ -94,12 +118,12 @@ router.post("/admin/autoup", async (req, res) => {
       createdBy: req.user!.userId,
     }).returning();
 
-    logger.info({ configId: config.id, userId: req.user!.userId }, "[AUTOUP] Config created");
+    logger.info({ configId: config.id, userId: req.user!.userId, name: config.name, isPremium: config.isPremium, price: config.price }, "[AUTOUP][CREATE] Config created successfully");
 
     res.status(201).json(config);
   } catch (err) {
-    logger.error({ err }, "[AUTOUP] POST /admin/autoup failed");
-    res.status(500).json({ error: "Gagal membuat AutoUP" });
+    logger.error({ err: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined }, "[AUTOUP][CREATE][ERROR] Failed to create config");
+    res.status(500).json({ error: "Gagal membuat AutoUP", detail: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -218,6 +242,8 @@ router.get("/admin/autoup/:id/logs", async (req, res) => {
 
 router.get("/admin/autoup/sources", async (_req, res) => {
   try {
+    logger.info("[AUTOUP][GET] Fetching telegram sources");
+
     const sources = await db.select({
       id: telegramSourcesTable.id,
       name: telegramSourcesTable.name,
@@ -231,10 +257,11 @@ router.get("/admin/autoup/sources", async (_req, res) => {
       .where(eq(telegramSourcesTable.enabled, true))
       .orderBy(desc(telegramSourcesTable.createdAt));
 
+    logger.info({ sourceCount: sources.length }, "[AUTOUP][GET] Sources fetched");
     res.json(sources);
   } catch (err) {
-    logger.error({ err }, "[AUTOUP] GET sources failed");
-    res.status(500).json({ error: "Gagal memuat sumber Telegram" });
+    logger.error({ err: err instanceof Error ? err.message : String(err) }, "[AUTOUP][GET][ERROR] Failed to fetch sources");
+    res.status(500).json({ error: "Gagal memuat sumber Telegram", detail: err instanceof Error ? err.message : String(err) });
   }
 });
 
