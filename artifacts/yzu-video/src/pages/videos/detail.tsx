@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { VideoCard } from "@/components/video/VideoCard";
 import { FunLogo } from "@/components/layout/AppLayout";
 import { tgApi } from "@/lib/telegram-api";
+import { probeStreamError } from "@/lib/probe-stream-error";
 import { getToken } from "@/lib/admin-api";
 
 export default function VideoDetailPage() {
@@ -55,6 +56,8 @@ export default function VideoDetailPage() {
   const [tgStreamError, setTgStreamError] = useState<string | null>(null);
   const tgVideoRef = useRef<HTMLVideoElement>(null);
   const tgTicketRetries = useRef(0);
+  const tgMetadataTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const TG_METADATA_TIMEOUT_MS = 25000;
 
   // videoSourceType and telegramVideoId are returned by the backend but not in
   // the generated VideoDetail type — cast to access them safely.
@@ -89,7 +92,7 @@ export default function VideoDetailPage() {
     }
   }, [isTelegramVideo, video, loadTgStreamTicket]);
 
-  const handleTgVideoError = () => {
+  const handleTgVideoError = async () => {
     const el = tgVideoRef.current;
     if (tgTicketRetries.current < 1) {
       tgTicketRetries.current += 1;
@@ -97,8 +100,38 @@ export default function VideoDetailPage() {
       return;
     }
     const code = el?.error?.code;
-    setTgStreamError(`Stream gagal dimuat dari server.${code ? ` (Error code: ${code})` : ""}`);
+    const fallback = `Stream gagal dimuat dari server.${code ? ` (Error code: ${code})` : ""}`;
+    if (tgStreamSrc) {
+      const probed = await probeStreamError(tgStreamSrc);
+      setTgStreamError(probed ?? fallback);
+    } else {
+      setTgStreamError(fallback);
+    }
   };
+
+  const handleTgLoadedMetadata = () => {
+    if (tgMetadataTimeout.current) {
+      clearTimeout(tgMetadataTimeout.current);
+      tgMetadataTimeout.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (!tgStreamSrc) return;
+    if (tgMetadataTimeout.current) clearTimeout(tgMetadataTimeout.current);
+    tgMetadataTimeout.current = setTimeout(async () => {
+      const el = tgVideoRef.current;
+      if (el && el.readyState === 0) {
+        const probed = await probeStreamError(tgStreamSrc);
+        setTgStreamError(
+          probed ?? "Video lambat dimuat dari server. Periksa koneksi dan coba lagi.",
+        );
+      }
+    }, TG_METADATA_TIMEOUT_MS);
+    return () => {
+      if (tgMetadataTimeout.current) clearTimeout(tgMetadataTimeout.current);
+    };
+  }, [tgStreamSrc]);
 
   useEffect(() => {
     if (id && video && video.hasAccess !== false) {
@@ -233,6 +266,7 @@ export default function VideoDetailPage() {
                     className="w-full h-full object-contain"
                     src={tgStreamSrc}
                     onError={handleTgVideoError}
+                    onLoadedMetadata={handleTgLoadedMetadata}
                   />
                 )
               ) : (
