@@ -525,6 +525,9 @@ async function processVideo(
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let polling = false;
 
+/** Track sources already logged as "not connected" so we don't spam every 60s. */
+const loggedSkippedSources = new Set<string>();
+
 /**
  * One polling cycle: iterate all enabled AutoUP configs, fetch new video
  * messages from their sources via MTProto, and enqueue processing jobs.
@@ -553,14 +556,19 @@ async function pollOnce(): Promise<void> {
 
     for (const { config, source } of configs) {
       try {
-        // Skip disconnected sources
+        // Skip disconnected sources (log only once per source to avoid noise)
         if (source.status === "DISCONNECTED" || source.status === "ERROR") {
-          logger.info(
-            { configId: config.id, sourceId: source.id, status: source.status },
-            "[AUTOUP] Source not connected — skipping",
-          );
+          if (!loggedSkippedSources.has(source.id)) {
+            loggedSkippedSources.add(source.id);
+            logger.info(
+              { configId: config.id, sourceId: source.id, status: source.status },
+              "[AUTOUP] Source not connected — skipping (will not log again for this source)",
+            );
+          }
           continue;
         }
+        // Source is connected — clear the logged flag so we log again if it disconnects later
+        loggedSkippedSources.delete(source.id);
 
         const minId = config.lastProcessedMessageId || "0";
         const { videos, maxMessageId } = await getNewVideoMessages(source.chatId, minId, 50);
