@@ -186,7 +186,7 @@ export default function AdminSystemCheck() {
                 { label: "SUPABASE_URL", key: "supabaseKeySet" },
                 { label: "SESSION_SECRET", key: "sessionSecretSet" },
                 { label: "JWT_SECRET", key: "jwtSecretSet" },
-                { label: "KV_REST_API_URL", key: "layerbaseKvSet" },
+                { label: "CACHE_STORE", key: "cacheStore" },
               ].map(({ label, key }) => {
                 const isSet = s?.environment?.[key];
                 return (

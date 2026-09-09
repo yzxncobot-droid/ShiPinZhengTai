@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db";
 import { authenticate, requireRole } from "../middlewares/auth";
 import { redis, isRedisAvailable } from "../lib/redis";
+// isRedisAvailable is always true (in-memory cache); kept for API compatibility.
 import {
   supabase, MEDIA_BUCKET,
   FOLDER_VIDEOS, FOLDER_THUMBNAILS, FOLDER_IMAGES,
@@ -24,7 +25,7 @@ router.get("/system/status", authenticate, requireRole("owner", "admin"), async 
   const result: Record<string, any> = {
     timestamp: new Date().toISOString(),
     database: { status: "unknown", latencyMs: null },
-    redis:    { status: "unknown", latencyMs: null },
+    cache:    { status: "unknown", latencyMs: null, entries: 0 },
     supabase: { status: "unknown", bucket: MEDIA_BUCKET, buckets: {} },
     environment: {
       nodeVersion: process.version,
@@ -37,7 +38,7 @@ router.get("/system/status", authenticate, requireRole("owner", "admin"), async 
       databaseUrlSet: !!(process.env.NEON_DATABASE_URL || process.env.DATABASE_URL),
       neonUrlSet: !!process.env.NEON_DATABASE_URL,
       supabaseKeySet: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-      layerbaseKvSet: !!process.env.KV_REST_API_URL,
+      cacheStore: "in-memory",
     },
     memory: {
       heapUsedMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
@@ -59,17 +60,13 @@ router.get("/system/status", authenticate, requireRole("owner", "admin"), async 
     result.database = { status: "error", error: e?.message, latencyMs: Date.now() - dbStart };
   }
 
-  // Redis health check
-  const redisStart = Date.now();
+  // In-memory cache health check
+  const cacheStart = Date.now();
   try {
-    if (!isRedisAvailable) {
-      result.redis = { status: "unavailable", latencyMs: null };
-    } else {
-      await redis.ping();
-      result.redis = { status: "healthy", latencyMs: Date.now() - redisStart };
-    }
+    await redis.ping();
+    result.cache = { status: "healthy", latencyMs: Date.now() - cacheStart, entries: (redis as any).size ?? 0 };
   } catch (e: any) {
-    result.redis = { status: "error", error: e?.message, latencyMs: Date.now() - redisStart };
+    result.cache = { status: "error", error: e?.message, latencyMs: Date.now() - cacheStart, entries: 0 };
   }
 
   // Supabase + bucket checks

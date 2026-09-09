@@ -11,7 +11,7 @@
  *   TELEGRAM_API_HASH   — from https://my.telegram.org
  *
  * No TELEGRAM_MTPROTO_SESSION or any manual session string is ever needed.
- * The session is created on first boot, persisted to a Docker volume, and
+ * The session is created on first boot, persisted to Neon PostgreSQL, and
  * re-created automatically if lost or expired (using the bot token).
  *
  * This module is ADDITIVE — it does not touch the existing Bot API client,
@@ -25,11 +25,17 @@ import bigInt from "big-integer";
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { logger } from "../logger";
+import { db } from "@workspace/db";
+import { appSecretsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 
 // ── Configuration ───────────────────────────────────────────────────────────
 
 const SESSION_DIR = process.env.TELEGRAM_SESSION_DIR || "/data";
 const SESSION_FILE = nodePath.join(SESSION_DIR, "telegram-session.json");
+
+/** Key used to store the MTProto session in the app_secrets table (Neon). */
+const SESSION_DB_KEY = "telegram_mtproto_session";
 
 /** MTProto chunk size — 512 KB (max per upload.GetFile request). */
 const CHUNK_SIZE = 524288;
@@ -60,16 +66,33 @@ let initPromise: Promise<void> | null = null;
 // ── Session management ──────────────────────────────────────────────────────
 
 /**
- * Load the MTProto session from the file system.
- * Returns an empty StringSession if the file doesn't exist or is corrupt.
+ * Load the MTProto session from Neon PostgreSQL (primary).
+ * Falls back to the file system for one-time migration of existing sessions.
+ * Returns an empty StringSession if neither source has a valid session.
  * Never logs the session string itself.
  */
 async function loadSession(): Promise<StringSession> {
+  // 1. Primary: load from Neon PostgreSQL (app_secrets table)
+  try {
+    const [row] = await db
+      .select({ value: appSecretsTable.value })
+      .from(appSecretsTable)
+      .where(eq(appSecretsTable.key, SESSION_DB_KEY))
+      .limit(1);
+    if (row?.value) {
+      logger.info("[TELEGRAM] MTProto: session loaded from Neon PostgreSQL");
+      return new StringSession(row.value);
+    }
+  } catch (err: any) {
+    logger.warn({ err: err.message }, "[TELEGRAM] MTProto: DB session load failed — trying file fallback");
+  }
+
+  // 2. Migration fallback: load from file if it exists (one-time migration)
   try {
     const data = await nodeFs.promises.readFile(SESSION_FILE, "utf-8");
     const parsed = JSON.parse(data);
     if (parsed.session && typeof parsed.session === "string") {
-      logger.info("[TELEGRAM] MTProto: session loaded from file");
+      logger.info("[TELEGRAM] MTProto: session loaded from file — will migrate to Neon");
       return new StringSession(parsed.session);
     }
   } catch (err: any) {
@@ -77,25 +100,41 @@ async function loadSession(): Promise<StringSession> {
       logger.warn({ err: err.message }, "[TELEGRAM] MTProto: session file read error — will re-authenticate");
     }
   }
+
   return new StringSession("");
 }
 
 /**
- * Save the MTProto session to the file system.
- * Creates the directory if it doesn't exist. File mode 0600 (owner-only).
+ * Save the MTProto session to Neon PostgreSQL (primary) and the file system (backup).
  * Never logs the session string.
  */
 async function saveSession(session: StringSession): Promise<void> {
+  const sessionString = session.save();
+
+  // 1. Primary: save to Neon PostgreSQL (upsert)
+  try {
+    await db
+      .insert(appSecretsTable)
+      .values({ key: SESSION_DB_KEY, value: sessionString })
+      .onConflictDoUpdate({
+        target: appSecretsTable.key,
+        set: { value: sessionString, updatedAt: new Date() },
+      });
+    logger.info("[TELEGRAM] MTProto: session saved to Neon PostgreSQL");
+  } catch (err: any) {
+    logger.warn({ err: err.message }, "[TELEGRAM] MTProto: DB session save failed — trying file fallback");
+  }
+
+  // 2. Backup: also write to file (best-effort, never throws)
   try {
     await nodeFs.promises.mkdir(SESSION_DIR, { recursive: true });
     await nodeFs.promises.writeFile(
       SESSION_FILE,
-      JSON.stringify({ session: session.save(), savedAt: new Date().toISOString() }),
+      JSON.stringify({ session: sessionString, savedAt: new Date().toISOString() }),
       { mode: 0o600 },
     );
-    logger.info("[TELEGRAM] MTProto: session saved to file");
-  } catch (err: any) {
-    logger.warn({ err: err.message }, "[TELEGRAM] MTProto: failed to save session — will re-authenticate on next restart");
+  } catch {
+    // File save is best-effort — Neon is the primary store.
   }
 }
 

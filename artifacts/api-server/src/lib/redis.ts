@@ -1,67 +1,31 @@
+/**
+ * Cache & session store — backed by an in-memory TTL cache (no external
+ * Redis/Valkey/Layerbase service required).
+ *
+ * All data here is EPHEMERAL: lost on server restart. Neon PostgreSQL
+ * remains the single source of truth for all persistent data.
+ *
+ * The API surface is identical to the previous Redis/Valkey-backed version
+ * so every consumer (auth, maintenance, rate-limit, analytics, leaderboard,
+ * chat-rooms, etc.) works unchanged.
+ */
 import { logger } from "./logger";
-import { layerbaseKV, isLayerbaseKVAvailable } from "./layerbase-kv";
+import { memoryCache } from "./cache/memory-cache";
 
 // ── Availability flags ─────────────────────────────────────────────────────────
 
-/**
- * True when Layerbase Valkey credentials are present.
- * Used by the auth middleware to skip session-store checks when KV is
- * not configured (so the server degrades gracefully instead of crashing).
- */
-export const isRedisAvailable = isLayerbaseKVAvailable;
+/** Always true — in-memory cache needs no external service. */
+export const isRedisAvailable = true;
 
-/**
- * Atomic operations (INCR/EXPIRE) are disabled to preserve the same behavior
- * as the previous Cloudflare KV backend (which did not support them).
- * Rate limiting and view-buffer counters remain no-ops.
- */
-export const isAtomicRedisAvailable = false;
+/** Always true — in-memory cache supports atomic incr/expire/ttl. */
+export const isAtomicRedisAvailable = true;
 
-// ── Client interface ──────────────────────────────────────────────────────────
+// ── Client ────────────────────────────────────────────────────────────────────
 
-/** Minimal interface that matches the Redis API surface we use. */
-interface RedisLike {
-  get<T = string>(key: string): Promise<T | null>;
-  setex(key: string, ttl: number, value: string): Promise<unknown>;
-  del(...keys: string[]): Promise<unknown>;
-  incr(key: string): Promise<number>;
-  /** Set expiry in seconds on an existing key. */
-  expire(key: string, seconds: number): Promise<number>;
-  /** Returns the remaining TTL in seconds, or -2 if key does not exist. */
-  ttl(key: string): Promise<number>;
-  /** Ping the store — returns "PONG". */
-  ping(): Promise<string>;
-}
+/** In-memory cache instance (Redis-compatible API surface). */
+export const redis = memoryCache;
 
-// ── No-op stub (used when KV is not configured) ────────────────────────────────
-
-const noopRedis: RedisLike = {
-  get:    async () => null,
-  setex:  async () => "OK",
-  del:    async () => 0,
-  incr:   async () => 1,
-  expire: async () => 1,   // no-op: pretend the key has a TTL set
-  ttl:    async () => 60,  // no-op: return 60 s so rate-limit Retry-After is sane
-  ping:   async () => "PONG",
-};
-
-// ── Real client (Layerbase Valkey) ───────────────────────────────────────────
-
-let _client: RedisLike = noopRedis;
-
-if (isLayerbaseKVAvailable && layerbaseKV) {
-  _client = layerbaseKV as unknown as RedisLike;
-  logger.info("Layerbase Valkey connected for sessions/cache");
-} else {
-  logger.warn(
-    "KV_REST_API_URL / KV_REST_API_TOKEN not set — " +
-    "running without KV. Session invalidation, caching, and view " +
-    "buffering are disabled. All other features work normally.",
-  );
-}
-
-/** Access the KV client (real or no-op). */
-export const redis: RedisLike = _client;
+logger.info("In-memory cache active (sessions, rate-limit, caching) — no external Redis/Valkey required");
 
 // ── TTL constants ─────────────────────────────────────────────────────────────
 export const TTL = {
@@ -95,7 +59,7 @@ export interface SessionData {
   createdAt: number;
 }
 
-/** Store a new session in KV. */
+/** Store a new session in the in-memory cache. */
 export async function createSession(jti: string, data: SessionData): Promise<void> {
   await redis.setex(keys.session(jti), TTL.SESSION, JSON.stringify(data));
 }
@@ -185,9 +149,8 @@ export async function consumeTempToken(type: string, token: string): Promise<unk
 
 // ── Video view counter ────────────────────────────────────────────────────────
 
-/** Increment view counter and return the new count (always 0 without atomic support). */
+/** Increment view counter and return the new count. */
 export async function incrementVideoViews(videoId: string): Promise<number> {
-  if (!isAtomicRedisAvailable) return 0;
   return (await redis.incr(keys.videoViews(videoId))) as number;
 }
 
