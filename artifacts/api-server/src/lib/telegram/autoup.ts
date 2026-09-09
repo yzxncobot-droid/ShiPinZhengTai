@@ -104,7 +104,7 @@ async function extractFrame(videoPath: string, timestamp: number, outputDir: str
       "-y", "-ss", String(timestamp), "-i", videoPath,
       "-frames:v", "1", "-q:v", "2", "-vf", "scale=320:-1",
       outputPath,
-    ], { timeout: 15000, stdio: "ignore" });
+    ], { timeout: 15000 });
     const stat = await nodeFs.promises.stat(outputPath).catch(() => null);
     if (stat && stat.size > 0) return outputPath;
     return null;
