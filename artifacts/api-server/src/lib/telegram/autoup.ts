@@ -571,10 +571,26 @@ async function pollOnce(): Promise<void> {
           enqueueJob(() => processVideo(config, source, msg));
         }
       } catch (err) {
-        logger.error(
-          { err: err instanceof Error ? err.message : String(err), configId: config.id },
-          "[AUTOUP] Polling error for config",
-        );
+        const errMsg = err instanceof Error ? err.message : String(err);
+        // BOT_METHOD_INVALID: bots can't call messages.getHistory on channels.
+        // Mark the source as ERROR so it's skipped in all future poll cycles
+        // instead of retrying and logging the same error every 60 seconds.
+        if (errMsg.includes("BOT_METHOD_INVALID")) {
+          logger.warn(
+            { err: errMsg, configId: config.id, sourceId: source.id },
+            "[AUTOUP] Bot cannot poll this source (BOT_METHOD_INVALID) — marking source as ERROR",
+          );
+          await db.update(telegramSourcesTable).set({
+            status: "ERROR",
+            errorMessage: "Bot cannot access channel history (BOT_METHOD_INVALID)",
+            updatedAt: new Date(),
+          }).where(eq(telegramSourcesTable.id, source.id)).catch(() => {});
+        } else {
+          logger.error(
+            { err: errMsg, configId: config.id },
+            "[AUTOUP] Polling error for config",
+          );
+        }
       }
     }
   } catch (err) {

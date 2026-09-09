@@ -19,6 +19,15 @@ app.set("trust proxy", 1);
 app.use(
   pinoHttp({
     logger,
+    // Health probes run repeatedly and /readyz intentionally returns 503 while
+    // startup migrations are still running. Exclude them from request logging
+    // so expected readiness transitions do not produce misleading error stacks.
+    autoLogging: {
+      ignore: (req) => {
+        const path = req.url?.split("?")[0];
+        return path === "/api" || path === "/api/healthz" || path === "/api/readyz";
+      },
+    },
     serializers: {
       req(req) {
         return {
