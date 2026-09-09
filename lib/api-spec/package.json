@@ -5,7 +5,5 @@
   "scripts": {
     "codegen": "orval --config ./orval.config.ts && pnpm -w run typecheck:libs"
   },
-  "devDependencies": {
-    "orval": "^8.18.0"
-  }
+  "devDependencies": {}
 }
