@@ -27,6 +27,7 @@ import {
   generateStoragePath,
   makeSupabaseThumbnailResult,
   makeSupabaseVideoResult,
+  normalizeSupabaseUrl,
   supabaseDeleteFile,
   supabaseUploadWithRetry,
 } from "./supabase-helpers";
@@ -34,8 +35,11 @@ import {
 // Consolidated: OWNER falls back to PUBLIC Supabase project when OWNER-specific
 // env vars are not set. This allows using a single Supabase project for both
 // owner and creator uploads (bucket "yzx", separate folder prefixes).
-const OWNER_SUPABASE_URL = process.env.OWNER_SUPABASE_URL || process.env.PUBLIC_SUPABASE_URL || "";
 const OWNER_SUPABASE_KEY = process.env.OWNER_SUPABASE_SERVICE_KEY || process.env.PUBLIC_SUPABASE_SERVICE_KEY || "";
+const OWNER_SUPABASE_URL = normalizeSupabaseUrl(
+  process.env.OWNER_SUPABASE_URL || process.env.PUBLIC_SUPABASE_URL || "",
+  OWNER_SUPABASE_KEY,
+);
 const BUCKET = "yzx";
 const VIDEO_FOLDER = "owner/videos";
 const THUMB_FOLDER = "owner/thumbnails";

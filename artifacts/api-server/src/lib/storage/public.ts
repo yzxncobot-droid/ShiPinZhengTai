@@ -27,12 +27,16 @@ import {
   generateStoragePathForUser,
   makeSupabaseThumbnailResult,
   makeSupabaseVideoResult,
+  normalizeSupabaseUrl,
   supabaseDeleteFile,
   supabaseUploadWithRetry,
 } from "./supabase-helpers";
 
-const PUBLIC_SUPABASE_URL = process.env.PUBLIC_SUPABASE_URL ?? "";
 const PUBLIC_SUPABASE_KEY = process.env.PUBLIC_SUPABASE_SERVICE_KEY ?? "";
+const PUBLIC_SUPABASE_URL = normalizeSupabaseUrl(
+  process.env.PUBLIC_SUPABASE_URL ?? "",
+  PUBLIC_SUPABASE_KEY,
+);
 const BUCKET = "yzx";
 
 export const isPublicStorageAvailable =

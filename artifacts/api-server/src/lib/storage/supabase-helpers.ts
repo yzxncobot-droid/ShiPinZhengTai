@@ -17,9 +17,66 @@ import path from "path";
 import { logger } from "../logger";
 import type { StorageProvider, StorageType, UploadThumbnailResult, UploadVideoResult } from "./types";
 
+/**
+ * Extract the project ref from a Supabase URL.
+ * e.g. "https://dwamzsczuuhppiixtbaz.supabase.co" → "dwamzsczuuhppiixtbaz"
+ */
+function extractRefFromUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    const match = u.hostname.match(/^([a-z0-9]+)\.supabase\.co$/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extract the project ref from a Supabase service key JWT payload.
+ * The payload contains a "ref" field with the project reference.
+ */
+function extractRefFromKey(key: string): string | null {
+  try {
+    const payload = key.split(".")[1];
+    if (!payload) return null;
+    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return decoded?.ref ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Normalize a Supabase URL to match the project ref embedded in the service key.
+ *
+ * If the URL's project ref doesn't match the key's ref, the URL is
+ * auto-corrected to `https://<key-ref>.supabase.co`. This prevents
+ * "signature verification failed" errors when the configured URL and
+ * service key belong to different Supabase projects.
+ *
+ * Returns the original URL when:
+ *   - either argument is empty
+ *   - the URL or key cannot be parsed for a ref
+ *   - both refs already match
+ */
+export function normalizeSupabaseUrl(url: string, serviceKey: string): string {
+  if (!url || !serviceKey) return url;
+  const urlRef = extractRefFromUrl(url);
+  const keyRef = extractRefFromKey(serviceKey);
+  if (!urlRef || !keyRef) return url;
+  if (urlRef === keyRef) return url;
+  const corrected = `https://${keyRef}.supabase.co`;
+  logger.warn(
+    { configuredUrl: url, correctedUrl: corrected, keyRef },
+    "Supabase URL mismatch: URL project ref does not match service key ref. Auto-correcting URL to match the key.",
+  );
+  return corrected;
+}
+
 export function buildSupabaseClient(url: string, serviceKey: string): SupabaseClient {
+  const normalizedUrl = normalizeSupabaseUrl(url, serviceKey);
   return createClient(
-    url || "https://placeholder.supabase.co",
+    normalizedUrl || "https://placeholder.supabase.co",
     serviceKey || "placeholder",
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
