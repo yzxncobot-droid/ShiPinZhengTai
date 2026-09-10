@@ -570,6 +570,13 @@ async function pollOnce(): Promise<void> {
         // Source is connected — clear the logged flag so we log again if it disconnects later
         loggedSkippedSources.delete(source.id);
 
+        // Skip MTProto polling for channel-type sources — bots can't call
+        // messages.GetHistory on channels (BOT_METHOD_INVALID). Channels are
+        // handled exclusively by the webhook path (processVideoFromWebhook).
+        if (source.type === "CHANNEL") {
+          continue;
+        }
+
         const minId = config.lastProcessedMessageId || "0";
         const { videos, maxMessageId } = await getNewVideoMessages(source.chatId, minId, 50);
 

@@ -19,6 +19,20 @@ app.set("trust proxy", 1);
 app.use(
   pinoHttp({
     logger,
+    // Distinguish actual unhandled errors (thrown exceptions) from deliberate
+    // 5xx responses (e.g. 503 when BuatQris is not configured). Without this,
+    // pino-http creates a fake Error("failed with status code 503") with a
+    // stack trace for every deliberate 5xx, producing misleading error logs.
+    customLogLevel: (_req, res, error) => {
+      if (error) return "error";            // actual unhandled error → error level
+      // Deliberate 5xx (e.g. 503 when BuatQris not configured, 502 gateway
+      // errors) — the route handlers already log the real cause via logger
+      // when there is one. Skip pino-http auto-logging so it doesn't create a
+      // fake Error("failed with status code 503") with a misleading stack trace.
+      if (res.statusCode >= 500) return "silent";
+      if (res.statusCode >= 400) return "warn";
+      return "info";
+    },
     // Health probes run repeatedly and /readyz intentionally returns 503 while
     // startup migrations are still running. Exclude them from request logging
     // so expected readiness transitions do not produce misleading error stacks.
