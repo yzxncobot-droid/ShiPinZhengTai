@@ -86,11 +86,11 @@ export default function VideoDetailPage() {
   }, [videoExt?.telegramVideoId]);
 
   useEffect(() => {
-    if (isTelegramVideo && video && video.hasAccess !== false && user) {
+    if (isTelegramVideo && video && video.hasAccess !== false) {
       tgTicketRetries.current = 0;
       loadTgStreamTicket();
     }
-  }, [isTelegramVideo, video, loadTgStreamTicket, user]);
+  }, [isTelegramVideo, video, loadTgStreamTicket]);
 
   const handleTgVideoError = async () => {
     const el = tgVideoRef.current;
@@ -239,19 +239,7 @@ export default function VideoDetailPage() {
             </div>
             <div className="w-full aspect-video bg-black rounded-3xl overflow-hidden shadow-md border-4 border-white">
               {isTelegramVideo ? (
-                !user ? (
-                  <div className="flex flex-col items-center justify-center gap-3 h-full py-20 px-4 text-center">
-                    <AlertCircle className="h-10 w-10 text-yellow-400" />
-                    <p className="text-sm font-semibold text-white">Login Diperlukan</p>
-                    <p className="text-xs text-white/60">Login dulu untuk menonton video ini.</p>
-                    <Button
-                      size="sm" variant="secondary"
-                      onClick={() => setLocation("/login")}
-                    >
-                      Login Sekarang
-                    </Button>
-                  </div>
-                ) : tgStreamError ? (
+                tgStreamError ? (
                   <div className="flex flex-col items-center justify-center gap-3 h-full py-20 px-4 text-center">
                     <AlertCircle className="h-10 w-10 text-red-500" />
                     <p className="text-sm font-semibold text-white">Video gagal diputar.</p>

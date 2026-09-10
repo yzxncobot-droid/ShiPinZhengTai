@@ -6,6 +6,7 @@ import { AuthProvider } from "@/lib/auth";
 import { initApiClient } from "@/lib/protected-route";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MaintenanceGuard } from "@/components/MaintenanceGuard";
+import { RequireAuth } from "@/components/RequireAuth";
 import NotFound from "@/pages/not-found";
 import MaintenancePage from "@/pages/maintenance";
 import AdminMaintenancePage from "@/pages/admin/maintenance";
@@ -185,7 +186,9 @@ function App() {
           <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
             <ErrorBoundary>
               <MaintenanceGuard>
-                <AppRouter />
+                <RequireAuth>
+                  <AppRouter />
+                </RequireAuth>
               </MaintenanceGuard>
             </ErrorBoundary>
           </WouterRouter>
