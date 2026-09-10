@@ -265,12 +265,23 @@ export interface TelegramFileInfo {
  * The limit is determined by Telegram/infrastructure, not by this code.
  */
 export async function getFileInfo(fileId: string): Promise<TelegramFileInfo> {
-  const result = await botApiCall<{
-    file_id: string;
-    file_unique_id: string;
-    file_size: number;
-    file_path: string;
-  }>("getFile", { file_id: fileId });
+  // For large files, the local Bot API server downloads the entire file from
+  // Telegram before returning the file_path. This can take a while for files
+  // >20 MB. Use a generous timeout (120 s) so the caller gets a clear error
+  // instead of hanging indefinitely.
+  const GETFILE_TIMEOUT_MS = 120_000;
+
+  const result = await Promise.race([
+    botApiCall<{
+      file_id: string;
+      file_unique_id: string;
+      file_size: number;
+      file_path: string;
+    }>("getFile", { file_id: fileId }),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("getFile timeout — file terlalu besar atau server lambat")), GETFILE_TIMEOUT_MS),
+    ),
+  ]);
 
   return {
     fileId: result.file_id,
