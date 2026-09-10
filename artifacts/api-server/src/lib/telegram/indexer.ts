@@ -14,7 +14,7 @@ import { db } from "@workspace/db";
 import {
   telegramSourcesTable, telegramVideosTable, telegramImportLogsTable,
 } from "@workspace/db";
-import { eq, and, sql, inArray } from "drizzle-orm";
+import { eq, and, sql, inArray, isNotNull } from "drizzle-orm";
 import { logger } from "../logger";
 import { sendMessage, isTelegramConfigured } from "./client";
 
@@ -508,6 +508,27 @@ export async function processQueueItem(log: typeof telegramImportLogsTable.$infe
         updatedAt: new Date(),
       }).where(eq(telegramVideosTable.id, videoId));
       logger.info({ videoId }, "[TELEGRAM] Video verified → status=completed");
+
+      // ── Trigger AutoUP processing (webhook path) ─────────────────────────
+      // After the video is verified and marked "completed", check if any
+      // AutoUP config matches this source. If so, create the videos catalog
+      // entry with the config's premium/price/description settings.
+      // Non-blocking — errors are caught and logged inside processVideoFromWebhook.
+      import("./autoup")
+        .then(({ processVideoFromWebhook }) => {
+          processVideoFromWebhook(metadata.sourceId, videoId).catch((err) => {
+            logger.warn(
+              { err: err instanceof Error ? err.message : String(err), videoId, sourceId: metadata.sourceId },
+              "[AUTOUP] Webhook-triggered processing failed (non-fatal)",
+            );
+          });
+        })
+        .catch((err) => {
+          logger.warn(
+            { err: err instanceof Error ? err.message : String(err) },
+            "[AUTOUP] Failed to import processVideoFromWebhook (non-fatal)",
+          );
+        });
     } else {
       await db.update(telegramVideosTable).set({
         status: "failed",
@@ -576,23 +597,24 @@ export function startQueueProcessor(): void {
 
   queueTimer = setInterval(async () => {
     try {
-      // Pick up pending entries + failed entries past their backoff window.
+      // Pick up pending entries + retryable failed entries.
+      // Filter at the DB level to avoid filling the batch with entries that
+      // would be skipped (null-source rejects, permanently failed entries).
       const now = new Date();
       const entries = await db.select()
         .from(telegramImportLogsTable)
         .where(
           and(
             inArray(telegramImportLogsTable.status, ["pending", "failed"]),
+            isNotNull(telegramImportLogsTable.telegramSourceId),
+            sql`NOT (${telegramImportLogsTable.status} = 'failed' AND ${telegramImportLogsTable.attempts} >= ${MAX_ATTEMPTS})`,
           ),
         )
         .orderBy(telegramImportLogsTable.createdAt)
         .limit(BATCH_SIZE);
 
       for (const entry of entries) {
-        // Skip rejected entries (null source = unregistered/disabled).
-        if (!entry.telegramSourceId) continue;
         // For failed entries, check backoff.
-        if (entry.status === "failed" && entry.attempts >= MAX_ATTEMPTS) continue;
         if (entry.status === "failed" && entry.processedAt) {
           const backoff = getBackoffMs(entry.attempts);
           const eligibleAt = new Date(entry.processedAt.getTime() + backoff);

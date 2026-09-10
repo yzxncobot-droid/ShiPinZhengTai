@@ -1,16 +1,30 @@
 /**
- * AutoUP — automatic video import from Telegram sources via MTProto.
+ * AutoUP — automatic video import from Telegram sources.
  *
- * Polls each active AutoUP config's Telegram source for new video messages
- * using the EXISTING MTProto singleton client (no new connection). For each
- * new video:
- *   1. Duplicate check (source + message ID)
- *   2. Extract metadata from the MTProto document
- *   3. Title = Telegram caption (cleaned), or "Video Baru" fallback
- *   4. Thumbnail = 1 frame via FFmpeg (brightness analysis, no AI)
- *   5. Create/link telegram_videos record (metadata only, video stays in Telegram)
- *   6. Create videos table entry (the website catalog) linked via telegramVideoId
- *   7. Log the result in autoup_processing_logs
+ * TWO detection paths:
+ *
+ * 1. WEBHOOK-TRIGGERED (primary for channels):
+ *    When a video is forwarded to a channel, the Telegram webhook receives it
+ *    in real-time. The webhook indexer (indexer.ts) creates a telegram_videos
+ *    record and marks it "completed", then calls processVideoFromWebhook().
+ *    This finds matching AutoUP configs and creates the videos catalog entry
+ *    with the config's premium/price/description settings.
+ *
+ *    Bots cannot use messages.getHistory (MTProto polling) on channels —
+ *    Telegram returns BOT_METHOD_INVALID. So webhook is the ONLY way to
+ *    detect new videos in channels.
+ *
+ * 2. MTPROTO POLLING (fallback for groups):
+ *    Polls each active AutoUP config's Telegram source for new video messages
+ *    using the EXISTING MTProto singleton client. Works for groups where the
+ *    bot has access. For each new video:
+ *      1. Duplicate check (source + message ID)
+ *      2. Extract metadata from the MTProto document
+ *      3. Title = Telegram caption (cleaned), or "Video Baru" fallback
+ *      4. Thumbnail = 1 frame via FFmpeg (brightness analysis, no AI)
+ *      5. Create/link telegram_videos record (metadata only)
+ *      6. Create videos table entry (the website catalog)
+ *      7. Log the result in autoup_processing_logs
  *
  * Queue: max 2 concurrent processing operations. Internal RAM queue —
  * status is persisted in Neon (autoup_processing_logs) so it survives restarts.
@@ -25,6 +39,7 @@ import {
 import { eq, and, desc, sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { isMtProtoReady, getNewVideoMessages, getMtProtoFileStream, type MtProtoVideoMessage } from "./mtproto";
+import { getFileInfo, getFileUrl, isTelegramConfigured } from "./client";
 import { uploadThumbnailBufferToMedia } from "../storage/media";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -510,6 +525,9 @@ async function processVideo(
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let polling = false;
 
+/** Track sources already logged as "not connected" so we don't spam every 60s. */
+const loggedSkippedSources = new Set<string>();
+
 /**
  * One polling cycle: iterate all enabled AutoUP configs, fetch new video
  * messages from their sources via MTProto, and enqueue processing jobs.
@@ -538,12 +556,24 @@ async function pollOnce(): Promise<void> {
 
     for (const { config, source } of configs) {
       try {
-        // Skip disconnected sources
+        // Skip disconnected sources (log only once per source to avoid noise)
         if (source.status === "DISCONNECTED" || source.status === "ERROR") {
-          logger.info(
-            { configId: config.id, sourceId: source.id, status: source.status },
-            "[AUTOUP] Source not connected — skipping",
-          );
+          if (!loggedSkippedSources.has(source.id)) {
+            loggedSkippedSources.add(source.id);
+            logger.info(
+              { configId: config.id, sourceId: source.id, status: source.status },
+              "[AUTOUP] Source not connected — skipping (will not log again for this source)",
+            );
+          }
+          continue;
+        }
+        // Source is connected — clear the logged flag so we log again if it disconnects later
+        loggedSkippedSources.delete(source.id);
+
+        // Skip MTProto polling for channel-type sources — bots can't call
+        // messages.GetHistory on channels (BOT_METHOD_INVALID). Channels are
+        // handled exclusively by the webhook path (processVideoFromWebhook).
+        if (source.type === "CHANNEL") {
           continue;
         }
 
@@ -600,13 +630,274 @@ async function pollOnce(): Promise<void> {
   }
 }
 
+// ── Webhook-triggered AutoUP (primary path for channels) ─────────────────────
+//
+// Bots cannot use messages.getHistory (MTProto polling) on channels — Telegram
+// returns BOT_METHOD_INVALID. Instead, the webhook indexer receives new videos
+// in real-time when the bot is a member of the channel. After the indexer
+// creates a telegram_videos record and marks it "completed", it calls this
+// function to trigger AutoUP catalog entry creation.
+//
+// Flow: Webhook → indexer creates telegram_videos (status=completed)
+//    → processVideoFromWebhook → finds matching AutoUP configs
+//    → creates videos catalog entry with config settings (premium/price/desc)
+//    → downloads thumbnail via Bot API (or FFmpeg via MTProto as fallback)
+//    → logs result in autoup_processing_logs
+
+/**
+ * Download a file (e.g. thumbnail) via Bot API getFile + HTTP fetch.
+ * Returns null on failure (non-fatal — thumbnail stays null).
+ */
+async function downloadThumbnailViaBotApi(fileId: string): Promise<Buffer | null> {
+  if (!isTelegramConfigured()) return null;
+  try {
+    const info = await getFileInfo(fileId);
+    const url = getFileUrl(info.filePath);
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  } catch (err) {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "[AUTOUP] Failed to download thumbnail via Bot API",
+    );
+    return null;
+  }
+}
+
+/**
+ * Process a single webhook-indexed video for a specific AutoUP config.
+ * Creates the videos catalog entry with the config's premium/price/description.
+ */
+async function processWebhookVideoForConfig(
+  config: typeof autoupConfigsTable.$inferSelect,
+  source: typeof telegramSourcesTable.$inferSelect,
+  tgVideo: typeof telegramVideosTable.$inferSelect,
+): Promise<void> {
+  const messageId = tgVideo.telegramMessageId;
+
+  // ── 1. Duplicate check (autoup_processing_logs unique constraint) ──────
+  const [existingLog] = await db.select({ id: autoupProcessingLogsTable.id })
+    .from(autoupProcessingLogsTable)
+    .where(and(
+      eq(autoupProcessingLogsTable.autoupConfigId, config.id),
+      eq(autoupProcessingLogsTable.telegramMessageId, messageId),
+    ))
+    .limit(1);
+
+  if (existingLog) {
+    logger.info({ configId: config.id, messageId }, "[AUTOUP] Webhook: Duplicate — skipping");
+    return;
+  }
+
+  const title = tgVideo.title || tgVideo.caption || "Video Baru";
+
+  // ── 2. Create pending log entry ─────────────────────────────────────────
+  const [logEntry] = await db.insert(autoupProcessingLogsTable).values({
+    autoupConfigId: config.id,
+    telegramSourceId: source.id,
+    telegramChatId: source.chatId,
+    telegramMessageId: messageId,
+    title,
+    status: "processing",
+  }).returning();
+
+  let telegramVideoId = tgVideo.id;
+
+  try {
+    // ── 3. Check if videos catalog entry already exists ────────────────────
+    const [existingVideo] = await db.select({ id: videosTable.id })
+      .from(videosTable)
+      .where(and(
+        eq(videosTable.telegramVideoId, telegramVideoId),
+        sql`${videosTable.deletedAt} IS NULL`,
+      ))
+      .limit(1);
+
+    if (existingVideo) {
+      await db.update(autoupProcessingLogsTable).set({
+        status: "skipped",
+        telegramVideoId,
+        videoId: existingVideo.id,
+        errorMessage: "Video already exists in catalog",
+        processedAt: new Date(),
+      }).where(eq(autoupProcessingLogsTable.id, logEntry.id));
+
+      await db.update(autoupConfigsTable).set({
+        processedCount: sql`${autoupConfigsTable.processedCount} + 1`,
+        lastProcessedAt: new Date(),
+      }).where(eq(autoupConfigsTable.id, config.id));
+
+      logger.info({ configId: config.id, messageId }, "[AUTOUP] Webhook: Skipped — already in catalog");
+      return;
+    }
+
+    // ── 4. Generate/download thumbnail ───────────────────────────────────
+    let thumbnailUrl: string | null = null;
+
+    // 4a. Try Bot API thumbnail (from webhook metadata — telegram_videos.thumbnailFileId)
+    if (tgVideo.thumbnailFileId) {
+      const thumbBuffer = await downloadThumbnailViaBotApi(tgVideo.thumbnailFileId);
+      if (thumbBuffer) {
+        const uploaded = await uploadThumbnailBufferToMedia(thumbBuffer, "image/jpeg");
+        if (uploaded) thumbnailUrl = uploaded.url;
+      }
+    }
+
+    // 4b. Fall back to FFmpeg via MTProto if no Bot API thumbnail
+    if (!thumbnailUrl && isMtProtoReady()) {
+      const chunkPath = await downloadVideoChunk(source.chatId, messageId, THUMBNAIL_DOWNLOAD_BYTES);
+      if (chunkPath) {
+        try {
+          const thumbBuffer = await generateThumbnail(chunkPath, tgVideo.duration);
+          if (thumbBuffer) {
+            const uploaded = await uploadThumbnailBufferToMedia(thumbBuffer, "image/jpeg");
+            if (uploaded) thumbnailUrl = uploaded.url;
+          }
+        } finally {
+          await cleanupVideoChunk(chunkPath);
+        }
+      }
+    }
+
+    // ── 5. Resolve creator ID ─────────────────────────────────────────────
+    let creatorId = config.createdBy;
+    if (!creatorId) {
+      const [admin] = await db.select({ id: usersTable.id })
+        .from(usersTable)
+        .where(sql`${usersTable.role} IN ('owner', 'admin')`)
+        .limit(1);
+      creatorId = admin?.id ?? null;
+    }
+
+    if (!creatorId) {
+      throw new Error("No creator user found — cannot create video entry");
+    }
+
+    // ── 6. Create videos catalog entry ────────────────────────────────────
+    const visibility = config.isPremium ? "premium" : "public";
+    const videoUrl = `/api/telegram-videos/${telegramVideoId}/stream`;
+
+    const [newVideo] = await db.insert(videosTable).values({
+      title,
+      description: config.description ?? null,
+      thumbnail: thumbnailUrl,
+      videoUrl,
+      videoSourceType: "telegram",
+      telegramVideoId,
+      price: config.isPremium ? (config.price ?? 0) : null,
+      duration: tgVideo.duration,
+      status: "published",
+      creatorId,
+      visibility,
+      type: config.isPremium ? "premium" : "free",
+      bundleExclusive: false,
+      uploaderType: "owner",
+    }).returning();
+
+    // ── 7. Update log + config stats ──────────────────────────────────────
+    await db.update(autoupProcessingLogsTable).set({
+      status: "completed",
+      thumbnail: thumbnailUrl,
+      telegramVideoId,
+      videoId: newVideo.id,
+      processedAt: new Date(),
+    }).where(eq(autoupProcessingLogsTable.id, logEntry.id));
+
+    await db.update(autoupConfigsTable).set({
+      processedCount: sql`${autoupConfigsTable.processedCount} + 1`,
+      lastProcessedAt: new Date(),
+    }).where(eq(autoupConfigsTable.id, config.id));
+
+    logger.info(
+      { configId: config.id, videoId: newVideo.id, title, messageId },
+      "[AUTOUP] Webhook: Video imported successfully",
+    );
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message.substring(0, 500) : String(err);
+    logger.error({ err: errMsg, configId: config.id, messageId }, "[AUTOUP] Webhook: Processing failed");
+
+    await db.update(autoupProcessingLogsTable).set({
+      status: "failed",
+      errorMessage: errMsg,
+      telegramVideoId,
+      processedAt: new Date(),
+    }).where(eq(autoupProcessingLogsTable.id, logEntry.id));
+
+    await db.update(autoupConfigsTable).set({
+      failedCount: sql`${autoupConfigsTable.failedCount} + 1`,
+      lastProcessedAt: new Date(),
+    }).where(eq(autoupConfigsTable.id, config.id));
+  }
+}
+
+/**
+ * Webhook-triggered AutoUP entry point.
+ *
+ * Called by the webhook indexer after a new telegram_videos record is created
+ * and marked as "completed". Finds all enabled AutoUP configs matching the
+ * source and creates videos catalog entries with each config's settings.
+ *
+ * This is the PRIMARY detection path for channels — MTProto polling (bots
+ * cannot use messages.getHistory on channels) is kept as a fallback for
+ * sources where MTProto works (e.g. groups).
+ *
+ * Non-blocking: errors are caught and logged — never propagate to the caller.
+ */
+export async function processVideoFromWebhook(
+  sourceId: string,
+  telegramVideoId: string,
+): Promise<void> {
+  // 1. Find enabled AutoUP configs for this source.
+  const configs = await db.select({
+    config: autoupConfigsTable,
+    source: telegramSourcesTable,
+  })
+    .from(autoupConfigsTable)
+    .innerJoin(telegramSourcesTable,
+      eq(autoupConfigsTable.telegramSourceId, telegramSourcesTable.id))
+    .where(and(
+      eq(autoupConfigsTable.telegramSourceId, sourceId),
+      eq(autoupConfigsTable.enabled, true),
+    ));
+
+  if (configs.length === 0) return;
+
+  // 2. Get the telegram_videos record.
+  const [tgVideo] = await db.select()
+    .from(telegramVideosTable)
+    .where(eq(telegramVideosTable.id, telegramVideoId))
+    .limit(1);
+
+  if (!tgVideo) {
+    logger.warn({ telegramVideoId }, "[AUTOUP] Webhook trigger: telegram_videos record not found");
+    return;
+  }
+
+  logger.info(
+    { sourceId, telegramVideoId, configCount: configs.length, messageId: tgVideo.telegramMessageId },
+    "[AUTOUP] Webhook trigger: processing video for AutoUP configs",
+  );
+
+  // 3. Process for each matching config.
+  for (const { config, source } of configs) {
+    await processWebhookVideoForConfig(config, source, tgVideo).catch((err) => {
+      logger.error(
+        { err: err instanceof Error ? err.message : String(err), configId: config.id },
+        "[AUTOUP] Webhook: unexpected error in processWebhookVideoForConfig",
+      );
+    });
+  }
+}
+
 /** Start the AutoUP background processor. Call once on module load. */
 export function startAutoUpProcessor(): void {
   if (pollTimer) return;
   pollTimer = setInterval(() => { pollOnce().catch(() => {}); }, POLL_INTERVAL_MS);
   // Run one cycle shortly after startup (give MTProto time to connect).
   setTimeout(() => { pollOnce().catch(() => {}); }, 10000);
-  logger.info(`[AUTOUP] Processor started (interval: ${POLL_INTERVAL_MS / 1000}s, max concurrent: ${MAX_CONCURRENT})`);
+  logger.info(`[AUTOUP] Processor started (MTProto polling interval: ${POLL_INTERVAL_MS / 1000}s, max concurrent: ${MAX_CONCURRENT}). Webhook-triggered processing is active for channels.`);
 }
 
 // ── Stats ────────────────────────────────────────────────────────────────────

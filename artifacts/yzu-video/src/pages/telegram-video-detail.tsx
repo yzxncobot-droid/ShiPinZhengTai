@@ -105,6 +105,9 @@ export default function TelegramVideoDetailPage() {
       clearTimeout(metadataTimeoutRef.current);
       metadataTimeoutRef.current = null;
     }
+    // Video successfully loaded after (re)issuing a ticket — reset the retry
+    // counter so future ticket expiries can still trigger a fresh ticket.
+    ticketRetriesRef.current = 0;
   };
 
   // Start a metadata-load watchdog whenever a new stream URL is set. If the

@@ -3,7 +3,7 @@ modules = ["nodejs-22", "web", "bash", "postgresql-16"]
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
-run = ["sh", "-c", "node artifacts/api-server/dist/index.mjs"]
+run = ["sh", "-c", "PORT=${PORT:-8080} node artifacts/api-server/dist/index.mjs"]
 
 [deployment.build]
 args = ["sh", "-c", "pnpm install --no-frozen-lockfile && pnpm --filter @workspace/api-server run build && PORT=3000 BASE_PATH=/ pnpm --filter @workspace/yzu-video run build"]

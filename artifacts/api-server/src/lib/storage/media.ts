@@ -27,20 +27,29 @@ import { logger } from "../logger";
 import {
   buildSupabaseClient,
   generateStoragePath,
+  normalizeSupabaseUrl,
   supabaseUploadWithRetry,
 } from "./supabase-helpers";
 
-const MEDIA_URL = process.env.MEDIA_SUPABASE_URL ?? "";
-const MEDIA_KEY = process.env.MEDIA_SUPABASE_SERVICE_KEY ?? "";
+// Consolidated: MEDIA falls back to PUBLIC Supabase project when MEDIA-specific
+// env vars are not set. This allows using a single Supabase project for all
+// storage (PUBLIC + OWNER + MEDIA) with the same bucket "yzx".
+const MEDIA_KEY = process.env.MEDIA_SUPABASE_SERVICE_KEY || process.env.PUBLIC_SUPABASE_SERVICE_KEY || "";
+const MEDIA_URL = normalizeSupabaseUrl(
+  process.env.MEDIA_SUPABASE_URL || process.env.PUBLIC_SUPABASE_URL || "",
+  MEDIA_KEY,
+);
 const BUCKET    = process.env.MEDIA_SUPABASE_BUCKET ?? "yzx";
 
 export const isMediaStorageAvailable = !!MEDIA_URL && !!MEDIA_KEY;
 
 if (!isMediaStorageAvailable) {
   logger.warn(
-    "MEDIA_SUPABASE_URL / MEDIA_SUPABASE_SERVICE_KEY not set — " +
+    "MEDIA_SUPABASE_URL / MEDIA_SUPABASE_SERVICE_KEY (or PUBLIC fallback) not set — " +
     "media asset uploads (avatars, QRIS, banners, bundle images) will fail.",
   );
+} else if (!process.env.MEDIA_SUPABASE_URL && process.env.PUBLIC_SUPABASE_URL) {
+  logger.info("MediaStorage: using PUBLIC Supabase project (consolidated mode — no MEDIA_SUPABASE_URL set)");
 }
 
 const client = buildSupabaseClient(MEDIA_URL, MEDIA_KEY);

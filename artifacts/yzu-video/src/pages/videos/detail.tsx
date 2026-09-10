@@ -114,6 +114,9 @@ export default function VideoDetailPage() {
       clearTimeout(tgMetadataTimeout.current);
       tgMetadataTimeout.current = null;
     }
+    // Video successfully loaded after (re)issuing a ticket — reset the retry
+    // counter so future ticket expiries can still trigger a fresh ticket.
+    tgTicketRetries.current = 0;
   };
 
   useEffect(() => {

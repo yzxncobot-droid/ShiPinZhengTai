@@ -27,12 +27,19 @@ import {
   generateStoragePath,
   makeSupabaseThumbnailResult,
   makeSupabaseVideoResult,
+  normalizeSupabaseUrl,
   supabaseDeleteFile,
   supabaseUploadWithRetry,
 } from "./supabase-helpers";
 
-const OWNER_SUPABASE_URL = process.env.OWNER_SUPABASE_URL ?? "";
-const OWNER_SUPABASE_KEY = process.env.OWNER_SUPABASE_SERVICE_KEY ?? "";
+// Consolidated: OWNER falls back to PUBLIC Supabase project when OWNER-specific
+// env vars are not set. This allows using a single Supabase project for both
+// owner and creator uploads (bucket "yzx", separate folder prefixes).
+const OWNER_SUPABASE_KEY = process.env.OWNER_SUPABASE_SERVICE_KEY || process.env.PUBLIC_SUPABASE_SERVICE_KEY || "";
+const OWNER_SUPABASE_URL = normalizeSupabaseUrl(
+  process.env.OWNER_SUPABASE_URL || process.env.PUBLIC_SUPABASE_URL || "",
+  OWNER_SUPABASE_KEY,
+);
 const BUCKET = "yzx";
 const VIDEO_FOLDER = "owner/videos";
 const THUMB_FOLDER = "owner/thumbnails";
@@ -48,9 +55,11 @@ export const isBunnyStreamAvailable = false;
 
 if (!isOwnerStorageAvailable) {
   logger.warn(
-    "OWNER_SUPABASE_URL / OWNER_SUPABASE_SERVICE_KEY not set — " +
+    "OWNER_SUPABASE_URL / OWNER_SUPABASE_SERVICE_KEY (or PUBLIC_SUPABASE_URL / PUBLIC_SUPABASE_SERVICE_KEY) not set — " +
     "Owner video uploads will fail. Set these secrets to enable Owner storage.",
   );
+} else if (!process.env.OWNER_SUPABASE_URL && process.env.PUBLIC_SUPABASE_URL) {
+  logger.info("OwnerStorage: using PUBLIC Supabase project (consolidated mode — no OWNER_SUPABASE_URL set)");
 }
 
 const client = buildSupabaseClient(OWNER_SUPABASE_URL, OWNER_SUPABASE_KEY);
