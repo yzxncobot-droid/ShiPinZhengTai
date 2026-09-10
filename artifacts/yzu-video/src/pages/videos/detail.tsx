@@ -94,7 +94,7 @@ export default function VideoDetailPage() {
 
   const handleTgVideoError = async () => {
     const el = tgVideoRef.current;
-    if (tgTicketRetries.current < 1) {
+    if (tgTicketRetries.current < 3) {
       tgTicketRetries.current += 1;
       loadTgStreamTicket(el?.currentTime ?? 0);
       return;

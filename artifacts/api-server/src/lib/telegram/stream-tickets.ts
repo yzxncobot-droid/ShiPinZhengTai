@@ -15,8 +15,16 @@
 import jwt from "jsonwebtoken";
 import { EFFECTIVE_JWT_SECRET } from "../../middlewares/auth";
 
-/** Maximum ticket lifetime — 60 seconds. */
-export const STREAM_TICKET_TTL_SECONDS = 60;
+/** Maximum ticket lifetime — 10 minutes.
+ *
+ * A browser playing a video sends many Range requests over the viewing
+ * session (initial load, seeks, buffer fills). The previous 60 s TTL was
+ * too short — after 60 s every subsequent Range request failed with 401,
+ * causing the video to pause and eventually error. 10 minutes covers
+ * most viewing sessions; the ticket contains only videoId + userId (no
+ * credentials), so the longer TTL is safe.
+ */
+export const STREAM_TICKET_TTL_SECONDS = 600;
 
 export interface StreamTicketPayload {
   videoId: string;

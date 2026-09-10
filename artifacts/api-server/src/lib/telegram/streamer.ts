@@ -182,6 +182,18 @@ export async function streamTelegramVideo(params: StreamParams): Promise<void> {
   }
 
   // ── Bot API path ──────────────────────────────────────────────────────────
+  // If fileId is null (AutoUP video) and we fell through to here, Bot API
+  // can't work — it requires a file_id. Return a clear error.
+  if (!params.fileId) {
+    if (!params.res.headersSent) {
+      params.res.status(503).json({
+        error: "MTProto tidak tersedia dan video tidak memiliki file_id",
+        detail: "Video ini diimpor via AutoUP (tanpa file_id). Streaming memerlukan MTProto yang aktif. Pastikan TELEGRAM_API_ID dan TELEGRAM_API_HASH telah dikonfigurasi.",
+      });
+    }
+    return;
+  }
+
   await streamViaBotApi(params);
 }
 

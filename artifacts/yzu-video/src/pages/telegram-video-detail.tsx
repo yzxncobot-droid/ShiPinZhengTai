@@ -80,7 +80,7 @@ export default function TelegramVideoDetailPage() {
     const el = videoRef.current;
     // Tickets expire after 60 s — a mid-playback Range request can then fail.
     // Retry once with a fresh ticket, resuming at the current position.
-    if (ticketRetriesRef.current < 1) {
+    if (ticketRetriesRef.current < 3) {
       ticketRetriesRef.current += 1;
       loadStreamTicket(el?.currentTime ?? 0);
       return;
