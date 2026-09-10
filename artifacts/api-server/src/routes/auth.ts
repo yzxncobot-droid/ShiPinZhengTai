@@ -7,7 +7,7 @@ import {
   walletsTable, referralsTable, notificationsTable,
   walletTransactionsTable, loginHistoryTable,
 } from "@workspace/db";
-import { eq, and, gte, ilike, or } from "drizzle-orm";
+import { eq, and, gte, ilike, or, sql } from "drizzle-orm";
 import { authenticate, signToken } from "../middlewares/auth";
 import { createSession, deleteSession, invalidateUserCache } from "../lib/redis";
 import { authRateLimit } from "../middlewares/rate-limit";
@@ -137,6 +137,23 @@ router.post("/auth/register", authRateLimit, async (req, res, next) => {
         .limit(1);
       if (existingEmail) {
         res.status(409).json({ success: false, code: "EMAIL_ALREADY_EXISTS", message: "Email sudah terdaftar" });
+        return;
+      }
+    }
+
+    // ── IP-based account creation limit (max 2 accounts per IP) ──────────────
+    const clientIp = req.ip;
+    if (clientIp) {
+      const [ipCount] = await db
+        .select({ count: sql<number>`count(distinct ${loginHistoryTable.userId})` })
+        .from(loginHistoryTable)
+        .where(and(
+          eq(loginHistoryTable.ipAddress, clientIp),
+          eq(loginHistoryTable.success, true),
+        ));
+      if ((ipCount?.count ?? 0) >= 2) {
+        logger.info({ ip: clientIp, existingAccounts: ipCount?.count }, "Registration blocked: IP account limit reached");
+        res.status(429).json({ success: false, code: "IP_ACCOUNT_LIMIT", message: "Batas pembuatan akun dari IP ini sudah tercapai (maksimal 2 akun)." });
         return;
       }
     }
