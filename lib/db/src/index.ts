@@ -29,9 +29,10 @@ export const pool = new Pool({
 
 export const db = drizzle(pool, {
   schema,
-  // Log every SQL statement + parameters in development so INSERT failures
-  // show the exact query in the API server console.
-  logger: process.env.NODE_ENV === "development",
+  // Query logging disabled — the Telegram queue processor polls every 5s,
+  // and Drizzle's logger dumps every query + params, flooding the console.
+  // Enable temporarily when debugging a specific query.
+  logger: false,
 });
 
 export * from "./schema";
