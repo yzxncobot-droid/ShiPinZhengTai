@@ -80,7 +80,7 @@ export default function TelegramVideoDetailPage() {
     const el = videoRef.current;
     // Tickets expire after 60 s — a mid-playback Range request can then fail.
     // Retry once with a fresh ticket, resuming at the current position.
-    if (ticketRetriesRef.current < 1) {
+    if (ticketRetriesRef.current < 3) {
       ticketRetriesRef.current += 1;
       loadStreamTicket(el?.currentTime ?? 0);
       return;
@@ -105,6 +105,9 @@ export default function TelegramVideoDetailPage() {
       clearTimeout(metadataTimeoutRef.current);
       metadataTimeoutRef.current = null;
     }
+    // Video successfully loaded after (re)issuing a ticket — reset the retry
+    // counter so future ticket expiries can still trigger a fresh ticket.
+    ticketRetriesRef.current = 0;
   };
 
   // Start a metadata-load watchdog whenever a new stream URL is set. If the
