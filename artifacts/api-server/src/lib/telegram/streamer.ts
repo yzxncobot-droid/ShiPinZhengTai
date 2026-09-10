@@ -512,17 +512,23 @@ async function streamViaBotApi(params: StreamParams): Promise<void> {
       await pipeWithBackpressure(reader, res, () => aborted);
     }
   } catch (err) {
-    // If the local Bot API server is unreachable during streaming, fall back to MTProto.
-    if (isLocalBotApiConfigured() && isMtProtoReady() && !res.headersSent) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      if (isNetworkError(errMsg)) {
-        logger.warn({ videoId }, "[TELEGRAM] Local Bot API Server unreachable during streaming, falling back to MTProto");
-        await streamViaMtProto(params);
-        return;
-      }
+    const errMsg = err instanceof Error ? err.message : String(err);
+
+    // Fall back to MTProto for any error (network, HTTP 404/5xx, etc.) as long
+    // as no response bytes have been sent yet. The local Bot API server can
+    // return 404 for file downloads (expired/cleaned-up file paths), and the
+    // standard Bot API can fail for various reasons — MTProto handles both.
+    if (isMtProtoReady() && !res.headersSent) {
+      logger.warn(
+        { err: errMsg, videoId },
+        "[TELEGRAM] Bot API streaming failed, falling back to MTProto",
+      );
+      await streamViaMtProto(params);
+      return;
     }
+
     logger.error(
-      { err: err instanceof Error ? err.message : String(err), videoId, chatId, messageId },
+      { err: errMsg, videoId, chatId, messageId },
       "[TELEGRAM] Streaming error",
     );
     if (!res.headersSent) {
