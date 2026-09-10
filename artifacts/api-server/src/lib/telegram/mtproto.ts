@@ -417,12 +417,16 @@ async function doMtProtoDownload(
   });
 
   // Create the download iterator with the specified offset.
+  // fileSize MUST be passed so GramJS uses GenericDownloadIter for non-zero
+  // offsets — DirectDownloadIter sends the raw offset to upload.GetFile,
+  // which rejects non-aligned offsets with LIMIT_INVALID.
   const offset = bigInt(startByte);
   const iter = client.iterDownload({
     file: fileLocation,
     offset,
     requestSize: CHUNK_SIZE,
     dcId: doc.dcId,
+    fileSize: bigInt(fileSize),
   });
 
   // Wrap the iterator to:
