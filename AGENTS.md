@@ -17,9 +17,14 @@ docker compose -f docker-compose.base44.yml up -d --build
 1. `db` — Postgres, healthchecked.
 2. `setup` — one-shot `pnpm install --no-frozen-lockfile` (writes `node_modules` into the bind-mounted repo, shared by all services).
 3. `migrate` — one-shot `drizzle-kit push --force` against the active DB (Neon when NEON_DATABASE_URL is set, local otherwise) to create the schema. The local fallback `DATABASE_URL` carries `?sslmode=no-verify` because `lib/db/drizzle.config.ts` hardcodes `ssl: true` and the local cert is self-signed — the relaxation is scoped to that one connection (a process-global `NODE_TLS_REJECT_UNAUTHORIZED=0` would also disable Neon's valid-cert verification and trips a Node security warning; Neon TLS is verified normally). Runs after `db` is healthy and `setup` completes. The seed service needs no override at all — its pg pool already uses `ssl: { rejectUnauthorized: false }`.
-4. `api` — `pnpm --filter @workspace/api-server run dev` (esbuild bundle once → `node dist/index.mjs`). **No file watcher** — restart the `api` service after backend edits, then `reload_preview`.
+4. `telegram-bot-api` — Local Bot API Server (`aiogram/telegram-bot-api` image, `--local` mode).
+   Requires `TELEGRAM_API_ID` + `TELEGRAM_API_HASH` (from `/run/base44/app.env`). If missing,
+   restart-loops harmlessly — the `api` service boots independently and falls back to
+   `api.telegram.org`. Internal port 8081 (not exposed to host). The `api` service uses it
+   via `TELEGRAM_API_BASE=http://telegram-bot-api:8081` (set in `.env.base44-defaults`).
+5. `api` — `pnpm --filter @workspace/api-server run dev` (esbuild bundle once → `node dist/index.mjs`). **No file watcher** — restart the `api` service after backend edits, then `reload_preview`.
    - **Stream concurrency**: `MAX_CONCURRENT_STREAMS = 20` (default, via `STREAM_MAX_CONCURRENCY` env). Up to 20 simultaneous Telegram streaming operations (MTProto chunk streaming + Bot API). The 21st request enters a FIFO waiting queue with a 30 s timeout. Slots are acquired after auth+premium checks and always released via try/finally (success, error, disconnect, cancellation). Client disconnect cancels the upstream MTProto/Bot API transfer.
-5. `web` — `pnpm --filter @workspace/yzu-video run dev` (Vite HMR, live reload).
+6. `web` — `pnpm --filter @workspace/yzu-video run dev` (Vite HMR, live reload).
 
 ## Telegram Video Storage & Streaming (isolated module)
 
@@ -31,9 +36,10 @@ was changed. Uses **Telegram Bot API only** (HTTP-based) with just
 - **DB**: 4 tables — `telegram_sources`, `telegram_videos`, `telegram_sync_logs`,
   `telegram_import_logs`. Relational (source → many videos). No limit on source count.
   `telegram_videos` stores metadata only — video binary stays in Telegram.
-- **Backend**: `src/lib/telegram/{client,indexer,streamer}.ts` + `src/routes/telegram.ts`.
-  All Bot API calls go to `https://api.telegram.org/bot<token>/<method>` via `fetch`.
-  No native dependencies — the `telegram` (GramJS) package was removed.
+- **Backend**: `src/lib/telegram/{client,indexer,streamer,file-provider,mtproto}.ts` + `src/routes/telegram.ts`.
+  Bot API calls go to `TELEGRAM_API_BASE` (default: `https://api.telegram.org`; in Docker:
+  the local `telegram-bot-api` service). MTProto (GramJS) is used as a fallback for
+  large-file streaming and AutoUP videos without file_id.
 - **Frontend**: `src/pages/admin/telegram-sources.tsx` (admin dashboard),
   `src/pages/admin/telegram-import.tsx` (import guide),
   `src/pages/telegram-videos.tsx` (catalog), `src/pages/telegram-video-detail.tsx`
@@ -75,9 +81,14 @@ Bot API cannot read message history, so videos arrive via **webhook**:
   files return a clear error explaining the limit (not an application limit).
 
 ### Secrets (all optional for boot)
-- `TELEGRAM_BOT_TOKEN` — Bot token from @BotFather (server-only). The ONLY credential.
+- `TELEGRAM_BOT_TOKEN` — Bot token from @BotFather (server-only). Required for any Telegram functionality.
+- `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` — from https://my.telegram.org → API development tools.
+  Required for the Local Bot API Server (which uses MTProto internally) and for direct MTProto
+  large-file streaming. The MTProto session is created, stored, and recovered automatically.
+- `TELEGRAM_API_BASE` — URL of the Local Bot API Server. Set in `.env.base44-defaults` to
+  `http://telegram-bot-api:8081` (Docker internal). If the server is unreachable, the client
+  automatically falls back to `api.telegram.org` (with 20 MB limit).
 - `TELEGRAM_WEBHOOK_SECRET` — Optional secret for webhook verification (server-only).
-- No `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, or `TELEGRAM_SESSION` needed.
 
 ### API endpoints (all new, namespaced)
 - Admin sources: `/api/admin/telegram/sources` (CRUD), `/:id/test`, `/:id/sync`, `/health`
@@ -101,6 +112,45 @@ Bot API cannot read message history, so videos arrive via **webhook**:
 - The streamer has NO `MAX_VIDEO_SIZE` constant. The limit comes from Telegram's
   infrastructure. If `getFile` returns "file is too big", the streamer returns HTTP 413
   with a clear message explaining the Bot API limit and how to set `TELEGRAM_API_BASE`.
+
+### Local Bot API Server (2026-09-10)
+
+A `telegram-bot-api` service (`aiogram/telegram-bot-api` image) runs in the compose
+stack with `--local` mode enabled. It uses MTProto internally (with `TELEGRAM_API_ID` +
+`TELEGRAM_API_HASH`) to provide a Bot API-compatible HTTP endpoint that:
+
+1. **Lifts the getFile limit from 20 MB to 2 GB** — the primary reason for adding it.
+2. **Resolves private channels via numeric ID** — MTProto bot auth cannot resolve
+   private channels by numeric chat ID alone, but the Local Bot API Server handles
+   channel resolution internally, so `getChat`/`getFile` work for private channels.
+
+**Dispatch logic** (`file-provider.ts` → `shouldUseMtProto`):
+- When `TELEGRAM_API_BASE` is set (Local Bot API Server configured): **prefer Bot API**
+  for all file sizes (up to 2 GB). MTProto is kept as a fallback for network errors and
+  AutoUP videos without file_id.
+- When `TELEGRAM_API_BASE` is NOT set: use MTProto if ready (any size), else Bot API
+  (20 MB limit).
+
+**Fallback chain** (`client.ts` → `botApiCall`):
+- If the local Bot API server is unreachable (ECONNREFUSED, fetch failed), the client
+  sets a `usingFallback` flag and all subsequent Bot API calls go to `api.telegram.org`
+  until the process restarts. This prevents a broken local server from breaking
+  webhook/indexing/streaming that would otherwise work via the public Bot API.
+- `checkLocalBotApiHealth()` makes a direct `getMe` call to the configured local server
+  (no fallback) — used by the admin health endpoint to report the real server status.
+
+**Streaming fallback** (`streamer.ts` → `streamViaBotApi`):
+- If `getFile` or the file download fails with a network error while the local server
+  is configured, the streamer falls back to MTProto (if available) — handles the case
+  where the local server goes down mid-session.
+- AutoUP videos without `file_id` (null `telegramFileId`): if MTProto is ready, the
+  streamer tries MTProto first (Bot API requires a file_id for `getFile`).
+
+**Service**: `telegram-bot-api` in compose. Requires `TELEGRAM_API_ID` +
+`TELEGRAM_API_HASH` (from `/run/base44/app.env`). If missing, the container
+restart-loops harmlessly; the `api` service boots independently and the client
+falls back to `api.telegram.org`. The bot token is passed via the URL by the
+`api` service — not needed in the `telegram-bot-api` service's env.
 
 ### Bug fixes applied (2026-09-05) — streaming & health audit
 

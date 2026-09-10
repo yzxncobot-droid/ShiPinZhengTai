@@ -814,18 +814,19 @@ router.get("/admin/telegram/health", authenticate, requireRole("admin", "owner")
     if (!telegramApi) {
       streamingMode = "NOT_AVAILABLE";
       largeFileStreaming = false;
+    } else if (isLocalBotApiConfigured() && localBotApiStatus === "ok") {
+      // Local Bot API Server is healthy — preferred over MTProto because it
+      // supports files up to 2 GB AND resolves private channels via numeric ID.
+      streamingMode = "LOCAL_BOT_API";
+      largeFileStreaming = true;
     } else if (mtProtoStatus.connected) {
       // MTProto is connected — supports files of any size.
       streamingMode = "MTPROTO";
       largeFileStreaming = true;
     } else if (isLocalBotApiConfigured()) {
-      if (localBotApiStatus === "ok") {
-        streamingMode = "LOCAL_BOT_API";
-        largeFileStreaming = true;
-      } else {
-        streamingMode = "STANDARD_BOT_API";
-        largeFileStreaming = false;
-      }
+      // Local server configured but unreachable — falls back to standard Bot API.
+      streamingMode = "STANDARD_BOT_API";
+      largeFileStreaming = false;
     } else {
       streamingMode = "STANDARD_BOT_API";
       largeFileStreaming = false;
