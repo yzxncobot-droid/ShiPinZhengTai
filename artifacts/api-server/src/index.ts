@@ -112,12 +112,29 @@ async function initDatabase(): Promise<void> {
       try {
         const { isTelegramConfigured, setWebhook, getBotInfo } = await import("./lib/telegram/client");
         if (isTelegramConfigured()) {
-            const publicBaseUrl = process.env.PUBLIC_BASE_URL;
+          const publicBaseUrl = process.env.PUBLIC_BASE_URL;
+          // Detect the public URL for webhook registration across platforms:
+          //   1. PUBLIC_BASE_URL (user-set, highest priority)
+          //   2. REPLIT_DOMAINS (Replit — comma-separated list of all domains,
+          //      works in both dev and deployment mode)
+          //   3. BASE44_PUBLIC_HOST_SUFFIX (Base44 dev environment)
+          //   4. REPLIT_DEV_DOMAIN (Replit dev fallback)
+          const replitDomains = process.env.REPLIT_DOMAINS;
+          const replitDomain = replitDomains
+            ? replitDomains.split(",")[0].trim().replace(/^https?:\/\//, "")
+            : null;
+          const replitDevDomain = process.env.REPLIT_DEV_DOMAIN
+            ? process.env.REPLIT_DEV_DOMAIN.replace(/^https?:\/\//, "")
+            : null;
           const webhookUrl = publicBaseUrl
             ? `${publicBaseUrl}/api/telegram/webhook`
-            : process.env.BASE44_PUBLIC_HOST_SUFFIX
-              ? `https://3000-${process.env.BASE44_PUBLIC_HOST_SUFFIX}/api/telegram/webhook`
-              : null;
+            : replitDomain
+              ? `https://${replitDomain}/api/telegram/webhook`
+              : process.env.BASE44_PUBLIC_HOST_SUFFIX
+                ? `https://3000-${process.env.BASE44_PUBLIC_HOST_SUFFIX}/api/telegram/webhook`
+                : replitDevDomain
+                  ? `https://${replitDevDomain}/api/telegram/webhook`
+                  : null;
 
           if (webhookUrl) {
             const secretToken = process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -128,7 +145,7 @@ async function initDatabase(): Promise<void> {
               "[TELEGRAM] Webhook auto-registered on startup",
             );
           } else {
-            logger.warn("[TELEGRAM] Cannot auto-register webhook — PUBLIC_BASE_URL not configured");
+            logger.warn("[TELEGRAM] Cannot auto-register webhook — set PUBLIC_BASE_URL to the public URL of your deployment");
           }
         }
       } catch (e) {

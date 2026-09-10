@@ -73,6 +73,12 @@ export default defineConfig({
       '/api': {
         target: process.env.API_PROXY_TARGET ?? 'http://localhost:8080',
         changeOrigin: true,
+        // Video streaming sends long-lived chunked responses (206 Partial
+        // Content). Without disabling the proxy timeout, the connection can
+        // be cut mid-stream — especially on Replit where the dev server and
+        // API run as separate processes behind a reverse proxy.
+        timeout: 0,
+        proxyTimeout: 0,
       },
     },
     fs: {
