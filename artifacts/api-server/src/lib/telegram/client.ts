@@ -20,8 +20,25 @@ const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
  * Set TELEGRAM_API_BASE to a Local Bot API Server URL for large-file support.
  */
 const TELEGRAM_API_BASE = (process.env.TELEGRAM_API_BASE || "https://api.telegram.org").replace(/\/+$/, "");
-const API_BASE = `${TELEGRAM_API_BASE}/bot${BOT_TOKEN}`;
-const FILE_BASE = `${TELEGRAM_API_BASE}/file/bot${BOT_TOKEN}`;
+const FALLBACK_API_BASE = "https://api.telegram.org";
+
+/**
+ * Set to true when the local Bot API server is unreachable — all subsequent
+ * Bot API calls fall back to api.telegram.org until the process restarts.
+ * This prevents a broken local server from breaking webhook/indexing/streaming
+ * that would otherwise work via the public Bot API.
+ */
+let usingFallback = false;
+
+/** Returns the effective API base URL (local server or fallback). */
+function getApiBase(): string {
+  return usingFallback ? FALLBACK_API_BASE : TELEGRAM_API_BASE;
+}
+
+/** Returns the effective file download base URL. */
+function getFileBase(): string {
+  return `${getApiBase()}/file/bot${BOT_TOKEN}`;
+}
 
 export function isTelegramConfigured(): boolean {
   return !!process.env.TELEGRAM_BOT_TOKEN;
@@ -47,8 +64,10 @@ export function isLocalBotApiConfigured(): boolean {
 export async function checkLocalBotApiHealth(): Promise<boolean> {
   if (!isLocalBotApiConfigured()) return false;
   try {
-    await botApiCall<{ id: number }>("getMe");
-    return true;
+    // Direct call to the configured local server — no fallback to api.telegram.org.
+    const res = await fetch(`${TELEGRAM_API_BASE}/bot${BOT_TOKEN}/getMe`);
+    const data = await res.json();
+    return data.ok === true;
   } catch (err) {
     logger.warn(
       { err: err instanceof Error ? err.message : String(err) },
@@ -85,12 +104,30 @@ export async function botApiCall<T = any>(
     throw new Error("Telegram bot token not configured");
   }
 
-  const url = `${API_BASE}/${method}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params ?? {}),
-  });
+  const base = getApiBase();
+  const url = `${base}/bot${BOT_TOKEN}/${method}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params ?? {}),
+    });
+  } catch (fetchErr) {
+    // If the local Bot API server is unreachable, fall back to api.telegram.org.
+    if (isLocalBotApiConfigured() && !usingFallback) {
+      usingFallback = true;
+      logger.warn("[TELEGRAM] Local Bot API Server unreachable, falling back to api.telegram.org");
+      const fallbackUrl = `${FALLBACK_API_BASE}/bot${BOT_TOKEN}/${method}`;
+      res = await fetch(fallbackUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params ?? {}),
+      });
+    } else {
+      throw fetchErr;
+    }
+  }
 
   const data: any = await res.json().catch(() => null);
   if (!data) {
@@ -245,7 +282,7 @@ export async function getFileInfo(fileId: string): Promise<TelegramFileInfo> {
 
 /** Construct the download URL for a file_path returned by getFile. */
 export function getFileUrl(filePath: string): string {
-  return `${FILE_BASE}/${filePath}`;
+  return `${getFileBase()}/${filePath}`;
 }
 
 // ── Webhook management ──────────────────────────────────────────────────────

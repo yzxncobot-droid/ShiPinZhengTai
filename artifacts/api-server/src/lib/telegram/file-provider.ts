@@ -21,7 +21,7 @@
  */
 import type { Response } from "express";
 import { logger } from "../logger";
-import { getFileInfo, getFileUrl, refreshFileId } from "./client";
+import { getFileInfo, getFileUrl, refreshFileId, isLocalBotApiConfigured } from "./client";
 import type { TelegramFileInfo } from "./client";
 import {
   isMtProtoReady,
@@ -73,6 +73,10 @@ export interface FileDownloadParams {
  * - If MTProto is not ready: use Bot API (limited to 20 MB).
  */
 export function shouldUseMtProto(fileSize: number | null): boolean {
+  // When a Local Bot API Server is configured, prefer Bot API — it supports
+  // files up to 2 GB and can resolve private channels via numeric ID (which
+  // MTProto bot auth cannot). MTProto is kept as a fallback.
+  if (isLocalBotApiConfigured()) return false;
   return isMtProtoReady();
 }
 
@@ -81,6 +85,7 @@ export function shouldUseMtProto(fileSize: number | null): boolean {
  * Files >20 MB require MTProto; files ≤20 MB can use either provider.
  */
 export function canStreamFile(fileSize: number | null): boolean {
+  if (isLocalBotApiConfigured()) return true; // Local server supports up to 2 GB
   if (isMtProtoReady()) return true;
   if (fileSize != null && fileSize > 0 && fileSize <= BOT_API_THRESHOLD) return true;
   return false;

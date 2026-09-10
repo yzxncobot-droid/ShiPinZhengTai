@@ -107,6 +107,29 @@ services:
       setup:
         condition: service_completed_successfully
 
+  # Local Bot API Server — lifts the getFile limit from 20 MB to 2 GB and
+  # resolves private channels via numeric ID (which MTProto bot auth cannot).
+  # Requires TELEGRAM_API_ID + TELEGRAM_API_HASH (same credentials as MTProto,
+  # from https://my.telegram.org). The bot token is passed via the URL by the
+  # api service — not needed here. If credentials are missing the container
+  # restart-loops harmlessly; the api service boots independently and the
+  # client falls back to api.telegram.org.
+  telegram-bot-api:
+    image: aiogram/telegram-bot-api:latest
+    restart: unless-stopped
+    environment:
+      TELEGRAM_LOCAL: "1"
+    env_file:
+      - /run/base44/app.env
+    volumes:
+      - tg-bot-api-data:/var/lib/telegram-bot-api
+    healthcheck:
+      test: ["CMD-SHELL", "rm -f /tmp/hc; wget -O /tmp/hc 'http://localhost:8081/' 2>/dev/null; test -s /tmp/hc"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
   api:
     build:
       context: .
@@ -166,3 +189,4 @@ volumes:
   pgdata:
   pgcerts:
   tg-session:
+  tg-bot-api-data:

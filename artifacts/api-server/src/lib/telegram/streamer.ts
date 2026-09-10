@@ -183,8 +183,17 @@ export async function streamTelegramVideo(params: StreamParams): Promise<void> {
 
   // ── Bot API path ──────────────────────────────────────────────────────────
   // If fileId is null (AutoUP video) and we fell through to here, Bot API
-  // can't work — it requires a file_id. Return a clear error.
+  // can't work — it requires a file_id. Try MTProto as a fallback if available.
   if (!params.fileId) {
+    if (isMtProtoReady()) {
+      try {
+        await streamViaMtProto(params);
+        return;
+      } catch (err) {
+        if (!params.res.headersSent) handleStreamError(err, params.res);
+        return;
+      }
+    }
     if (!params.res.headersSent) {
       params.res.status(503).json({
         error: "MTProto tidak tersedia dan video tidak memiliki file_id",
@@ -281,8 +290,22 @@ async function streamViaMtProto(params: StreamParams): Promise<void> {
   }
 }
 
+// ── Network error detection ─────────────────────────────────────────────────
+
+/** Check if an error message indicates a network/connection failure. */
+function isNetworkError(msg: string): boolean {
+  const lower = msg.toLowerCase();
+  return (
+    lower.includes("fetch failed") ||
+    lower.includes("econnrefused") ||
+    lower.includes("etimedout") ||
+    lower.includes("enotfound") ||
+    lower.includes("eai_again")
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
-// BOT API STREAMING PATH (existing logic, unchanged)
+// BOT API STREAMING PATH
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
@@ -306,6 +329,13 @@ async function streamViaBotApi(params: StreamParams): Promise<void> {
     fileInfo = await getCachedFileInfo(fileId);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
+
+    // If the local Bot API server is unreachable, fall back to MTProto.
+    if (isLocalBotApiConfigured() && isMtProtoReady() && isNetworkError(errMsg)) {
+      logger.warn({ videoId }, "[TELEGRAM] Local Bot API Server unreachable, falling back to MTProto");
+      await streamViaMtProto(params);
+      return;
+    }
 
     // If the file is too big for Bot API and MTProto is ready, fallback.
     if (isMtProtoReady() && (errMsg.includes("too big") || errMsg.includes("file is too big"))) {
@@ -482,6 +512,15 @@ async function streamViaBotApi(params: StreamParams): Promise<void> {
       await pipeWithBackpressure(reader, res, () => aborted);
     }
   } catch (err) {
+    // If the local Bot API server is unreachable during streaming, fall back to MTProto.
+    if (isLocalBotApiConfigured() && isMtProtoReady() && !res.headersSent) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (isNetworkError(errMsg)) {
+        logger.warn({ videoId }, "[TELEGRAM] Local Bot API Server unreachable during streaming, falling back to MTProto");
+        await streamViaMtProto(params);
+        return;
+      }
+    }
     logger.error(
       { err: err instanceof Error ? err.message : String(err), videoId, chatId, messageId },
       "[TELEGRAM] Streaming error",
