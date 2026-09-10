@@ -129,10 +129,10 @@ services:
     # and the real entrypoint runs.
     entrypoint: ["sh", "-c", "if [ -z \"$$TELEGRAM_API_ID\" ] || [ -z \"$$TELEGRAM_API_HASH\" ]; then echo '[telegram-bot-api] Waiting for TELEGRAM_API_ID and TELEGRAM_API_HASH'; while true; do sleep 3600; done; else exec /docker-entrypoint.sh; fi"]
     healthcheck:
-      test: ["CMD-SHELL", "rm -f /tmp/hc; wget -O /tmp/hc 'http://localhost:8081/' 2>/dev/null; test -s /tmp/hc"]
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8081 || exit 1"]
       interval: 5s
       timeout: 5s
-      retries: 3
+      retries: 5
       start_period: 10s
 
   api:
