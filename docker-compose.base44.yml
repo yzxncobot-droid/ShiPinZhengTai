@@ -5,8 +5,8 @@
 # Bearer-token auth. Source is bind-mounted into every app service so edits are
 # picked up without rebuilding the image.
 #
-# A local Postgres (with self-signed SSL) is used until NEON_DATABASE_URL is
-# provided via /run/base44/app.env; the app prefers NEON_DATABASE_URL when set.
+# Neon PostgreSQL is the primary database (NEON_DATABASE_URL via /run/base44/app.env).
+# A local Postgres is kept as a fallback for when NEON_DATABASE_URL is not set.
 
 services:
   # One-shot: generate self-signed SSL certs (owned by the postgres user) into
@@ -79,8 +79,6 @@ services:
       - /run/base44/app.env
     command: sh -c "node lib/db/scripts/pre-migrate.mjs && pnpm --filter @workspace/db run push-force"
     depends_on:
-      db:
-        condition: service_healthy
       setup:
         condition: service_completed_successfully
 

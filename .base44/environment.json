@@ -3,7 +3,7 @@
   "healthPath": "/",
   "startCommand": "docker compose -f docker-compose.base44.yml up -d",
   "secrets": [
-    { "name": "NEON_DATABASE_URL", "description": "External Neon PostgreSQL connection string (with existing data). Optional — a local Postgres with an empty schema is used until this is provided.", "requiredAtBoot": false },
+    { "name": "NEON_DATABASE_URL", "description": "Neon PostgreSQL connection string — the primary database for all app data including the Telegram video system.", "requiredAtBoot": true },
     { "name": "SESSION_SECRET", "description": "JWT signing secret. Optional — a dev placeholder is used until provided.", "requiredAtBoot": false },
     { "name": "BUATQRIS_ACCOUNT_ID", "description": "BuatQris Account ID for automatic QRIS payments. Required for the automatic payment flow.", "requiredAtBoot": false },
     { "name": "BUATQRIS_SECRET_TOKEN", "description": "BuatQris Secret Token (server-only, never sent to frontend). Required for the automatic payment flow.", "requiredAtBoot": false },
