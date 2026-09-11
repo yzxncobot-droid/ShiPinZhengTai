@@ -104,6 +104,8 @@ export const telegramVideosTable = pgTable(
     thumbnailFileId: text("thumbnail_file_id"),
     thumbnailWidth: integer("thumbnail_width"),
     thumbnailHeight: integer("thumbnail_height"),
+    /** URL of the processed thumbnail (uploaded to media storage by the THUMBNAIL stage). */
+    thumbnailUrl: text("thumbnail_url"),
     caption: text("caption"),
     telegramDate: timestamp("telegram_date"),
     /** Video availability: active (default), error, unavailable. */

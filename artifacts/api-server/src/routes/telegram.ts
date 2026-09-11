@@ -34,6 +34,7 @@ import { getQueueStats as getVideoQueueStats, getAllProgress as getVideoQueuePro
 import { createStreamTicket, verifyStreamTicket } from "../lib/telegram/stream-tickets";
 import {
   isMtProtoConfigured, isMtProtoReady, getMtProtoStatus, initMtProto,
+  markMtProtoSkipped,
 } from "../lib/telegram/mtproto";
 
 const router = Router();
@@ -54,6 +55,7 @@ if (isLocalBotApiConfigured()) {
   logger.info(
     "[TELEGRAM] Local Bot API Server configured — skipping MTProto initialization to avoid AUTH_KEY_DUPLICATED conflict. Local Bot API supports files up to 2 GB.",
   );
+  markMtProtoSkipped();
 } else {
   initMtProto().catch((err) => {
     logger.warn(
@@ -892,7 +894,13 @@ router.get("/admin/telegram/health", authenticate, requireRole("admin", "owner")
         indexer: telegramApi ? "ok" : "not_configured",
         streaming: streamingMode === "NOT_AVAILABLE" ? "not_configured" : "ok",
         localBotApi: localBotApiStatus,
-        mtproto: mtProtoStatus.connected ? "ok" : mtProtoStatus.enabled ? "error" : "not_configured",
+        mtproto: mtProtoStatus.state === "skipped"
+          ? "skipped"
+          : mtProtoStatus.connected
+            ? "ok"
+            : mtProtoStatus.enabled
+              ? "error"
+              : "not_configured",
       },
       mtproto: {
         enabled: mtProtoStatus.enabled,
@@ -998,6 +1006,8 @@ router.post("/admin/telegram/test", authenticate, requireRole("admin", "owner"),
     // 8. MTProto — large-file streaming (>20 MB)
     if (!isMtProtoConfigured()) {
       results.mtproto = { status: "error", detail: "Not configured (set TELEGRAM_API_ID + TELEGRAM_API_HASH + TELEGRAM_BOT_TOKEN)" };
+    } else if (isLocalBotApiConfigured()) {
+      results.mtproto = { status: "ok", detail: "Skipped — Local Bot API Server handles large files (up to 2 GB)" };
     } else if (isMtProtoReady()) {
       results.mtproto = { status: "ok", detail: "Connected — large-file streaming (>20 MB) available" };
     } else {

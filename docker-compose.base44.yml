@@ -143,6 +143,10 @@ services:
     volumes:
       - .:/app
       - tg-session:/data
+      # Read-only access to the local Bot API server's file storage — the
+      # --local flag stores files on disk but doesn't serve them via HTTP,
+      # so the API reads them directly from the filesystem for streaming.
+      - tg-bot-api-data:/var/lib/telegram-bot-api:ro
     environment:
       PORT: "8080"
       DATABASE_URL: postgresql://yzu:yzu_pass@db:5432/yzu
