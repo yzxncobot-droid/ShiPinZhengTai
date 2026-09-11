@@ -159,15 +159,27 @@ async function initDatabase(): Promise<void> {
       // MTProto is needed for streaming files >20 MB. If it fails, Bot API
       // continues to work for files ≤20 MB. This is additive — it does not
       // affect the existing Bot API webhook/indexing system.
-      // Skip MTProto when a Local Bot API Server is configured — both use the
-      // same TELEGRAM_API_ID/TELEGRAM_API_HASH and Telegram rejects duplicate
-      // auth keys with AUTH_KEY_DUPLICATED, breaking Bot API calls.
+      //
+      // When a Local Bot API Server is configured AND healthy, skip MTProto —
+      // both use the same TELEGRAM_API_ID/TELEGRAM_API_HASH and Telegram rejects
+      // duplicate auth keys with AUTH_KEY_DUPLICATED. But when the local server
+      // is configured but NOT healthy (e.g. missing credentials, unreachable),
+      // initialize MTProto so large-file streaming (>20 MB) still works.
       try {
-        const { isLocalBotApiConfigured } = await import("./lib/telegram/client");
+        const { isLocalBotApiConfigured, refreshLocalBotApiHealth } = await import("./lib/telegram/client");
         if (isLocalBotApiConfigured()) {
-          logger.info(
-            "[TELEGRAM] Local Bot API Server configured — skipping MTProto initialization to avoid AUTH_KEY_DUPLICATED conflict. Local Bot API supports files up to 2 GB.",
-          );
+          const healthy = await refreshLocalBotApiHealth();
+          if (healthy) {
+            logger.info(
+              "[TELEGRAM] Local Bot API Server healthy — skipping MTProto initialization to avoid AUTH_KEY_DUPLICATED conflict. Local Bot API supports files up to 2 GB.",
+            );
+          } else {
+            logger.warn(
+              "[TELEGRAM] Local Bot API Server configured but NOT healthy — initializing MTProto for large-file streaming (>20 MB). Bot API continues for files ≤20 MB.",
+            );
+            const { initMtProto } = await import("./lib/telegram/mtproto");
+            await initMtProto();
+          }
         } else {
           const { initMtProto } = await import("./lib/telegram/mtproto");
           await initMtProto();
