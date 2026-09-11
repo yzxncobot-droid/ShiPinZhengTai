@@ -18,10 +18,13 @@ import { eq, isNull, and, gte, sql } from "drizzle-orm";
 
 const { Pool } = pg;
 
-const URL = process.env.DATABASE_URL;
-if (!URL) { console.error("DATABASE_URL not set"); process.exit(1); }
+const URL = process.env.NEON_DATABASE_URL ?? process.env.DATABASE_URL;
+if (!URL) { console.error("NEON_DATABASE_URL (or DATABASE_URL) not set"); process.exit(1); }
 
-const pool = new Pool({ connectionString: URL });
+const pool = new Pool({
+  connectionString: URL,
+  ssl: { rejectUnauthorized: false }, // required for Neon PostgreSQL
+});
 const db = drizzle(pool, { schema });
 
 async function genCode(): Promise<string> {
