@@ -107,11 +107,18 @@ export async function botApiCall<T = any>(
   const base = getApiBase();
   const url = `${base}/bot${BOT_TOKEN}/${method}`;
   let res: Response;
+
+  // Timeout — prevents indefinite hang when the local Bot API server is
+  // unresponsive (e.g. AUTH_KEY_DUPLICATED causes it to stall).
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+
   try {
     res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params ?? {}),
+      signal: controller.signal,
     });
   } catch (fetchErr) {
     // If the local Bot API server is unreachable, fall back to api.telegram.org.
@@ -128,6 +135,7 @@ export async function botApiCall<T = any>(
       throw fetchErr;
     }
   }
+  clearTimeout(timeout);
 
   const data: any = await res.json().catch(() => null);
   if (!data) {

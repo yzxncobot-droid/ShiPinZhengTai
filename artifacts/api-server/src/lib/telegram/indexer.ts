@@ -509,25 +509,43 @@ export async function processQueueItem(log: typeof telegramImportLogsTable.$infe
       }).where(eq(telegramVideosTable.id, videoId));
       logger.info({ videoId }, "[TELEGRAM] Video verified → status=completed");
 
-      // ── Trigger AutoUP processing (webhook path) ─────────────────────────
-      // After the video is verified and marked "completed", check if any
-      // AutoUP config matches this source. If so, create the videos catalog
-      // entry with the config's premium/price/description settings.
-      // Non-blocking — errors are caught and logged inside processVideoFromWebhook.
-      import("./autoup")
-        .then(({ processVideoFromWebhook }) => {
-          processVideoFromWebhook(metadata.sourceId, videoId).catch((err) => {
-            logger.warn(
-              { err: err instanceof Error ? err.message : String(err), videoId, sourceId: metadata.sourceId },
-              "[AUTOUP] Webhook-triggered processing failed (non-fatal)",
-            );
+      // ── Enqueue into staged processing queue ─────────────────────────────
+      // Instead of directly calling AutoUP (which can timeout for large videos),
+      // enqueue the video into the staged processing queue. Each stage
+      // (thumbnail, verify, publish) has its own timeout and retry logic,
+      // so a single large video never blocks the queue or errors from
+      // loading too long.
+      import("./video-processing-queue")
+        .then(({ enqueueVideo }) => {
+          const jobId = enqueueVideo({
+            videoId,
+            sourceId: metadata.sourceId,
+            chatId: metadata.effectiveChatId,
+            messageId: metadata.telegramMessageId,
+            fileId: metadata.fileId,
+            thumbnailFileId: metadata.thumbnailFileId,
+            title: metadata.caption || metadata.fileName || `Video ${metadata.telegramMessageId}`,
+            fileSize: metadata.fileSize || null,
+            duration: metadata.duration,
+            mimeType: metadata.mimeType,
+            isPremium: false,
+            price: null,
+            description: null,
+            creatorId: null,
           });
+          logger.info({ videoId, jobId }, "[TELEGRAM] Video enqueued for staged processing");
         })
         .catch((err) => {
           logger.warn(
-            { err: err instanceof Error ? err.message : String(err) },
-            "[AUTOUP] Failed to import processVideoFromWebhook (non-fatal)",
+            { err: err instanceof Error ? err.message : String(err), videoId },
+            "[TELEGRAM] Failed to enqueue staged processing — falling back to AutoUP",
           );
+          // Fallback: call AutoUP directly if the staged queue fails to load.
+          import("./autoup")
+            .then(({ processVideoFromWebhook }) => {
+              processVideoFromWebhook(metadata.sourceId, videoId).catch(() => {});
+            })
+            .catch(() => {});
         });
     } else {
       await db.update(telegramVideosTable).set({
