@@ -107,34 +107,6 @@ services:
       setup:
         condition: service_completed_successfully
 
-  # Local Bot API Server — lifts the getFile limit from 20 MB to 2 GB and
-  # resolves private channels via numeric ID (which MTProto bot auth cannot).
-  # Requires TELEGRAM_API_ID + TELEGRAM_API_HASH (same credentials as MTProto,
-  # from https://my.telegram.org). The bot token is passed via the URL by the
-  # api service — not needed here. When credentials are missing the container
-  # idles silently (no crash-loop); the api service boots independently and
-  # the client falls back to api.telegram.org.
-  telegram-bot-api:
-    image: aiogram/telegram-bot-api:latest
-    restart: unless-stopped
-    environment:
-      TELEGRAM_LOCAL: "1"
-    env_file:
-      - /run/base44/app.env
-    volumes:
-      - tg-bot-api-data:/var/lib/telegram-bot-api
-    # Wait for credentials before starting — prevents crash-loop log spam when
-    # TELEGRAM_API_ID/TELEGRAM_API_HASH are not yet provided. When the user
-    # sets them via the secrets dashboard the platform recreates this service
-    # and the real entrypoint runs.
-    entrypoint: ["sh", "-c", "if [ -z \"$$TELEGRAM_API_ID\" ] || [ -z \"$$TELEGRAM_API_HASH\" ]; then echo '[telegram-bot-api] Waiting for TELEGRAM_API_ID and TELEGRAM_API_HASH'; while true; do sleep 3600; done; else exec /docker-entrypoint.sh; fi"]
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 8081 || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
   api:
     build:
       context: .
@@ -143,12 +115,6 @@ services:
     volumes:
       - .:/app
       - tg-session:/data
-      # Share the Local Bot API Server's file directory so the API can read
-      # downloaded files directly from the filesystem. The local Bot API server
-      # does NOT serve files via HTTP (see tdlib/telegram-bot-api#201) — it stores
-      # them on disk. The file_path returned by getFile is an absolute path within
-      # this directory, so mounting at the same path makes it directly accessible.
-      - tg-bot-api-data:/var/lib/telegram-bot-api:ro
     environment:
       PORT: "8080"
       DATABASE_URL: postgresql://yzu:yzu_pass@db:5432/yzu
@@ -169,8 +135,6 @@ services:
     depends_on:
       seed:
         condition: service_completed_successfully
-      telegram-bot-api:
-        condition: service_healthy
     restart: unless-stopped
 
   web:
@@ -202,4 +166,3 @@ volumes:
   pgdata:
   pgcerts:
   tg-session:
-  tg-bot-api-data:
