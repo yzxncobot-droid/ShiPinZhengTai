@@ -77,6 +77,29 @@ export async function checkLocalBotApiHealth(): Promise<boolean> {
   }
 }
 
+// ── Cached health status ────────────────────────────────────────────────────
+// The health check involves a network round-trip. Cache the result so sync
+// callers (e.g. shouldUseMtProto) can use it without making the function async.
+// Refreshed on startup and periodically by the API server.
+let cachedLocalBotApiHealthy: boolean | null = null;
+
+/**
+ * Perform a fresh health check and cache the result.
+ * Call this on startup and periodically to keep the cached value current.
+ */
+export async function refreshLocalBotApiHealth(): Promise<boolean> {
+  cachedLocalBotApiHealthy = await checkLocalBotApiHealth();
+  return cachedLocalBotApiHealthy;
+}
+
+/**
+ * Return the cached health status of the Local Bot API Server.
+ * Returns null if no health check has been performed yet.
+ */
+export function getCachedLocalBotApiHealth(): boolean | null {
+  return cachedLocalBotApiHealthy;
+}
+
 /** @deprecated Use isLocalBotApiConfigured() (config) or checkLocalBotApiHealth() (reachable). */
 export function isLocalBotApiServer(): boolean {
   return isLocalBotApiConfigured();

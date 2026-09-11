@@ -21,6 +21,7 @@ import { authenticate, optionalAuth, requireRole } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 import {
   isTelegramConfigured, isLocalBotApiConfigured, checkLocalBotApiHealth,
+  refreshLocalBotApiHealth,
   testConnection, getBotInfo, testBotApi,
   setWebhook, getWebhookInfo, deleteWebhook,
 } from "../lib/telegram/client";
@@ -45,17 +46,32 @@ startQueueProcessor();
 // Initialize MTProto client (best-effort, non-blocking). If it fails, Bot API
 // continues to work for files ≤20 MB. MTProto is needed for files >20 MB.
 //
-// IMPORTANT: When a Local Bot API Server is configured (TELEGRAM_API_BASE set),
-// skip MTProto initialization entirely. Both the local Bot API server and the
-// MTProto client use the same TELEGRAM_API_ID/TELEGRAM_API_HASH to create auth
-// keys with Telegram. If both create auth keys simultaneously, Telegram rejects
-// one with AUTH_KEY_DUPLICATED, breaking Bot API calls (getChat, getFile, etc.).
-// The local Bot API server supports files up to 2 GB, so MTProto is not needed.
+// When a Local Bot API Server is configured AND healthy, skip MTProto — both
+// use the same TELEGRAM_API_ID/TELEGRAM_API_HASH and Telegram rejects duplicate
+// auth keys with AUTH_KEY_DUPLICATED. But when the local server is configured
+// but NOT healthy (unreachable, missing credentials), initialize MTProto so
+// large-file streaming (>20 MB) still works. The health check is async, so
+// this runs as an IIFE; until it resolves, isMtProtoReady() returns false.
 if (isLocalBotApiConfigured()) {
-  logger.info(
-    "[TELEGRAM] Local Bot API Server configured — skipping MTProto initialization to avoid AUTH_KEY_DUPLICATED conflict. Local Bot API supports files up to 2 GB.",
-  );
-  markMtProtoSkipped();
+  (async () => {
+    const healthy = await refreshLocalBotApiHealth();
+    if (healthy) {
+      logger.info(
+        "[TELEGRAM] Local Bot API Server healthy — skipping MTProto initialization to avoid AUTH_KEY_DUPLICATED conflict. Local Bot API supports files up to 2 GB.",
+      );
+      markMtProtoSkipped();
+    } else {
+      logger.warn(
+        "[TELEGRAM] Local Bot API Server configured but NOT healthy — initializing MTProto for large-file streaming (>20 MB).",
+      );
+      initMtProto().catch((err) => {
+        logger.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          "[TELEGRAM] MTProto initialization failed (non-fatal) — Bot API continues to work for files ≤20 MB",
+        );
+      });
+    }
+  })();
 } else {
   initMtProto().catch((err) => {
     logger.warn(

@@ -30,6 +30,7 @@ import { getFileInfo, getFileUrl, refreshFileId, isLocalBotApiConfigured } from 
 import type { TelegramFileInfo } from "./client";
 import { isMtProtoReady, getMtProtoFileStream, getMtProtoFileInfo, BOT_API_THRESHOLD } from "./mtproto";
 import { shouldUseMtProto } from "./file-provider";
+import { getCachedLocalBotApiHealth } from "./client";
 import { db } from "@workspace/db";
 import { telegramVideosTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -172,6 +173,18 @@ function parseRange(rangeHeader: string, fileSize: number): { start: number; end
 export async function streamTelegramVideo(params: StreamParams): Promise<void> {
   const { fileSize: dbFileSize, videoId } = params;
 
+  // ═════════════════════════════════════════════════════════════════════════
+  // NEW: Dedicated large-file path (>20 MB)
+  // ═════════════════════════════════════════════════════════════════════════
+  // Files above the Bot API 20 MB threshold get a dedicated streaming path
+  // that prioritizes MTProto (no size limit) and falls back to the Local Bot
+  // API Server when healthy. This path is completely separate from the
+  // ≤20 MB Bot API path below, which remains unchanged.
+  if (dbFileSize != null && dbFileSize > BOT_API_THRESHOLD) {
+    await streamLargeFile(params);
+    return;
+  }
+
   // ── MTProto path (preferred when available) ──────────────────────────────
   if (shouldUseMtProto(dbFileSize ?? null)) {
     try {
@@ -216,6 +229,90 @@ export async function streamTelegramVideo(params: StreamParams): Promise<void> {
   }
 
   await streamViaBotApi(params);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LARGE-FILE STREAMING PATH (>20 MB) — NEW
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Dedicated streaming path for files above the Bot API 20 MB threshold.
+ *
+ * This path is completely separate from the ≤20 MB Bot API path — it does not
+ * touch or modify any of the existing streaming logic for smaller files.
+ *
+ * Strategy (in priority order):
+ *   1. MTProto (iterDownload with offset) — no file size limit. Used when
+ *      MTProto is connected and ready, regardless of Local Bot API config.
+ *   2. Local Bot API Server — supports files up to 2 GB. Used when MTProto is
+ *      not available and the local server is healthy.
+ *   3. Clear error — neither provider can handle the large file.
+ *
+ * MTProto is preferred over the Local Bot API Server here because:
+ *   - It doesn't require a separate server process to be running.
+ *   - It handles file reference recovery automatically.
+ *   - It avoids the AUTH_KEY_DUPLICATED conflict that occurs when both are
+ *     active simultaneously.
+ */
+async function streamLargeFile(params: StreamParams): Promise<void> {
+  const { videoId, fileId, res } = params;
+
+  // ── 1. Try MTProto first (no size limit) ──────────────────────────────────
+  if (isMtProtoReady()) {
+    try {
+      await streamViaMtProto(params);
+      return;
+    } catch (err) {
+      logger.error(
+        { err: err instanceof Error ? err.message : String(err), videoId },
+        "[TELEGRAM] Large-file: MTProto streaming failed",
+      );
+      // Fall through to Local Bot API if healthy.
+      if (getCachedLocalBotApiHealth() === true && fileId) {
+        logger.warn({ videoId }, "[TELEGRAM] Large-file: falling back to Local Bot API Server");
+        try {
+          await streamViaBotApi(params);
+          return;
+        } catch (botApiErr) {
+          logger.error(
+            { err: botApiErr instanceof Error ? botApiErr.message : String(botApiErr), videoId },
+            "[TELEGRAM] Large-file: Local Bot API fallback also failed",
+          );
+          if (!res.headersSent) handleStreamError(botApiErr, res);
+          return;
+        }
+      }
+      // No fallback available.
+      if (!res.headersSent) handleStreamError(err, res);
+      return;
+    }
+  }
+
+  // ── 2. Try Local Bot API Server (up to 2 GB) ─────────────────────────────
+  if (getCachedLocalBotApiHealth() === true && fileId) {
+    try {
+      await streamViaBotApi(params);
+      return;
+    } catch (err) {
+      logger.error(
+        { err: err instanceof Error ? err.message : String(err), videoId },
+        "[TELEGRAM] Large-file: Local Bot API streaming failed",
+      );
+      if (!res.headersSent) handleStreamError(err, res);
+      return;
+    }
+  }
+
+  // ── 3. Neither provider available — clear error ──────────────────────────
+  logger.error({ videoId, fileSize: params.fileSize }, "[TELEGRAM] Large-file: no streaming provider available for >20 MB file");
+  if (!res.headersSent) {
+    res.status(503).json({
+      error: "Video gagal diputar",
+      detail: "File terlalu besar untuk streaming via Bot API standar — " +
+        "diperlukan MTProto (TELEGRAM_API_ID + TELEGRAM_API_HASH) atau Local Bot API Server yang aktif " +
+        "untuk file di atas 20 MB.",
+    });
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
