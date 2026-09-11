@@ -107,11 +107,18 @@ export async function botApiCall<T = any>(
   const base = getApiBase();
   const url = `${base}/bot${BOT_TOKEN}/${method}`;
   let res: Response;
+
+  // Timeout — prevents indefinite hang when the local Bot API server is
+  // unresponsive (e.g. AUTH_KEY_DUPLICATED causes it to stall).
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+
   try {
     res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params ?? {}),
+      signal: controller.signal,
     });
   } catch (fetchErr) {
     // If the local Bot API server is unreachable, fall back to api.telegram.org.
@@ -128,6 +135,7 @@ export async function botApiCall<T = any>(
       throw fetchErr;
     }
   }
+  clearTimeout(timeout);
 
   const data: any = await res.json().catch(() => null);
   if (!data) {
@@ -265,12 +273,23 @@ export interface TelegramFileInfo {
  * The limit is determined by Telegram/infrastructure, not by this code.
  */
 export async function getFileInfo(fileId: string): Promise<TelegramFileInfo> {
-  const result = await botApiCall<{
-    file_id: string;
-    file_unique_id: string;
-    file_size: number;
-    file_path: string;
-  }>("getFile", { file_id: fileId });
+  // For large files, the local Bot API server downloads the entire file from
+  // Telegram before returning the file_path. This can take a while for files
+  // >20 MB. Use a generous timeout (120 s) so the caller gets a clear error
+  // instead of hanging indefinitely.
+  const GETFILE_TIMEOUT_MS = 120_000;
+
+  const result = await Promise.race([
+    botApiCall<{
+      file_id: string;
+      file_unique_id: string;
+      file_size: number;
+      file_path: string;
+    }>("getFile", { file_id: fileId }),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("getFile timeout — file terlalu besar atau server lambat")), GETFILE_TIMEOUT_MS),
+    ),
+  ]);
 
   return {
     fileId: result.file_id,

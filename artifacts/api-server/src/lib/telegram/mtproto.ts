@@ -62,6 +62,7 @@ let client: TelegramClient | null = null;
 let connectionState: "disconnected" | "connecting" | "connected" | "error" = "disconnected";
 let connectionError: string | null = null;
 let initPromise: Promise<void> | null = null;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ── Session management ──────────────────────────────────────────────────────
 
@@ -79,7 +80,7 @@ async function loadSession(): Promise<StringSession> {
       .from(appSecretsTable)
       .where(eq(appSecretsTable.key, SESSION_DB_KEY))
       .limit(1);
-    if (row?.value) {
+    if (row?.value && row.value.length > 0) {
       logger.info("[TELEGRAM] MTProto: session loaded from Neon PostgreSQL");
       return new StringSession(row.value);
     }
@@ -158,6 +159,16 @@ async function saveSession(session: StringSession): Promise<void> {
  *
  * This function is idempotent — calling it multiple times is safe.
  */
+/**
+ * Parse the flood-wait duration (in seconds) from a Telegram error message.
+ * Returns null if the error is not a flood-wait error.
+ */
+function parseFloodWait(errMsg: string): number | null {
+  const match = errMsg.match(/A wait of (\d+) seconds is required/i);
+  if (match) return parseInt(match[1], 10);
+  return null;
+}
+
 export async function initMtProto(): Promise<void> {
   if (initPromise) return initPromise;
   initPromise = doInit().catch((err) => {
@@ -234,6 +245,27 @@ async function doInit(): Promise<void> {
       { err: connectionError },
       "[TELEGRAM] MTProto: initialization failed — large-file streaming disabled (Bot API still works for files ≤20 MB)",
     );
+
+    // If this is a flood-wait error, schedule an automatic retry after the
+    // required wait time. This avoids hammering Telegram's auth endpoint on
+    // every restart while the rate limit is active.
+    const waitSeconds = parseFloodWait(err.message || String(err));
+    if (waitSeconds !== null) {
+      const waitMs = (waitSeconds + 5) * 1000; // small buffer
+      logger.info(
+        `[TELEGRAM] MTProto: Telegram requires ${waitSeconds}s wait before retry. Scheduling retry in ${waitSeconds}s...`,
+      );
+      retryTimer = setTimeout(async () => {
+        retryTimer = null;
+        initPromise = null; // clear so doInit runs fresh
+        try {
+          await initMtProto();
+        } catch {
+          // Error already logged inside doInit; nothing to do here.
+        }
+      }, waitMs);
+    }
+
     // Do NOT throw — the app must continue running. Bot API is unaffected.
   }
 }
@@ -598,6 +630,11 @@ export async function getNewVideoMessages(
 // ── Graceful shutdown ───────────────────────────────────────────────────────
 
 export async function shutdownMtProto(): Promise<void> {
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+  initPromise = null;
   if (client) {
     try {
       await client.disconnect();

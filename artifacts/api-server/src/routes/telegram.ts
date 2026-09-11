@@ -30,6 +30,7 @@ import {
 } from "../lib/telegram/indexer";
 import { streamTelegramVideo } from "../lib/telegram/streamer";
 import { enqueueStream, getStreamQueueStats } from "../lib/telegram/stream-queue";
+import { getQueueStats as getVideoQueueStats, getAllProgress as getVideoQueueProgress } from "../lib/telegram/video-processing-queue";
 import { createStreamTicket, verifyStreamTicket } from "../lib/telegram/stream-tickets";
 import {
   isMtProtoConfigured, isMtProtoReady, getMtProtoStatus, initMtProto,
@@ -42,12 +43,25 @@ startQueueProcessor();
 
 // Initialize MTProto client (best-effort, non-blocking). If it fails, Bot API
 // continues to work for files ≤20 MB. MTProto is needed for files >20 MB.
-initMtProto().catch((err) => {
-  logger.warn(
-    { err: err instanceof Error ? err.message : String(err) },
-    "[TELEGRAM] MTProto initialization failed (non-fatal) — Bot API continues to work",
+//
+// IMPORTANT: When a Local Bot API Server is configured (TELEGRAM_API_BASE set),
+// skip MTProto initialization entirely. Both the local Bot API server and the
+// MTProto client use the same TELEGRAM_API_ID/TELEGRAM_API_HASH to create auth
+// keys with Telegram. If both create auth keys simultaneously, Telegram rejects
+// one with AUTH_KEY_DUPLICATED, breaking Bot API calls (getChat, getFile, etc.).
+// The local Bot API server supports files up to 2 GB, so MTProto is not needed.
+if (isLocalBotApiConfigured()) {
+  logger.info(
+    "[TELEGRAM] Local Bot API Server configured — skipping MTProto initialization to avoid AUTH_KEY_DUPLICATED conflict. Local Bot API supports files up to 2 GB.",
   );
-});
+} else {
+  initMtProto().catch((err) => {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "[TELEGRAM] MTProto initialization failed (non-fatal) — Bot API continues to work",
+    );
+  });
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -701,6 +715,26 @@ router.get("/admin/telegram/stream-queue/stats", authenticate, requireRole("admi
   } catch (err) {
     logger.error({ err }, "GET /admin/telegram/stream-queue/stats failed");
     res.status(500).json({ error: "Failed to fetch stream queue stats" });
+  }
+});
+
+// ── GET /api/admin/telegram/video-queue/stats — staged video processing queue ─
+router.get("/admin/telegram/video-queue/stats", authenticate, requireRole("admin", "owner"), async (_req, res) => {
+  try {
+    res.json(getVideoQueueStats());
+  } catch (err) {
+    logger.error({ err }, "GET /admin/telegram/video-queue/stats failed");
+    res.status(500).json({ error: "Failed to fetch video queue stats" });
+  }
+});
+
+// ── GET /api/admin/telegram/video-queue/progress — all job progress ─────────
+router.get("/admin/telegram/video-queue/progress", authenticate, requireRole("admin", "owner"), async (_req, res) => {
+  try {
+    res.json(getVideoQueueProgress());
+  } catch (err) {
+    logger.error({ err }, "GET /admin/telegram/video-queue/progress failed");
+    res.status(500).json({ error: "Failed to fetch video queue progress" });
   }
 });
 

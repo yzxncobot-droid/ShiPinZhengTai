@@ -431,7 +431,28 @@ async function streamViaBotApi(params: StreamParams): Promise<void> {
       fetchHeaders["Range"] = `bytes=${start}-${end}`;
     }
 
-    const response = await fetch(fileUrl, { headers: fetchHeaders });
+    // Use an AbortController with a generous connect timeout (120 s).
+    // For large files the local Bot API server may need time to download
+    // from Telegram before responding. The timeout covers the initial
+    // connection only — once headers arrive, the stream continues
+    // without a deadline (streaming may take minutes for big files).
+    const downloadController = new AbortController();
+    const connectTimer = setTimeout(() => downloadController.abort(), 120_000);
+
+    let response: Response;
+    try {
+      response = await fetch(fileUrl, {
+        headers: fetchHeaders,
+        signal: downloadController.signal,
+      });
+    } catch (fetchErr: any) {
+      clearTimeout(connectTimer);
+      if (fetchErr?.name === "AbortError") {
+        throw new Error("File download timeout — server terlalu lambat merespons (mungkin file terlalu besar)");
+      }
+      throw fetchErr;
+    }
+    clearTimeout(connectTimer);
 
     const requestedRange = isPartial || start > 0;
     const upstreamStatus = response.status;
@@ -484,29 +505,62 @@ async function streamViaBotApi(params: StreamParams): Promise<void> {
 
       await pipeWithBackpressure(reader, res, () => aborted);
     } else if (requestedRange && upstreamStatus === 200) {
-      if (start === 0) {
-        logger.info(
-          { videoId, fileSize },
-          "[TELEGRAM] Upstream returned 200 for Range (start=0) — streaming full file as 200",
-        );
-        res.status(200);
-        res.removeHeader("Content-Range");
-        res.setHeader("Content-Length", fileSize.toString());
-        await pipeWithBackpressure(reader, res, () => aborted);
-      } else {
-        logger.warn(
-          { videoId, start, end },
-          "[TELEGRAM] Upstream returned 200 for Range (start>0) — refusing to waste bandwidth, returning 502",
-        );
-        reader.cancel().catch(() => {});
-        if (!res.headersSent) {
-          res.removeHeader("Content-Range");
-          res.status(502).json({
-            error: "Range request tidak didukung oleh endpoint Telegram",
-            detail: "Endpoint file Telegram mengembalikan seluruh file (200) alih-alih range yang diminta. Seeking tidak didukung pada mode ini.",
-          });
+      // Upstream ignored the Range header and returned the full file (200).
+      // Skip the leading bytes we don't need and stream only the requested
+      // range. This handles both start=0 (full file) and start>0 (seeking)
+      // without wasting bandwidth or returning an error to the client.
+      logger.info(
+        { videoId, fileSize, start, end, upstreamStatus },
+        "[TELEGRAM] Upstream returned 200 for Range — skipping leading bytes and serving requested range",
+      );
+      const bytesToStream = end - start + 1;
+      let bytesSkipped = 0;
+      let bytesSent = 0;
+
+      try {
+        while (!aborted) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+
+          let chunk = Buffer.from(value);
+
+          // Skip leading bytes before the requested start offset.
+          if (bytesSkipped < start) {
+            const toSkip = Math.min(start - bytesSkipped, chunk.length);
+            chunk = chunk.subarray(toSkip);
+            bytesSkipped += toSkip;
+            if (chunk.length === 0) continue;
+          }
+
+          // Limit to the requested byte range.
+          const remaining = bytesToStream - bytesSent;
+          if (remaining <= 0) break;
+
+          if (chunk.length > remaining) {
+            chunk = chunk.subarray(0, remaining) as Buffer;
+            bytesSent += remaining;
+            if (!res.write(chunk)) {
+              await new Promise<void>(resolve => {
+                const doneFn = () => { res.off("close", doneFn); res.off("drain", doneFn); resolve(); };
+                res.once("drain", doneFn);
+                res.once("close", doneFn);
+              });
+            }
+            break;
+          }
+
+          bytesSent += chunk.length;
+          if (!res.write(chunk)) {
+            await new Promise<void>(resolve => {
+              const doneFn = () => { res.off("close", doneFn); res.off("drain", doneFn); resolve(); };
+              res.once("drain", doneFn);
+              res.once("close", doneFn);
+            });
+          }
         }
-        return;
+      } finally {
+        if (aborted) reader.cancel().catch(() => {});
       }
     } else {
       await pipeWithBackpressure(reader, res, () => aborted);
