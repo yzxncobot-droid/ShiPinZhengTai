@@ -123,11 +123,14 @@ services:
       - /run/base44/app.env
     volumes:
       - tg-bot-api-data:/var/lib/telegram-bot-api
-    # Wait for credentials before starting — prevents crash-loop log spam when
-    # TELEGRAM_API_ID/TELEGRAM_API_HASH are not yet provided. When the user
-    # sets them via the secrets dashboard the platform recreates this service
-    # and the real entrypoint runs.
-    entrypoint: ["sh", "-c", "if [ -z \"$$TELEGRAM_API_ID\" ] || [ -z \"$$TELEGRAM_API_HASH\" ]; then echo '[telegram-bot-api] Waiting for TELEGRAM_API_ID and TELEGRAM_API_HASH'; while true; do sleep 3600; done; else exec /docker-entrypoint.sh; fi"]
+    # Wait for valid credentials before starting — prevents crash-loop log
+    # spam when TELEGRAM_API_ID/TELEGRAM_API_HASH are missing or are placeholder
+    # values. Telegram API IDs are always numeric; a non-numeric value means the
+    # secret hasn't been set to a real credential yet. When the user sets valid
+    # credentials via the secrets dashboard the platform recreates this service.
+    # If the real entrypoint still fails (e.g. invalid hash), idle instead of
+    # crash-looping.
+    entrypoint: ["sh", "-c", "if [ -z \"$$TELEGRAM_API_ID\" ] || [ -z \"$$TELEGRAM_API_HASH\" ]; then echo '[telegram-bot-api] Waiting for TELEGRAM_API_ID and TELEGRAM_API_HASH'; while true; do sleep 3600; done; elif ! echo \"$$TELEGRAM_API_ID\" | grep -qE '^[0-9]+$$'; then echo '[telegram-bot-api] TELEGRAM_API_ID is not numeric — likely a placeholder. Idling until valid credentials are provided.'; while true; do sleep 3600; done; else /docker-entrypoint.sh || { echo '[telegram-bot-api] Failed to start — check TELEGRAM_API_ID and TELEGRAM_API_HASH. Idling to prevent crash-loop.'; while true; do sleep 3600; done; }; fi"]
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 8081 || exit 1"]
       interval: 5s
