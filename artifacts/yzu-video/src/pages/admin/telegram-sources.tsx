@@ -609,14 +609,15 @@ function HealthCheck({ health, onTest, testing, testResults }: {
         {items.map((item) => {
           const status = testResults?.[item.key]?.status ?? (health.components as any)[item.key] ?? "not_configured";
           const ok = status === "ok";
+          const skipped = status === "skipped";
           const detail = testResults?.[item.key]?.detail;
           return (
             <div key={item.label} className="flex items-center gap-1.5 text-sm" title={detail}>
               <item.icon className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="text-muted-foreground">{item.label}</span>
-              <span className={`h-2 w-2 rounded-full ${ok ? "bg-green-500" : status === "not_configured" ? "bg-gray-400" : "bg-red-500"}`} />
+              <span className={`h-2 w-2 rounded-full ${ok ? "bg-green-500" : skipped ? "bg-blue-400" : status === "not_configured" ? "bg-gray-400" : "bg-red-500"}`} />
               <span className="text-xs font-medium">
-                {ok ? "🟢" : status === "not_configured" ? "⚪" : "🔴"}
+                {ok ? "🟢" : skipped ? "⏭️" : status === "not_configured" ? "⚪" : "🔴"}
               </span>
             </div>
           );

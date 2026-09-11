@@ -59,7 +59,7 @@ export function isMtProtoConfigured(): boolean {
 // ── Singleton state ─────────────────────────────────────────────────────────
 
 let client: TelegramClient | null = null;
-let connectionState: "disconnected" | "connecting" | "connected" | "error" = "disconnected";
+let connectionState: "disconnected" | "connecting" | "connected" | "error" | "skipped" = "disconnected";
 let connectionError: string | null = null;
 let initPromise: Promise<void> | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -272,6 +272,17 @@ async function doInit(): Promise<void> {
 
 // ── Health & status ─────────────────────────────────────────────────────────
 
+/**
+ * Mark MTProto as intentionally skipped — used when a Local Bot API Server is
+ * configured (TELEGRAM_API_BASE set). The local server supports files up to
+ * 2 GB, so MTProto is not needed. This prevents the UI from showing "error"
+ * for something that was deliberately not initialized.
+ */
+export function markMtProtoSkipped(): void {
+  connectionState = "skipped";
+  connectionError = null;
+}
+
 /** True when MTProto is connected and ready to stream files. */
 export function isMtProtoReady(): boolean {
   return connectionState === "connected" && client !== null;
@@ -284,7 +295,7 @@ export interface MtProtoHealth {
   sessionManagedAutomatically: boolean;
   authType: string;
   apiIdConfigured: boolean;
-  state: "disconnected" | "connecting" | "connected" | "error";
+  state: "disconnected" | "connecting" | "connected" | "error" | "skipped";
   error: string | null;
 }
 
