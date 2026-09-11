@@ -122,6 +122,7 @@ export class TelegramBotApiError extends Error {
 export async function botApiCall<T = any>(
   method: string,
   params?: Record<string, any>,
+  options?: { timeoutMs?: number; noFallback?: boolean },
 ): Promise<T> {
   if (!isTelegramConfigured()) {
     throw new Error("Telegram bot token not configured");
@@ -133,8 +134,11 @@ export async function botApiCall<T = any>(
 
   // Timeout — prevents indefinite hang when the local Bot API server is
   // unresponsive (e.g. AUTH_KEY_DUPLICATED causes it to stall).
+  // For large-file operations (getFile on files >20 MB), the local server
+  // needs to download the file from Telegram first — use a longer timeout.
+  const timeoutMs = options?.timeoutMs ?? 30_000;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     res = await fetch(url, {
@@ -143,9 +147,15 @@ export async function botApiCall<T = any>(
       body: JSON.stringify(params ?? {}),
       signal: controller.signal,
     });
-  } catch (fetchErr) {
+  } catch (fetchErr: any) {
     // If the local Bot API server is unreachable, fall back to api.telegram.org.
-    if (isLocalBotApiConfigured() && !usingFallback) {
+    // But DON'T fall back on timeout (AbortError) — the local server is just
+    // slow downloading a large file, and api.telegram.org can't handle files
+    // >20 MB anyway. Also respect the noFallback option for callers that
+    // know the file is too big for the standard API.
+    const isAbort = fetchErr?.name === "AbortError";
+    const shouldFallback = !options?.noFallback && !isAbort && isLocalBotApiConfigured() && !usingFallback;
+    if (shouldFallback) {
       usingFallback = true;
       logger.warn("[TELEGRAM] Local Bot API Server unreachable, falling back to api.telegram.org");
       const fallbackUrl = `${FALLBACK_API_BASE}/bot${BOT_TOKEN}/${method}`;
@@ -155,6 +165,7 @@ export async function botApiCall<T = any>(
         body: JSON.stringify(params ?? {}),
       });
     } else {
+      clearTimeout(timeout);
       throw fetchErr;
     }
   }
@@ -298,21 +309,16 @@ export interface TelegramFileInfo {
 export async function getFileInfo(fileId: string): Promise<TelegramFileInfo> {
   // For large files, the local Bot API server downloads the entire file from
   // Telegram before returning the file_path. This can take a while for files
-  // >20 MB. Use a generous timeout (120 s) so the caller gets a clear error
-  // instead of hanging indefinitely.
+  // >20 MB. Use a generous timeout (120 s) and disable fallback to
+  // api.telegram.org (which can't handle files >20 MB anyway).
   const GETFILE_TIMEOUT_MS = 120_000;
 
-  const result = await Promise.race([
-    botApiCall<{
-      file_id: string;
-      file_unique_id: string;
-      file_size: number;
-      file_path: string;
-    }>("getFile", { file_id: fileId }),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("getFile timeout — file terlalu besar atau server lambat")), GETFILE_TIMEOUT_MS),
-    ),
-  ]);
+  const result = await botApiCall<{
+    file_id: string;
+    file_unique_id: string;
+    file_size: number;
+    file_path: string;
+  }>("getFile", { file_id: fileId }, { timeoutMs: GETFILE_TIMEOUT_MS, noFallback: true });
 
   return {
     fileId: result.file_id,
