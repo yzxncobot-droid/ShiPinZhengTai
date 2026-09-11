@@ -232,27 +232,27 @@ export async function streamTelegramVideo(params: StreamParams): Promise<void> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// LARGE-FILE STREAMING PATH (>20 MB) — NEW
+// LARGE-FILE STREAMING PATH (>20 MB) — COMPLETELY SEPARATE FROM ≤20 MB PATH
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
  * Dedicated streaming path for files above the Bot API 20 MB threshold.
  *
- * This path is completely separate from the ≤20 MB Bot API path — it does not
- * touch or modify any of the existing streaming logic for smaller files.
+ * This path is COMPLETELY SEPARATE from the ≤20 MB Bot API path — it has its
+ * own getFile logic, its own local-file streaming, and its own HTTP streaming.
+ * It does NOT call streamViaBotApi, streamViaBotApiHttp, or streamLocalFile
+ * used by the small-file path. This ensures changes to large-file streaming
+ * never affect the working small-file path, and vice versa.
  *
  * Strategy (in priority order):
  *   1. MTProto (iterDownload with offset) — no file size limit. Used when
  *      MTProto is connected and ready, regardless of Local Bot API config.
  *   2. Local Bot API Server — supports files up to 2 GB. Used when MTProto is
- *      not available and the local server is healthy.
+ *      not available and the local server is healthy. Uses a 120 s timeout
+ *      for getFile (the local server downloads the file from Telegram first,
+ *      which can take time for large files) and NEVER falls back to
+ *      api.telegram.org (which can't handle files >20 MB).
  *   3. Clear error — neither provider can handle the large file.
- *
- * MTProto is preferred over the Local Bot API Server here because:
- *   - It doesn't require a separate server process to be running.
- *   - It handles file reference recovery automatically.
- *   - It avoids the AUTH_KEY_DUPLICATED conflict that occurs when both are
- *     active simultaneously.
  */
 async function streamLargeFile(params: StreamParams): Promise<void> {
   const { videoId, fileId, res } = params;
@@ -271,7 +271,7 @@ async function streamLargeFile(params: StreamParams): Promise<void> {
       if (getCachedLocalBotApiHealth() === true && fileId) {
         logger.warn({ videoId }, "[TELEGRAM] Large-file: falling back to Local Bot API Server");
         try {
-          await streamViaBotApi(params);
+          await streamLargeFileViaLocalBotApi(params);
           return;
         } catch (botApiErr) {
           logger.error(
@@ -291,7 +291,7 @@ async function streamLargeFile(params: StreamParams): Promise<void> {
   // ── 2. Try Local Bot API Server (up to 2 GB) ─────────────────────────────
   if (getCachedLocalBotApiHealth() === true && fileId) {
     try {
-      await streamViaBotApi(params);
+      await streamLargeFileViaLocalBotApi(params);
       return;
     } catch (err) {
       logger.error(
@@ -312,6 +312,259 @@ async function streamLargeFile(params: StreamParams): Promise<void> {
         "diperlukan MTProto (TELEGRAM_API_ID + TELEGRAM_API_HASH) atau Local Bot API Server yang aktif " +
         "untuk file di atas 20 MB.",
     });
+  }
+}
+
+// ── Large-file: getFile with file_id refresh (separate from small-file path) ─
+
+/**
+ * Fetch file info for a large file via the Local Bot API Server.
+ *
+ * This is a DEDICATED function for the >20 MB path — it does NOT share the
+ * getCachedFileInfo cache or getFileInfo logic with the small-file path.
+ * It uses a 120 s timeout (the local server downloads the file from Telegram
+ * first) and NEVER falls back to api.telegram.org (which can't handle >20 MB).
+ *
+ * Handles file_id expiry by refreshing via forwardMessage, updating only this
+ * specific video's DB record.
+ */
+async function getLargeFileInfo(params: StreamParams): Promise<TelegramFileInfo> {
+  const { fileId, videoId, chatId, messageId } = params;
+
+  try {
+    return await getFileInfo(fileId);
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+
+    // Only attempt file_id refresh for expired/invalid file_id errors.
+    const isFileIdError =
+      errMsg.includes("file_id") ||
+      errMsg.includes("file_id_not_found") ||
+      errMsg.includes("file_id_expired") ||
+      errMsg.includes("wrong file_id") ||
+      errMsg.includes("bad file_id");
+
+    if (!isFileIdError) throw err;
+
+    logger.info({ videoId, chatId, messageId }, "[TELEGRAM] Large-file: getFile failed (file_id issue), trying refresh");
+    const newFileId = await refreshFileId(chatId, messageId);
+
+    if (!newFileId) throw err;
+
+    // Update ONLY this specific video's file_id by primary key.
+    await db
+      .update(telegramVideosTable)
+      .set({ telegramFileId: newFileId, updatedAt: new Date() })
+      .where(eq(telegramVideosTable.id, videoId))
+      .catch(() => {});
+
+    return await getFileInfo(newFileId);
+  }
+}
+
+// ── Large-file: stream via Local Bot API Server (dedicated, separate) ───────
+
+/**
+ * Stream a large file (>20 MB) via the Local Bot API Server.
+ *
+ * This function is COMPLETELY SEPARATE from the small-file streamViaBotApi /
+ * streamViaBotApiHttp / streamLocalFile functions. It has its own:
+ *   - getFile logic (getLargeFileInfo — 120 s timeout, no fallback)
+ *   - local file streaming (createReadStream with Range)
+ *   - HTTP streaming (fetch with Range, backpressure pipe)
+ *
+ * The local Bot API server with --local stores files on disk and returns
+ * absolute paths (e.g. /var/lib/telegram-bot-api/<token>/...). We read these
+ * directly from the filesystem (the volume is mounted read-only in compose).
+ * For non-local paths, we fetch via HTTP with Range support.
+ */
+async function streamLargeFileViaLocalBotApi(params: StreamParams): Promise<void> {
+  const { videoId, mimeType, res, rangeHeader } = params;
+
+  // ── 1. Get file info (120 s timeout, no fallback to api.telegram.org) ────
+  const fileInfo = await getLargeFileInfo(params);
+
+  logger.info({ videoId, fileSize: fileInfo.fileSize, filePath: fileInfo.filePath }, "[TELEGRAM STREAM] Large-file: getFile succeeded");
+
+  // ── 2. Determine file size & parse Range ──────────────────────────────────
+  let fileSize = fileInfo.fileSize;
+
+  // If the file path is local (absolute), use statSync for the real size.
+  const isLocal = isLocalFilePath(fileInfo.filePath);
+  if (isLocal) {
+    try {
+      fileSize = statSync(fileInfo.filePath).size;
+    } catch {
+      // File not on disk — fall through to HTTP path with fileInfo.fileSize.
+      logger.warn({ videoId, filePath: fileInfo.filePath }, "[TELEGRAM] Large-file: local file not found on disk, trying HTTP");
+    }
+  }
+
+  let range: { start: number; end: number } | null = null;
+  if (rangeHeader) {
+    range = parseRange(rangeHeader, fileSize);
+    if (!range) {
+      res.status(416).setHeader("Content-Range", `bytes */${fileSize}`);
+      res.end();
+      return;
+    }
+  }
+
+  const start = range ? range.start : 0;
+  const end = range ? range.end : fileSize - 1;
+  const contentLength = end - start + 1;
+  const isPartial = !!range;
+
+  // ── 3. Set response headers ───────────────────────────────────────────────
+  res.setHeader("Content-Type", mimeType || "video/mp4");
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("Content-Length", contentLength.toString());
+  res.setHeader("Cache-Control", "private, no-store");
+
+  if (isPartial) {
+    res.status(206);
+    res.setHeader("Content-Range", `bytes ${start}-${end}/${fileSize}`);
+  } else {
+    res.status(200);
+  }
+
+  let aborted = false;
+  const onClose = () => { aborted = true; };
+  res.on("close", onClose);
+
+  try {
+    if (isLocal) {
+      // ── 3a. Stream from local filesystem ─────────────────────────────────
+      logger.info({ videoId, fileSize, provider: "large-local-file" }, "[TELEGRAM STREAM] Large-file: local file path");
+      const stream = createReadStream(fileInfo.filePath, { start, end });
+      await new Promise<void>((resolve, reject) => {
+        stream.on("data", (chunk: Buffer) => {
+          if (aborted) { stream.destroy(); return; }
+          if (!res.write(chunk)) {
+            stream.pause();
+            res.once("drain", () => stream.resume());
+          }
+        });
+        stream.on("end", resolve);
+        stream.on("error", reject);
+        res.on("close", () => { stream.destroy(); resolve(); });
+      });
+      logger.info({ videoId }, "[TELEGRAM STREAM] Large-file: local file stream completed");
+    } else {
+      // ── 3b. Stream via HTTP fetch from local Bot API server ───────────────
+      logger.info({ videoId, fileSize, provider: "large-http" }, "[TELEGRAM STREAM] Large-file: HTTP path");
+
+      const fileUrl = getFileUrl(fileInfo.filePath);
+      const fetchHeaders: Record<string, string> = {};
+      if (isPartial || start > 0) {
+        fetchHeaders["Range"] = `bytes=${start}-${end}`;
+      }
+
+      // Generous connect timeout (120 s) — the local server may need time
+      // to download from Telegram before responding. Once headers arrive,
+      // the stream continues without a deadline.
+      const downloadController = new AbortController();
+      const connectTimer = setTimeout(() => downloadController.abort(), 120_000);
+
+      let response: Response;
+      try {
+        response = await fetch(fileUrl, {
+          headers: fetchHeaders,
+          signal: downloadController.signal,
+        });
+      } catch (fetchErr: any) {
+        clearTimeout(connectTimer);
+        if (fetchErr?.name === "AbortError") {
+          throw new Error("File download timeout — server terlalu lambat merespons (mungkin file terlalu besar)");
+        }
+        throw fetchErr;
+      }
+      clearTimeout(connectTimer);
+
+      if (response.status >= 400) {
+        throw new Error(`Telegram file download failed: HTTP ${response.status}`);
+      }
+
+      const body = response.body;
+      if (!body) throw new Error("Telegram file response has no body");
+
+      const reader = body.getReader();
+      const requestedRange = isPartial || start > 0;
+      const upstreamStatus = response.status;
+
+      logger.info({ videoId, upstreamStatus, requestedRange }, "[TELEGRAM STREAM] Large-file: upstream status");
+
+      if (requestedRange && upstreamStatus === 206) {
+        // Upstream honored the Range — pipe directly.
+        await pipeWithBackpressure(reader, res, () => aborted);
+      } else if (requestedRange && upstreamStatus === 200) {
+        // Upstream ignored Range — skip leading bytes and serve requested range.
+        logger.info({ videoId, start, end }, "[TELEGRAM] Large-file: upstream returned 200, skipping leading bytes");
+        const bytesToStream = end - start + 1;
+        let bytesSkipped = 0;
+        let bytesSent = 0;
+
+        try {
+          while (!aborted) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (!value) continue;
+
+            let chunk = Buffer.from(value);
+
+            if (bytesSkipped < start) {
+              const toSkip = Math.min(start - bytesSkipped, chunk.length);
+              chunk = chunk.subarray(toSkip);
+              bytesSkipped += toSkip;
+              if (chunk.length === 0) continue;
+            }
+
+            const remaining = bytesToStream - bytesSent;
+            if (remaining <= 0) break;
+
+            if (chunk.length > remaining) {
+              chunk = chunk.subarray(0, remaining) as Buffer;
+              bytesSent += remaining;
+              if (!res.write(chunk)) {
+                await new Promise<void>(resolve => {
+                  const doneFn = () => { res.off("close", doneFn); res.off("drain", doneFn); resolve(); };
+                  res.once("drain", doneFn);
+                  res.once("close", doneFn);
+                });
+              }
+              break;
+            }
+
+            bytesSent += chunk.length;
+            if (!res.write(chunk)) {
+              await new Promise<void>(resolve => {
+                const doneFn = () => { res.off("close", doneFn); res.off("drain", doneFn); resolve(); };
+                res.once("drain", doneFn);
+                res.once("close", doneFn);
+              });
+            }
+          }
+        } finally {
+          if (aborted) reader.cancel().catch(() => {});
+        }
+      } else {
+        // Full file (no Range requested) — pipe directly.
+        await pipeWithBackpressure(reader, res, () => aborted);
+      }
+
+      logger.info({ videoId }, "[TELEGRAM STREAM] Large-file: HTTP stream completed");
+    }
+  } catch (err) {
+    logger.error(
+      { err: err instanceof Error ? err.message : String(err), videoId },
+      "[TELEGRAM] Large-file: streaming error",
+    );
+    if (!res.headersSent) {
+      handleStreamError(err, res);
+    }
+  } finally {
+    res.off("close", onClose);
+    if (!aborted) res.end();
   }
 }
 
