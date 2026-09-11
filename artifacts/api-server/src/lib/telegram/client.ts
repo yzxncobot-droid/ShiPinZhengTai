@@ -23,16 +23,17 @@ const TELEGRAM_API_BASE = (process.env.TELEGRAM_API_BASE || "https://api.telegra
 const FALLBACK_API_BASE = "https://api.telegram.org";
 
 /**
- * Set to true when the local Bot API server is unreachable — all subsequent
- * Bot API calls fall back to api.telegram.org until the process restarts.
- * This prevents a broken local server from breaking webhook/indexing/streaming
- * that would otherwise work via the public Bot API.
+ * Time-based fallback cooldown — when the local Bot API server is unreachable,
+ * we fall back to api.telegram.org for a cooldown period, then retry the local
+ * server. Unlike a permanent boolean flag, this recovers automatically when
+ * the local server comes back up (e.g. after a brief startup delay).
  */
-let usingFallback = false;
+const FALLBACK_COOLDOWN_MS = 30_000; // 30 seconds
+let fallbackUntil = 0; // timestamp (ms); use fallback until this time
 
 /** Returns the effective API base URL (local server or fallback). */
 function getApiBase(): string {
-  return usingFallback ? FALLBACK_API_BASE : TELEGRAM_API_BASE;
+  return Date.now() < fallbackUntil ? FALLBACK_API_BASE : TELEGRAM_API_BASE;
 }
 
 /** Returns the effective file download base URL. */
@@ -114,10 +115,11 @@ export async function botApiCall<T = any>(
       body: JSON.stringify(params ?? {}),
     });
   } catch (fetchErr) {
-    // If the local Bot API server is unreachable, fall back to api.telegram.org.
-    if (isLocalBotApiConfigured() && !usingFallback) {
-      usingFallback = true;
-      logger.warn("[TELEGRAM] Local Bot API Server unreachable, falling back to api.telegram.org");
+    // If the local Bot API server is unreachable, fall back to api.telegram.org
+    // for a cooldown period, then retry the local server on the next call.
+    if (isLocalBotApiConfigured() && Date.now() >= fallbackUntil) {
+      fallbackUntil = Date.now() + FALLBACK_COOLDOWN_MS;
+      logger.warn("[TELEGRAM] Local Bot API Server unreachable, falling back to api.telegram.org (30s cooldown)");
       const fallbackUrl = `${FALLBACK_API_BASE}/bot${BOT_TOKEN}/${method}`;
       res = await fetch(fallbackUrl, {
         method: "POST",

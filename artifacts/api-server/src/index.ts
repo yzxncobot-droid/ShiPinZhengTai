@@ -156,12 +156,26 @@ async function initDatabase(): Promise<void> {
       }
 
       // ── Initialize Telegram MTProto (best-effort, non-blocking) ────────────
-      // MTProto is needed for streaming files >20 MB. If it fails, Bot API
-      // continues to work for files ≤20 MB. This is additive — it does not
-      // affect the existing Bot API webhook/indexing system.
+      // MTProto is needed for streaming files >20 MB when no Local Bot API
+      // Server is available. When a Local Bot API Server is configured AND
+      // healthy, MTProto is skipped to avoid AUTH_KEY_DUPLICATED conflicts
+      // (both use the same TELEGRAM_API_ID/API_HASH to connect to Telegram).
+      // The Local Bot API Server supports files up to 2 GB — no 20 MB limit.
       try {
-        const { initMtProto } = await import("./lib/telegram/mtproto");
-        await initMtProto();
+        const { isLocalBotApiConfigured, checkLocalBotApiHealth } = await import("./lib/telegram/client");
+        if (isLocalBotApiConfigured()) {
+          const healthy = await checkLocalBotApiHealth();
+          if (healthy) {
+            logger.info("[TELEGRAM] Local Bot API Server healthy — skipping MTProto initialization to avoid AUTH_KEY_DUPLICATED conflict. Local Bot API supports files up to 2 GB.");
+          } else {
+            logger.warn("[TELEGRAM] Local Bot API Server configured but NOT healthy — initializing MTProto for large-file streaming (>20 MB).");
+            const { initMtProto } = await import("./lib/telegram/mtproto");
+            await initMtProto();
+          }
+        } else {
+          const { initMtProto } = await import("./lib/telegram/mtproto");
+          await initMtProto();
+        }
       } catch (e) {
         logger.warn(
           { err: e instanceof Error ? e.message : String(e) },

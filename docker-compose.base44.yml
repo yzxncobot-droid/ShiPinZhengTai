@@ -143,6 +143,12 @@ services:
     volumes:
       - .:/app
       - tg-session:/data
+      # Share the Local Bot API Server's file directory so the API can read
+      # downloaded files directly from the filesystem. The local Bot API server
+      # does NOT serve files via HTTP (see tdlib/telegram-bot-api#201) — it stores
+      # them on disk. The file_path returned by getFile is an absolute path within
+      # this directory, so mounting at the same path makes it directly accessible.
+      - tg-bot-api-data:/var/lib/telegram-bot-api:ro
     environment:
       PORT: "8080"
       DATABASE_URL: postgresql://yzu:yzu_pass@db:5432/yzu
@@ -163,6 +169,8 @@ services:
     depends_on:
       seed:
         condition: service_completed_successfully
+      telegram-bot-api:
+        condition: service_healthy
     restart: unless-stopped
 
   web:

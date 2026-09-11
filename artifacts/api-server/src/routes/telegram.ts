@@ -40,14 +40,31 @@ const router = Router();
 // Start the import queue processor when the module loads.
 startQueueProcessor();
 
-// Initialize MTProto client (best-effort, non-blocking). If it fails, Bot API
-// continues to work for files ≤20 MB. MTProto is needed for files >20 MB.
-initMtProto().catch((err) => {
-  logger.warn(
-    { err: err instanceof Error ? err.message : String(err) },
-    "[TELEGRAM] MTProto initialization failed (non-fatal) — Bot API continues to work",
-  );
-});
+// Initialize MTProto client (best-effort, non-blocking). When a Local Bot API
+// Server is configured AND healthy, skip MTProto to avoid AUTH_KEY_DUPLICATED
+// conflicts. Otherwise initialize MTProto for large-file streaming (>20 MB).
+if (isLocalBotApiConfigured()) {
+  checkLocalBotApiHealth().then((healthy) => {
+    if (healthy) {
+      logger.info("[TELEGRAM] Local Bot API Server healthy — skipping MTProto initialization (routes). Local Bot API supports files up to 2 GB.");
+    } else {
+      logger.warn("[TELEGRAM] Local Bot API Server not healthy — initializing MTProto (routes).");
+      initMtProto().catch((err) => {
+        logger.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          "[TELEGRAM] MTProto initialization failed (non-fatal) — Bot API continues to work",
+        );
+      });
+    }
+  });
+} else {
+  initMtProto().catch((err) => {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "[TELEGRAM] MTProto initialization failed (non-fatal) — Bot API continues to work",
+    );
+  });
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 

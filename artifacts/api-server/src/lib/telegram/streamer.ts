@@ -23,6 +23,8 @@
  * record (by primary key), never all videos from the same chat.
  */
 import type { Response } from "express";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
 import { logger } from "../logger";
 import { getFileInfo, getFileUrl, refreshFileId, isLocalBotApiConfigured } from "./client";
 import type { TelegramFileInfo } from "./client";
@@ -290,6 +292,81 @@ async function streamViaMtProto(params: StreamParams): Promise<void> {
   }
 }
 
+// ── Local file detection ─────────────────────────────────────────────────────
+
+/**
+ * The Local Bot API Server (TELEGRAM_LOCAL=1) stores downloaded files on disk
+ * and does NOT serve them via HTTP (see tdlib/telegram-bot-api#201). The
+ * file_path returned by getFile is an absolute filesystem path. When the
+ * data directory is shared between containers, the API can read the file
+ * directly from disk — zero network overhead, full Range/seeking support.
+ *
+ * Standard Bot API (api.telegram.org) returns a RELATIVE path (e.g. "videos/file_0").
+ * Local Bot API Server returns an ABSOLUTE path (e.g. "/var/lib/telegram-bot-api/<token>/videos/file_0").
+ */
+function isLocalFilePath(filePath: string): boolean {
+  return isLocalBotApiConfigured() && filePath.startsWith("/");
+}
+
+// ── Local file streaming (filesystem read) ──────────────────────────────────
+
+/**
+ * Stream a file from the local filesystem (Local Bot API Server storage).
+ *
+ * Uses fs.createReadStream with start/end for native HTTP Range support.
+ * The file_path from getFile is an absolute path within the shared volume.
+ */
+async function streamLocalFile(
+  filePath: string,
+  fileSize: number,
+  start: number,
+  end: number,
+  isPartial: boolean,
+  res: Response,
+): Promise<void> {
+  // Verify the file exists and get its actual size.
+  const stats = await stat(filePath);
+  const actualSize = stats.size;
+
+  // Use the actual filesystem size if it differs from the getFile result
+  // (the getFile result may be stale if the file was re-downloaded).
+  const effectiveSize = actualSize > 0 ? actualSize : fileSize;
+  const effectiveEnd = Math.min(end, effectiveSize - 1);
+  const contentLength = effectiveEnd - start + 1;
+
+  // Update Content-Length to match the actual file size.
+  res.setHeader("Content-Length", contentLength.toString());
+  if (isPartial) {
+    res.setHeader("Content-Range", `bytes ${start}-${effectiveEnd}/${effectiveSize}`);
+  }
+
+  const stream = createReadStream(filePath, { start, end: effectiveEnd });
+
+  let aborted = false;
+  const onClose = () => { aborted = true; };
+  res.on("close", onClose);
+
+  try {
+    for await (const chunk of stream) {
+      if (aborted) break;
+      if (!res.write(chunk)) {
+        await new Promise<void>(resolve => {
+          const done = () => { res.off("close", done); res.off("drain", done); resolve(); };
+          res.once("drain", done);
+          res.once("close", done);
+        });
+      }
+    }
+  } finally {
+    res.off("close", onClose);
+    // Destroy the read stream if the client disconnected early.
+    if (aborted) {
+      stream.destroy();
+    }
+    if (!aborted) res.end();
+  }
+}
+
 // ── Network error detection ─────────────────────────────────────────────────
 
 /** Check if an error message indicates a network/connection failure. */
@@ -388,7 +465,6 @@ async function streamViaBotApi(params: StreamParams): Promise<void> {
   logger.info({ videoId }, "[TELEGRAM STREAM] getFile succeeded");
 
   const fileSize = fileInfo.fileSize;
-  const fileUrl = getFileUrl(fileInfo.filePath);
   const contentType = mimeType || "video/mp4";
 
   // ── Parse & validate the browser's Range request ──────────────────────────
@@ -419,6 +495,30 @@ async function streamViaBotApi(params: StreamParams): Promise<void> {
   } else {
     res.status(200);
   }
+
+  // ── Local Bot API Server: read file directly from filesystem ───────────────
+  // The Local Bot API Server stores files on disk and does NOT serve them via
+  // HTTP (tdlib/telegram-bot-api#201). The file_path is an absolute path within
+  // the shared volume, so we read it directly with fs.createReadStream.
+  if (isLocalFilePath(fileInfo.filePath)) {
+    logger.info({ videoId, filePath: fileInfo.filePath, start, end, isPartial }, "[TELEGRAM STREAM] streaming from local filesystem");
+    try {
+      await streamLocalFile(fileInfo.filePath, fileSize, start, end, isPartial, res);
+      logger.info({ videoId }, "[TELEGRAM STREAM] local file stream completed");
+    } catch (err) {
+      logger.error(
+        { err: err instanceof Error ? err.message : String(err), videoId, filePath: fileInfo.filePath },
+        "[TELEGRAM] Local file streaming error",
+      );
+      if (!res.headersSent) {
+        handleStreamError(err, res);
+      }
+    }
+    return;
+  }
+
+  // ── Standard Bot API: fetch from Telegram via HTTP ────────────────────────
+  const fileUrl = getFileUrl(fileInfo.filePath);
 
   // ── Fetch from Telegram with Range and stream (pipe) to the client ─────────
   let aborted = false;
