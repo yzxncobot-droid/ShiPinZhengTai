@@ -39,7 +39,7 @@ import {
 import { eq, and, desc, sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { isMtProtoReady, getNewVideoMessages, getMtProtoFileStream, type MtProtoVideoMessage } from "./mtproto";
-import { getFileInfo, getFileUrl, isTelegramConfigured } from "./client";
+import { getFileInfo, getFileUrl, isTelegramConfigured, isLocalBotApiConfigured } from "./client";
 import { uploadThumbnailBufferToMedia } from "../storage/media";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -528,6 +528,9 @@ let polling = false;
 /** Track sources already logged as "not connected" so we don't spam every 60s. */
 const loggedSkippedSources = new Set<string>();
 
+/** Track whether we've already logged the MTProto-not-ready skip message. */
+let mtProtoSkipLogged = false;
+
 /**
  * One polling cycle: iterate all enabled AutoUP configs, fetch new video
  * messages from their sources via MTProto, and enqueue processing jobs.
@@ -550,9 +553,21 @@ async function pollOnce(): Promise<void> {
     if (configs.length === 0) return;
 
     if (!isMtProtoReady()) {
-      logger.warn("[AUTOUP] MTProto not ready — skipping poll cycle");
+      // When a Local Bot API Server is healthy, MTProto is intentionally not
+      // initialized (to avoid AUTH_KEY_DUPLICATED conflicts). The webhook path
+      // handles all video detection in that case — this poll cycle is redundant.
+      // Log once at info level, not every 60s as a warning.
+      if (!mtProtoSkipLogged) {
+        mtProtoSkipLogged = true;
+        if (isLocalBotApiConfigured()) {
+          logger.info("[AUTOUP] MTProto not initialized (Local Bot API Server active) — webhook path handles detection. Polling skipped.");
+        } else {
+          logger.warn("[AUTOUP] MTProto not ready — skipping poll cycle");
+        }
+      }
       return;
     }
+    mtProtoSkipLogged = false;
 
     for (const { config, source } of configs) {
       try {

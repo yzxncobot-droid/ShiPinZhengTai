@@ -9,8 +9,26 @@ import {
 import { eq, and, desc, asc, sql, count, isNull } from "drizzle-orm";
 import { authenticate, optionalAuth, requireRole } from "../middlewares/auth";
 import { logger } from "../lib/logger";
+import { createStreamTicket } from "../lib/telegram/stream-tickets";
 
 const router = Router();
+
+// ── Telegram stream URL resolver ─────────────────────────────────────────────
+// The native <video> element cannot attach the Authorization header that the
+// Telegram stream endpoint requires. For authenticated users, embed a signed
+// playback ticket (?ticket=) in the URL so playback works without a separate
+// ticket-fetch round-trip. For unauthenticated users the raw URL is returned
+// as-is (the stream endpoint will reject it — Telegram streaming requires auth).
+const TELEGRAM_STREAM_RE = /\/api\/telegram-videos\/([^/?#]+)\/stream/;
+
+function resolveStreamUrl(videoUrl: string, userId?: string): string {
+  if (!userId) return videoUrl;
+  const match = videoUrl.match(TELEGRAM_STREAM_RE);
+  if (!match) return videoUrl;
+  const videoId = match[1];
+  const { ticket } = createStreamTicket(videoId, userId);
+  return `/api/telegram-videos/${videoId}/stream?ticket=${encodeURIComponent(ticket)}`;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -89,7 +107,7 @@ async function formatPublicVideo(v: any, userId?: string) {
     id: v.id,
     title: v.title,
     description: v.description,
-    videoUrl: v.videoUrl,
+    videoUrl: resolveStreamUrl(v.videoUrl, userId),
     thumbnail: v.thumbnail,
     status: v.status,
     isActive: v.isActive,
