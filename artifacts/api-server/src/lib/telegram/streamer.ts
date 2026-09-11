@@ -23,6 +23,8 @@
  * record (by primary key), never all videos from the same chat.
  */
 import type { Response } from "express";
+import { createReadStream } from "fs";
+import { statSync } from "fs";
 import { logger } from "../logger";
 import { getFileInfo, getFileUrl, refreshFileId, isLocalBotApiConfigured } from "./client";
 import type { TelegramFileInfo } from "./client";
@@ -31,6 +33,16 @@ import { shouldUseMtProto } from "./file-provider";
 import { db } from "@workspace/db";
 import { telegramVideosTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+
+/**
+ * Check if a file path returned by getFile is a local absolute path (from the
+ * local Bot API server with --local flag). The local server stores files on
+ * disk and returns absolute paths like /var/lib/telegram-bot-api/<token>/...
+ * — these can't be fetched via HTTP, so we read them from the filesystem.
+ */
+function isLocalFilePath(filePath: string): boolean {
+  return filePath.startsWith("/");
+}
 
 // ── getFile result cache (Bot API) ──────────────────────────────────────────
 // A browser playing a video sends many Range requests in quick succession
@@ -305,24 +317,107 @@ function isNetworkError(msg: string): boolean {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// LOCAL FILE STREAMING PATH (Local Bot API Server with --local)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Stream a video from the local filesystem when the local Bot API server
+ * (with --local flag) returns an absolute file path. The --local flag stores
+ * files on disk but doesn't serve them via HTTP, so we read them directly.
+ */
+async function streamLocalFile(
+  params: StreamParams,
+  fileInfo: TelegramFileInfo,
+): Promise<void> {
+  const { videoId, mimeType, res, rangeHeader } = params;
+  const filePath = fileInfo.filePath;
+
+  // Determine file size — prefer statSync for accuracy, fall back to fileInfo.
+  let fileSize: number;
+  try {
+    const stat = statSync(filePath);
+    fileSize = stat.size;
+  } catch {
+    // File not found on local filesystem — fall through to HTTP path.
+    logger.warn({ videoId, filePath }, "[TELEGRAM STREAM] Local file not found, falling back to HTTP");
+    return streamViaBotApiHttp(params, fileInfo);
+  }
+
+  logger.info({ videoId, fileSize, provider: "local-file" }, "[TELEGRAM STREAM] Local file path selected");
+
+  // Parse Range
+  let range: { start: number; end: number } | null = null;
+  if (rangeHeader) {
+    range = parseRange(rangeHeader, fileSize);
+    if (!range) {
+      res.status(416).setHeader("Content-Range", `bytes */${fileSize}`);
+      res.end();
+      return;
+    }
+  }
+
+  const start = range ? range.start : 0;
+  const end = range ? range.end : fileSize - 1;
+  const contentLength = end - start + 1;
+  const isPartial = !!range;
+
+  // Set response headers
+  res.setHeader("Content-Type", mimeType || "video/mp4");
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("Content-Length", contentLength.toString());
+  res.setHeader("Cache-Control", "private, no-store");
+
+  if (isPartial) {
+    res.status(206);
+    res.setHeader("Content-Range", `bytes ${start}-${end}/${fileSize}`);
+  } else {
+    res.status(200);
+  }
+
+  // Create read stream with byte range and pipe to response
+  let aborted = false;
+  const onClose = () => { aborted = true; };
+  res.on("close", onClose);
+
+  try {
+    const stream = createReadStream(filePath, { start, end });
+    await new Promise<void>((resolve, reject) => {
+      stream.on("data", (chunk: Buffer) => {
+        if (aborted) { stream.destroy(); return; }
+        if (!res.write(chunk)) {
+          stream.pause();
+          res.once("drain", () => stream.resume());
+        }
+      });
+      stream.on("end", resolve);
+      stream.on("error", reject);
+      res.on("close", () => { stream.destroy(); resolve(); });
+    });
+    logger.info({ videoId }, "[TELEGRAM STREAM] Local file stream completed");
+  } catch (err) {
+    logger.error(
+      { err: err instanceof Error ? err.message : String(err), videoId },
+      "[TELEGRAM] Local file streaming error",
+    );
+    if (!res.headersSent) {
+      handleStreamError(err, res);
+    }
+  } finally {
+    res.off("close", onClose);
+    if (!aborted) res.end();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // BOT API STREAMING PATH
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Stream a video via Bot API (getFile + HTTP fetch).
- *
- * Limited to 20 MB by Telegram infrastructure (unless using a Local Bot API
- * Server). Range requests are forwarded to Telegram; the upstream response
- * status (200 vs 206) is carefully validated to ensure the correct bytes
- * are streamed.
- *
- * If getFile fails with "file is too big" and MTProto is available, the
- * caller (streamTelegramVideo) will have already dispatched to the MTProto
- * path. This function is only reached when MTProto is not available or has
- * already failed.
+ * Stream a video via Bot API. Dispatches to local file reading (when the local
+ * Bot API server with --local returns an absolute path) or HTTP fetch.
  */
 async function streamViaBotApi(params: StreamParams): Promise<void> {
-  const { fileId, videoId, chatId, messageId, mimeType, res, rangeHeader } = params;
+  const { fileId, videoId } = params;
 
   let fileInfo;
   try {
@@ -352,8 +447,8 @@ async function streamViaBotApi(params: StreamParams): Promise<void> {
       errMsg.includes("bad file_id");
 
     if (isFileIdError) {
-      logger.info({ videoId, chatId, messageId }, "[TELEGRAM] getFile failed (file_id issue), trying refresh");
-      const newFileId = await refreshFileId(chatId, messageId);
+      logger.info({ videoId, chatId: params.chatId, messageId: params.messageId }, "[TELEGRAM] getFile failed (file_id issue), trying refresh");
+      const newFileId = await refreshFileId(params.chatId, params.messageId);
 
       if (newFileId) {
         await db.update(telegramVideosTable).set({
@@ -367,25 +462,50 @@ async function streamViaBotApi(params: StreamParams): Promise<void> {
           fileInfo = await getCachedFileInfo(newFileId);
         } catch (err2) {
           logger.error({ err: err2 instanceof Error ? err2.message : String(err2) }, "[TELEGRAM] Refreshed getFile also failed");
-          handleStreamError(err2, res);
+          handleStreamError(err2, params.res);
           return;
         }
       } else {
-        handleStreamError(err, res);
+        handleStreamError(err, params.res);
         return;
       }
     } else {
-      handleStreamError(err, res);
+      handleStreamError(err, params.res);
       return;
     }
   }
 
   if (!fileInfo) {
-    res.status(500).json({ error: "Unable to get file info from Telegram" });
+    params.res.status(500).json({ error: "Unable to get file info from Telegram" });
     return;
   }
 
   logger.info({ videoId }, "[TELEGRAM STREAM] getFile succeeded");
+
+  // Dispatch to local file or HTTP path based on the file_path format.
+  if (isLocalFilePath(fileInfo.filePath)) {
+    await streamLocalFile(params, fileInfo);
+    return;
+  }
+
+  await streamViaBotApiHttp(params, fileInfo);
+}
+
+/**
+ * Stream a video via Bot API HTTP fetch (standard Bot API or local server
+ * without --local). Range requests are forwarded to Telegram; the upstream
+ * response status (200 vs 206) is carefully validated to ensure the correct
+ * bytes are streamed.
+ *
+ * If getFile fails with "file is too big" and MTProto is available, the
+ * caller (streamTelegramVideo) will have already dispatched to the MTProto
+ * path. This function is only reached when MTProto is not available or has
+ * already failed.
+ */
+async function streamViaBotApiHttp(params: StreamParams, fileInfo: TelegramFileInfo): Promise<void> {
+  const { videoId, mimeType, res, rangeHeader } = params;
+
+  logger.info({ videoId }, "[TELEGRAM STREAM] getFile succeeded (HTTP path)");
 
   const fileSize = fileInfo.fileSize;
   const fileUrl = getFileUrl(fileInfo.filePath);
@@ -582,7 +702,7 @@ async function streamViaBotApi(params: StreamParams): Promise<void> {
     }
 
     logger.error(
-      { err: errMsg, videoId, chatId, messageId },
+      { err: errMsg, videoId },
       "[TELEGRAM] Streaming error",
     );
     if (!res.headersSent) {
