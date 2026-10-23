@@ -19,7 +19,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const { mockDb, mockUpdateChain } = vi.hoisted(() => {
   const chain: any = {};
   chain.set = vi.fn(() => chain);
-  chain.where = vi.fn(() => Promise.resolve(undefined));
+  chain.returning = vi.fn(() => Promise.resolve([{
+    id: "video-1",
+    status: "completed",
+    telegramSourceId: "src-1",
+    telegramMessageId: "99",
+  }]));
+  chain.where = vi.fn(() => {
+    const queryResult: any = Promise.resolve(undefined);
+    queryResult.returning = chain.returning;
+    return queryResult;
+  });
   const mockDb = {
     update: vi.fn(() => chain),
     insert: vi.fn(),
@@ -36,6 +46,7 @@ vi.mock("@workspace/db", () => ({
     telegramMessageId: "telegram_message_id",
     telegramChatId: "telegram_chat_id",
     telegramFileId: "telegram_file_id",
+      status: "status",
     updatedAt: "updated_at",
   },
   telegramSourcesTable: {
@@ -49,6 +60,9 @@ vi.mock("@workspace/db", () => ({
     telegramSourceId: "telegram_source_id",
     telegramMessageId: "telegram_message_id",
     status: "status",
+      metadata: "metadata",
+      attempts: "attempts",
+      processedAt: "processed_at",
   },
   telegramSyncLogsTable: {},
 }));
@@ -444,6 +458,7 @@ describe("Database duplicate protection", () => {
     const insertChain: any = {};
     insertChain.values = vi.fn(() => insertChain);
     insertChain.onConflictDoUpdate = vi.fn(() => insertChain);
+    insertChain.returning = vi.fn(() => Promise.resolve([{ id: "video-1" }]));
     mockDb.insert.mockReturnValue(insertChain);
 
     // Re-import indexer with mocks in place.
@@ -490,11 +505,15 @@ describe("Database duplicate protection", () => {
     const selectChain: any = {};
     selectChain.from = vi.fn(() => selectChain);
     selectChain.where = vi.fn(() => selectChain);
-    selectChain.limit = vi.fn(() => Promise.resolve([]));
+    selectChain.limit = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: "video-1",
+        status: "completed",
+        telegramSourceId: "src-1",
+        telegramMessageId: "99",
+      }]);
     mockDb.select.mockReturnValue(selectChain);
-
-    // Make the update calls (status, videoCount) succeed.
-    mockUpdateChain.where.mockResolvedValue(undefined);
 
     // Stub sendMessage (isTelegramConfigured is false → no send).
     process.env.TELEGRAM_BOT_TOKEN = "";
@@ -508,5 +527,131 @@ describe("Database duplicate protection", () => {
         target: [telegramVideosTable.telegramSourceId, telegramVideosTable.telegramMessageId],
       }),
     );
+  });
+
+  it("does not insert a second import log when Telegram redelivers an already queued video", async () => {
+    const source = { id: "src-1", enabled: true };
+    const importLog = { id: "log-1" };
+    const responses = [[source], [], [source], [importLog]];
+    mockDb.select.mockImplementation(() => {
+      const chain: any = {};
+      chain.from = vi.fn(() => chain);
+      chain.where = vi.fn(() => chain);
+      chain.limit = vi.fn(() => Promise.resolve(responses.shift()));
+      return chain;
+    });
+
+    const insertChain: any = {};
+    insertChain.values = vi.fn(() => insertChain);
+    insertChain.then = (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
+      Promise.resolve(undefined).then(resolve, reject);
+    mockDb.insert.mockReturnValue(insertChain);
+    process.env.TELEGRAM_BOT_TOKEN = "";
+
+    const update = {
+      update_id: 123,
+      message: {
+        message_id: 99,
+        date: 1_700_000_000,
+        chat: { id: 1234 },
+        video: {
+          file_id: "file-id",
+          file_unique_id: "file-unique-id",
+          file_size: 1024,
+          duration: 10,
+          width: 1280,
+          height: 720,
+          mime_type: "video/mp4",
+        },
+      },
+    };
+    const { processIncomingUpdate } = await import("../indexer");
+
+    await expect(processIncomingUpdate(update)).resolves.toEqual({ processed: true });
+    await expect(processIncomingUpdate(update)).resolves.toEqual({
+      processed: false,
+      reason: "duplicate",
+    });
+    expect(mockDb.insert).toHaveBeenCalledTimes(1);
+  });
+
+  it("extracts SQLSTATE and PostgreSQL message from a nested Drizzle error without exposing database URLs", async () => {
+    const { getTelegramErrorDiagnostics } = await import("../indexer");
+    const pgError = Object.assign(
+      new Error("duplicate key violates unique constraint; postgres://user:password@host/db"),
+      { code: "23505" },
+    );
+    const drizzleError = Object.assign(new Error("Failed query: INSERT ... params: secret"), {
+      cause: pgError,
+    });
+
+    expect(getTelegramErrorDiagnostics(drizzleError)).toEqual({
+      sqlState: "23505",
+      postgresMessage: "duplicate key violates unique constraint; [redacted database URL]",
+    });
+  });
+
+  it("leaves a failed video insert in the retryable queue state", async () => {
+    const metadata = {
+      fileId: "f1",
+      fileUniqueId: "u1",
+      fileName: "v.mp4",
+      mimeType: "video/mp4",
+      fileSize: 1000,
+      duration: 10,
+      width: 100,
+      height: 100,
+      thumbnailFileId: null,
+      thumbnailWidth: null,
+      thumbnailHeight: null,
+      caption: "test",
+      telegramDate: new Date().toISOString(),
+      telegramMessageId: "100",
+      effectiveChatId: "-100",
+      sourceId: "src-1",
+      replyChatId: "-100",
+      updateId: 2,
+      isForwarded: false,
+      forwardOriginChatId: null,
+      videoType: "VIDEO",
+    };
+    const log = {
+      id: "log-2",
+      telegramSourceId: "src-1",
+      telegramMessageId: "100",
+      status: "pending",
+      errorMessage: null,
+      metadata: JSON.stringify(metadata),
+      attempts: 0,
+      processedAt: null,
+      createdAt: new Date(),
+    };
+    const selectChain: any = {};
+    selectChain.from = vi.fn(() => selectChain);
+    selectChain.where = vi.fn(() => selectChain);
+    selectChain.limit = vi.fn(() => Promise.resolve([]));
+    mockDb.select.mockReturnValue(selectChain);
+
+    const pgError = Object.assign(new Error("invalid database enum value"), { code: "22P02" });
+    const insertChain: any = {};
+    insertChain.values = vi.fn(() => insertChain);
+    insertChain.onConflictDoUpdate = vi.fn(() => insertChain);
+    insertChain.returning = vi.fn(() => Promise.reject(pgError));
+    mockDb.insert.mockReturnValue(insertChain);
+    mockDb.update.mockReturnValue(mockUpdateChain);
+    process.env.TELEGRAM_BOT_TOKEN = "";
+
+    const { processQueueItem } = await import("../indexer");
+    await processQueueItem(log as any);
+
+    const updatePayloads = mockUpdateChain.set.mock.calls.map(([payload]) => payload);
+    expect(updatePayloads).toContainEqual(expect.objectContaining({
+      status: "processing",
+      attempts: 1,
+    }));
+    expect(updatePayloads).toContainEqual(expect.objectContaining({
+      status: "failed",
+      errorMessage: "invalid database enum value",
+    }));
   });
 });

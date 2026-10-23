@@ -27,7 +27,7 @@ import {
 } from "../lib/telegram/client";
 import {
   processIncomingUpdate, startQueueProcessor, getQueueStats,
-  retryImportLog, syncSource,
+  retryImportLog, syncSource, getTelegramErrorDiagnostics,
 } from "../lib/telegram/indexer";
 import { streamTelegramVideo } from "../lib/telegram/streamer";
 import { enqueueStream, getStreamQueueStats } from "../lib/telegram/stream-queue";
@@ -195,13 +195,23 @@ router.post("/telegram/webhook", async (req, res) => {
     }
   }
 
-  // Process the update asynchronously — return 200 immediately.
-  processIncomingUpdate(req.body).catch((err) => {
-    logger.error({ err }, "[TELEGRAM] Webhook processing error");
-  });
-
-  // Always return 200 quickly so Telegram doesn't retry.
-  res.status(200).json({ ok: true });
+  // Persist the import log before acknowledging the webhook. Returning 5xx on
+  // persistence failure lets Telegram redeliver the update; duplicate checks
+  // and the video unique index make those retries idempotent.
+  try {
+    const result = await processIncomingUpdate(update);
+    if (result.reason === "error") {
+      res.status(500).json({ ok: false });
+      return;
+    }
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    logger.error(
+      getTelegramErrorDiagnostics(err),
+      "[TELEGRAM] Webhook processing error",
+    );
+    res.status(500).json({ ok: false });
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

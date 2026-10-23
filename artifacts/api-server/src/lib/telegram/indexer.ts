@@ -367,7 +367,7 @@ export async function processIncomingUpdate(update: any): Promise<{ processed: b
     return { processed: true };
   } catch (err) {
     logger.error(
-      { err: err instanceof Error ? err.message : String(err) },
+      getTelegramErrorDiagnostics(err),
       "[TELEGRAM] processIncomingUpdate failed",
     );
 
@@ -399,6 +399,47 @@ function sanitizeErrorMessage(message: string): string {
     .substring(0, 300);
 }
 
+function redactDiagnosticMessage(message: string): string {
+  return message
+    .replace(/bot\d+:[\w-]+/gi, "[redacted Telegram token]")
+    .replace(/postgres(?:ql)?:\/\/[^\s]+/gi, "[redacted database URL]");
+}
+
+/**
+ * Extract PostgreSQL's SQLSTATE and server message from Drizzle's nested cause
+ * without logging its generated SQL, bound parameters, or connection string.
+ */
+export function getTelegramErrorDiagnostics(error: unknown): Record<string, string> {
+  const visited = new Set<unknown>();
+  let current: unknown = error;
+
+  while (current && typeof current === "object" && !visited.has(current)) {
+    visited.add(current);
+    const candidate = current as { code?: unknown; message?: unknown; cause?: unknown };
+    if (typeof candidate.code === "string" && /^[0-9A-Z]{5}$/.test(candidate.code)) {
+      return {
+        sqlState: candidate.code,
+        postgresMessage: redactDiagnosticMessage(
+          typeof candidate.message === "string" ? candidate.message : "PostgreSQL error",
+        ),
+      };
+    }
+    current = candidate.cause;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    errorMessage: /^Failed query:/i.test(message)
+      ? "Drizzle query failed; PostgreSQL diagnostic unavailable"
+      : redactDiagnosticMessage(message),
+  };
+}
+
+function getSafeErrorMessage(error: unknown): string {
+  const diagnostics = getTelegramErrorDiagnostics(error);
+  return (diagnostics.postgresMessage ?? diagnostics.errorMessage ?? "Unknown error").substring(0, 500);
+}
+
 // ── Queue processor ──────────────────────────────────────────────────────────
 
 const MAX_ATTEMPTS = 5;
@@ -414,16 +455,18 @@ function getBackoffMs(attempts: number): number {
  * Duplicate protection: (telegramSourceId, telegramMessageId) unique index.
  */
 export async function processQueueItem(log: typeof telegramImportLogsTable.$inferSelect): Promise<void> {
-  // Mark as processing.
-  await db.update(telegramImportLogsTable).set({
-    status: "processing",
-    attempts: log.attempts + 1,
-    processedAt: new Date(),
-  }).where(eq(telegramImportLogsTable.id, log.id));
-
   let metadata: VideoMetadata | null = null;
   try {
-    metadata = JSON.parse(log.metadata || "{}") as VideoMetadata;
+    // Include this transition in the retry/error handler so a DB failure here
+    // is diagnosed rather than silently swallowed by the queue poller.
+    await db.update(telegramImportLogsTable).set({
+      status: "processing",
+      attempts: log.attempts + 1,
+      processedAt: new Date(),
+    }).where(eq(telegramImportLogsTable.id, log.id));
+
+    const videoMetadata = JSON.parse(log.metadata || "{}") as VideoMetadata;
+    metadata = videoMetadata;
 
     // Upsert: if (sourceId, messageId) exists → update, else → insert.
     const [existing] = await db.select({ id: telegramVideosTable.id })
@@ -503,10 +546,23 @@ export async function processQueueItem(log: typeof telegramImportLogsTable.$infe
       metadata.mimeType.startsWith("video/");  // must be a video
 
     if (verificationPassed) {
-      await db.update(telegramVideosTable).set({
+      const [verifiedVideo] = await db.update(telegramVideosTable).set({
         status: "completed",
         updatedAt: new Date(),
-      }).where(eq(telegramVideosTable.id, videoId));
+      }).where(eq(telegramVideosTable.id, videoId)).returning({
+        id: telegramVideosTable.id,
+        status: telegramVideosTable.status,
+        telegramSourceId: telegramVideosTable.telegramSourceId,
+        telegramMessageId: telegramVideosTable.telegramMessageId,
+      });
+      if (
+        !verifiedVideo ||
+        verifiedVideo.status !== "completed" ||
+        verifiedVideo.telegramSourceId !== metadata.sourceId ||
+        verifiedVideo.telegramMessageId !== metadata.telegramMessageId
+      ) {
+        throw new Error("Persisted Telegram video verification failed");
+      }
       logger.info({ videoId }, "[TELEGRAM] Video verified → status=completed");
 
       // ── Enqueue into staged processing queue ─────────────────────────────
@@ -519,15 +575,15 @@ export async function processQueueItem(log: typeof telegramImportLogsTable.$infe
         .then(({ enqueueVideo }) => {
           const jobId = enqueueVideo({
             videoId,
-            sourceId: metadata.sourceId,
-            chatId: metadata.effectiveChatId,
-            messageId: metadata.telegramMessageId,
-            fileId: metadata.fileId,
-            thumbnailFileId: metadata.thumbnailFileId,
-            title: metadata.caption || metadata.fileName || `Video ${metadata.telegramMessageId}`,
-            fileSize: metadata.fileSize || null,
-            duration: metadata.duration,
-            mimeType: metadata.mimeType,
+            sourceId: videoMetadata.sourceId,
+            chatId: videoMetadata.effectiveChatId,
+            messageId: videoMetadata.telegramMessageId,
+            fileId: videoMetadata.fileId,
+            thumbnailFileId: videoMetadata.thumbnailFileId,
+            title: videoMetadata.caption || videoMetadata.fileName || `Video ${videoMetadata.telegramMessageId}`,
+            fileSize: videoMetadata.fileSize || null,
+            duration: videoMetadata.duration,
+            mimeType: videoMetadata.mimeType,
             isPremium: false,
             price: null,
             description: null,
@@ -543,7 +599,7 @@ export async function processQueueItem(log: typeof telegramImportLogsTable.$infe
           // Fallback: call AutoUP directly if the staged queue fails to load.
           import("./autoup")
             .then(({ processVideoFromWebhook }) => {
-              processVideoFromWebhook(metadata.sourceId, videoId).catch(() => {});
+              processVideoFromWebhook(videoMetadata.sourceId, videoId).catch(() => {});
             })
             .catch(() => {});
         });
@@ -582,18 +638,28 @@ export async function processQueueItem(log: typeof telegramImportLogsTable.$infe
       ).catch(() => {});
     }
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message.substring(0, 500) : "Unknown error";
-    logger.error({ err: errMsg, logId: log.id }, "[TELEGRAM] Queue item failed");
+    const errMsg = getSafeErrorMessage(err);
+    logger.error(
+      { ...getTelegramErrorDiagnostics(err), logId: log.id },
+      "[TELEGRAM] Queue item failed",
+    );
 
     const attempts = log.attempts + 1;
 
-    // BUG FIX: was `attempts >= MAX_ATTEMPTS ? "failed" : "failed"` — both branches
-    // were "failed", so retries never worked. Now: "pending" for retryable, "failed" for permanent.
-    await db.update(telegramImportLogsTable).set({
-      status: attempts >= MAX_ATTEMPTS ? "failed" : "pending",
-      errorMessage: errMsg,
-      processedAt: new Date(),
-    }).where(eq(telegramImportLogsTable.id, log.id));
+    // Keep retryable failures in "failed" so the poller can apply exponential
+    // backoff; entries at MAX_ATTEMPTS are excluded from subsequent batches.
+    try {
+      await db.update(telegramImportLogsTable).set({
+        status: "failed",
+        errorMessage: errMsg,
+        processedAt: new Date(),
+      }).where(eq(telegramImportLogsTable.id, log.id));
+    } catch (retryStateError) {
+      logger.error(
+        { ...getTelegramErrorDiagnostics(retryStateError), logId: log.id },
+        "[TELEGRAM] Failed to persist queue retry state",
+      );
+    }
 
     // ── Send failure reply to the user (only on final failure) ────────────────
     if (attempts >= MAX_ATTEMPTS && isTelegramConfigured() && metadata?.replyChatId) {
