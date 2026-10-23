@@ -6,6 +6,7 @@ import {
 } from "./lib/startup-migration";
 import { ensureStorageBuckets } from "./lib/storage/setup";
 import { pool } from "@workspace/db";
+import { resolveTelegramWebhookUrl } from "./lib/telegram/webhook-url";
 
 // ── Environment validation ───────────────────────────────────────────────────
 const rawPort = process.env["PORT"];
@@ -110,42 +111,32 @@ async function initDatabase(): Promise<void> {
       // If TELEGRAM_BOT_TOKEN is set, register the webhook so Telegram starts
       // sending updates to this server immediately on startup.
       try {
-        const { isTelegramConfigured, setWebhook, getBotInfo } = await import("./lib/telegram/client");
+        const { isTelegramConfigured, setWebhook, getBotInfo, getWebhookInfo } = await import("./lib/telegram/client");
         if (isTelegramConfigured()) {
-          const publicBaseUrl = process.env.PUBLIC_BASE_URL;
-          // Detect the public URL for webhook registration across platforms:
-          //   1. PUBLIC_BASE_URL (user-set, highest priority)
-          //   2. REPLIT_DOMAINS (Replit — comma-separated list of all domains,
-          //      works in both dev and deployment mode)
-          //   3. BASE44_PUBLIC_HOST_SUFFIX (Base44 dev environment)
-          //   4. REPLIT_DEV_DOMAIN (Replit dev fallback)
-          const replitDomains = process.env.REPLIT_DOMAINS;
-          const replitDomain = replitDomains
-            ? replitDomains.split(",")[0].trim().replace(/^https?:\/\//, "")
-            : null;
-          const replitDevDomain = process.env.REPLIT_DEV_DOMAIN
-            ? process.env.REPLIT_DEV_DOMAIN.replace(/^https?:\/\//, "")
-            : null;
-          const webhookUrl = publicBaseUrl
-            ? `${publicBaseUrl}/api/telegram/webhook`
-            : replitDomain
-              ? `https://${replitDomain}/api/telegram/webhook`
-              : process.env.BASE44_PUBLIC_HOST_SUFFIX
-                ? `https://3000-${process.env.BASE44_PUBLIC_HOST_SUFFIX}/api/telegram/webhook`
-                : replitDevDomain
-                  ? `https://${replitDevDomain}/api/telegram/webhook`
-                  : null;
+          const webhookUrl = resolveTelegramWebhookUrl();
 
           if (webhookUrl) {
             const secretToken = process.env.TELEGRAM_WEBHOOK_SECRET;
-            await setWebhook(webhookUrl, secretToken);
+            const registered = await setWebhook(webhookUrl, secretToken);
+            if (!registered) throw new Error("Telegram rejected the webhook registration");
+            const webhookInfo = await getWebhookInfo();
+            if (webhookInfo.url !== webhookUrl) {
+              throw new Error("Telegram webhook URL did not match the published app URL");
+            }
             const bot = await getBotInfo();
             logger.info(
-              { webhookUrl, bot: bot?.username },
+              {
+                webhookUrl,
+                bot: bot?.username,
+                pendingUpdates: webhookInfo.pendingUpdateCount,
+                lastErrorMessage: webhookInfo.lastErrorMessage || null,
+              },
               "[TELEGRAM] Webhook auto-registered on startup",
             );
           } else {
-            logger.warn("[TELEGRAM] Cannot auto-register webhook — set PUBLIC_BASE_URL to the public URL of your deployment");
+            logger.info(
+              "[TELEGRAM] Webhook auto-registration skipped: this is a development server or no stable HTTPS public URL is configured",
+            );
           }
         }
       } catch (e) {

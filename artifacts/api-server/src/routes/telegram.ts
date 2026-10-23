@@ -26,6 +26,10 @@ import {
   setWebhook, getWebhookInfo, deleteWebhook,
 } from "../lib/telegram/client";
 import {
+  normalizeTelegramWebhookEndpoint,
+  resolveTelegramWebhookUrl,
+} from "../lib/telegram/webhook-url";
+import {
   processIncomingUpdate, startQueueProcessor, getQueueStats,
   retryImportLog, syncSource, getTelegramErrorDiagnostics,
 } from "../lib/telegram/indexer";
@@ -451,18 +455,25 @@ router.post("/admin/telegram/webhook/setup", authenticate, requireRole("admin", 
       return;
     }
 
-    // Construct the webhook URL from PUBLIC_BASE_URL (preferred), falling back
-    // to the Base44 public host suffix. The admin may also pass an explicit URL.
-    const publicUrl = req.body.url ||
-      (process.env.PUBLIC_BASE_URL
-        ? `${process.env.PUBLIC_BASE_URL}/api/telegram/webhook`
-        : process.env.BASE44_PUBLIC_HOST_SUFFIX
-          ? `https://3000-${process.env.BASE44_PUBLIC_HOST_SUFFIX}/api/telegram/webhook`
-          : null);
+    // Use the same stable-public-URL policy as startup auto-registration.
+    // An explicit URL is accepted only when it is an HTTPS production endpoint.
+    const requestedUrl = typeof req.body.url === "string" ? req.body.url.trim() : "";
+    const publicUrl = requestedUrl
+      ? normalizeTelegramWebhookEndpoint(requestedUrl)
+      : resolveTelegramWebhookUrl();
+
+    if (requestedUrl && !publicUrl) {
+      res.status(400).json({
+        error: "Invalid webhook URL",
+        detail: "Use the exact HTTPS /api/telegram/webhook endpoint on a stable public domain.",
+      });
+      return;
+    }
 
     if (!publicUrl) {
       res.status(400).json({
-        error: "PUBLIC_BASE_URL not configured. Set the PUBLIC_BASE_URL environment variable (e.g. https://your-domain.com) so the webhook URL can be constructed.",
+        error: "No stable public webhook URL is configured.",
+        detail: "Set PUBLIC_BASE_URL for a custom domain or run this setup from the published app.",
       });
       return;
     }
@@ -606,15 +617,14 @@ router.get("/admin/telegram/webhook/test", authenticate, requireRole("admin", "o
   }
 
   // 4-5. Webhook URL matches PUBLIC_BASE_URL + /api/telegram/webhook
-  const publicBaseUrl = process.env.PUBLIC_BASE_URL;
-  if (publicBaseUrl && webhookUrl) {
-    const expectedUrl = `${publicBaseUrl}/api/telegram/webhook`;
-    if (webhookUrl !== expectedUrl) {
-      errors.push(`Webhook URL mismatch: expected ${expectedUrl}, got ${webhookUrl}`);
+  const expectedWebhookUrl = resolveTelegramWebhookUrl();
+  if (expectedWebhookUrl && webhookUrl) {
+    if (webhookUrl !== expectedWebhookUrl) {
+      errors.push(`Webhook URL mismatch: expected ${expectedWebhookUrl}, got ${webhookUrl}`);
       webhookOk = false;
     }
-  } else if (!publicBaseUrl) {
-    errors.push("PUBLIC_BASE_URL not configured");
+  } else if (!expectedWebhookUrl && process.env.NODE_ENV === "production") {
+    errors.push("No stable HTTPS webhook URL can be resolved for this deployment");
   }
 
   // 6. Webhook secret configured
@@ -635,7 +645,7 @@ router.get("/admin/telegram/webhook/test", authenticate, requireRole("admin", "o
     botApi: botApiOk ? "ok" : "error",
     webhook: webhookOk ? "ok" : "error",
     database: dbOk ? "ok" : "error",
-    publicBaseUrl: publicBaseUrl || null,
+      publicBaseUrl: expectedWebhookUrl ? new URL(expectedWebhookUrl).origin : null,
     webhookUrl: webhookUrl || null,
     pendingUpdates,
     errors,
