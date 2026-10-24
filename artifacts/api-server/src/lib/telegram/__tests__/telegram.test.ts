@@ -75,6 +75,7 @@ const { clientMocks } = vi.hoisted(() => {
       getFileUrl: vi.fn(),
       refreshFileId: vi.fn(),
       isLocalBotApiConfigured: vi.fn(),
+      getCachedLocalBotApiHealth: vi.fn(),
     },
   };
 });
@@ -87,8 +88,27 @@ vi.mock("../client", async () => {
     getFileUrl: clientMocks.getFileUrl,
     refreshFileId: clientMocks.refreshFileId,
     isLocalBotApiConfigured: clientMocks.isLocalBotApiConfigured,
+    getCachedLocalBotApiHealth: clientMocks.getCachedLocalBotApiHealth,
     // re-export for the client tests below
     botApiCall: (actual as any).botApiCall,
+  };
+});
+
+const { mtprotoMocks } = vi.hoisted(() => ({
+  mtprotoMocks: {
+    isMtProtoReady: vi.fn(),
+    getMtProtoFileStream: vi.fn(),
+    getMtProtoFileInfo: vi.fn(),
+  },
+}));
+
+vi.mock("../mtproto", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../mtproto")>();
+  return {
+    ...actual,
+    isMtProtoReady: mtprotoMocks.isMtProtoReady,
+    getMtProtoFileStream: mtprotoMocks.getMtProtoFileStream,
+    getMtProtoFileInfo: mtprotoMocks.getMtProtoFileInfo,
   };
 });
 
@@ -100,6 +120,7 @@ function createMockRes() {
     statusCode: 200,
     headersSent: false,
     finished: false,
+    writableEnded: false,
     setHeader(k: string, v: string) { headers[k.toLowerCase()] = String(v); },
     getHeader(k: string) { return headers[k.toLowerCase()]; },
     status(code: number) { this.statusCode = code; return this; },
@@ -111,9 +132,10 @@ function createMockRes() {
     },
     write(chunk: Buffer | Uint8Array) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      this.headersSent = true;
       return true;
     },
-    end() { this.finished = true; this.headersSent = true; },
+    end() { this.finished = true; this.headersSent = true; this.writableEnded = true; },
     on() { return this; },
     off() { return this; },
     emit() { return true; },
@@ -163,6 +185,10 @@ function setupGetFileInfo(fileSize = FILE_SIZE) {
   });
   clientMocks.getFileUrl.mockReturnValue("https://api.telegram.org/file/botXXX/videos/test.mp4");
   clientMocks.isLocalBotApiConfigured.mockReturnValue(false);
+  clientMocks.getCachedLocalBotApiHealth.mockReturnValue(false);
+  mtprotoMocks.isMtProtoReady.mockReturnValue(false);
+  mtprotoMocks.getMtProtoFileStream.mockReset();
+  mtprotoMocks.getMtProtoFileInfo.mockReset();
 }
 
 beforeEach(() => {
@@ -266,6 +292,89 @@ describe("Telegram video streaming", () => {
 
     expect(res.statusCode).toBe(416);
     expect(getHeaders()["content-range"]).toBe(`bytes */${FILE_SIZE}`);
+  });
+
+  it("supports suffix byte ranges used by media clients", async () => {
+    const suffix = Buffer.from([1, 2, 3, 4, 5]);
+    const start = FILE_SIZE - suffix.length;
+    const { res, getBody, getHeaders } = await stream({
+      rangeHeader: "bytes=-5",
+      fetchResponse: mockFetchResponse({
+        status: 206,
+        headers: {
+          "content-range": `bytes ${start}-${FILE_SIZE - 1}/${FILE_SIZE}`,
+          "content-length": String(suffix.length),
+        },
+        bodyChunks: [suffix],
+      }),
+    });
+
+    expect(res.statusCode).toBe(206);
+    expect(getHeaders()["content-range"]).toBe(`bytes ${start}-${FILE_SIZE - 1}/${FILE_SIZE}`);
+    expect(getBody()).toEqual(suffix);
+  });
+
+  it("streams large files with MTProto byte ranges", async () => {
+    const fileSize = 25 * 1024 * 1024;
+    mtprotoMocks.isMtProtoReady.mockReturnValue(true);
+    mtprotoMocks.getMtProtoFileStream.mockResolvedValue({
+      fileSize,
+      chunks: (async function* () { yield Buffer.from("test"); })(),
+    });
+
+    const { streamTelegramVideo } = await import("../streamer");
+    const { res, getBody, getHeaders } = createMockRes();
+    await streamTelegramVideo({
+      fileId: "test-file-id",
+      videoId: "large-video",
+      chatId: "-100123",
+      messageId: "42",
+      mimeType: "video/mp4",
+      res,
+      rangeHeader: "bytes=0-3",
+      fileSize,
+    });
+
+    expect(mtprotoMocks.getMtProtoFileStream).toHaveBeenCalledWith("-100123", "42", 0, 3);
+    expect(res.statusCode).toBe(206);
+    expect(getHeaders()["content-range"]).toBe(`bytes 0-3/${fileSize}`);
+    expect(getBody().toString()).toBe("test");
+  });
+
+  it("falls back to the Local Bot API if MTProto cannot open a large video", async () => {
+    const fileSize = 25 * 1024 * 1024;
+    mtprotoMocks.isMtProtoReady.mockReturnValue(true);
+    mtprotoMocks.getMtProtoFileStream.mockRejectedValue(new Error("MTProto message lookup failed"));
+    clientMocks.isLocalBotApiConfigured.mockReturnValue(true);
+    clientMocks.getCachedLocalBotApiHealth.mockReturnValue(true);
+    clientMocks.getFileInfo.mockResolvedValue({
+      fileId: "test-file-id",
+      fileUniqueId: "test-unique-id",
+      fileSize,
+      filePath: "videos/test.mp4",
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchResponse({
+      status: 206,
+      headers: { "content-range": `bytes 0-3/${fileSize}`, "content-length": "4" },
+      bodyChunks: [Buffer.from("test")],
+    })) as any;
+
+    const { streamTelegramVideo } = await import("../streamer");
+    const { res, getBody } = createMockRes();
+    await streamTelegramVideo({
+      fileId: "test-file-id",
+      videoId: "large-video",
+      chatId: "-100123",
+      messageId: "42",
+      mimeType: "video/mp4",
+      res,
+      rangeHeader: "bytes=0-3",
+      fileSize,
+    });
+
+    expect(clientMocks.getFileInfo).toHaveBeenCalledWith("test-file-id");
+    expect(res.statusCode).toBe(206);
+    expect(getBody().toString()).toBe("test");
   });
 
   // ── TEST 5: Upstream returns 200 when Range requested → no fake 206 ────────
@@ -644,7 +753,7 @@ describe("Database duplicate protection", () => {
     const { processQueueItem } = await import("../indexer");
     await processQueueItem(log as any);
 
-    const updatePayloads = mockUpdateChain.set.mock.calls.map(([payload]) => payload);
+    const updatePayloads = mockUpdateChain.set.mock.calls.map((call: any[]) => call[0]);
     expect(updatePayloads).toContainEqual(expect.objectContaining({
       status: "processing",
       attempts: 1,

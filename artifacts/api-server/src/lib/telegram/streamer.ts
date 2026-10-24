@@ -134,7 +134,7 @@ async function pipeGeneratorWithBackpressure(
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface StreamParams {
-  fileId: string;
+  fileId: string | null;
   /** Primary key of the telegram_videos row — used for targeted file_id refresh. */
   videoId: string;
   chatId: string;
@@ -152,11 +152,21 @@ interface StreamParams {
  */
 function parseRange(rangeHeader: string, fileSize: number): { start: number; end: number } | null {
   if (rangeHeader.includes(",")) return null; // multi-range not supported
-  const match = /bytes=(\d+)-(\d*)/.exec(rangeHeader);
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
   if (!match) return null;
-  const start = parseInt(match[1], 10);
-  const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
-  if (start >= fileSize || start > end) return null;
+  const [, startText, endText] = match;
+
+  // RFC 9110 also permits suffix ranges such as bytes=-500, which browsers
+  // may use when probing media near the end of a file.
+  if (!startText) {
+    const suffixLength = Number(endText);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0 || fileSize <= 0) return null;
+    return { start: Math.max(0, fileSize - suffixLength), end: fileSize - 1 };
+  }
+
+  const start = Number(startText);
+  const end = endText ? Number(endText) : fileSize - 1;
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= fileSize || start > end) return null;
   return { start, end: Math.min(end, fileSize - 1) };
 }
 
@@ -192,7 +202,11 @@ export async function streamTelegramVideo(params: StreamParams): Promise<void> {
       return;
     } catch (err) {
       // If MTProto fails and the file is small enough for Bot API, fallback.
-      if (dbFileSize != null && dbFileSize > 0 && dbFileSize <= BOT_API_THRESHOLD) {
+      if (
+        !params.res.headersSent &&
+        params.fileId &&
+        (dbFileSize == null || dbFileSize <= BOT_API_THRESHOLD)
+      ) {
         logger.warn(
           { err: err instanceof Error ? err.message : String(err), videoId },
           "[TELEGRAM] MTProto failed, falling back to Bot API",
@@ -330,6 +344,9 @@ async function streamLargeFile(params: StreamParams): Promise<void> {
  */
 async function getLargeFileInfo(params: StreamParams): Promise<TelegramFileInfo> {
   const { fileId, videoId, chatId, messageId } = params;
+  if (!fileId) {
+    throw new Error("Large-file Local Bot API streaming requires a Telegram file_id");
+  }
 
   try {
     return await getFileInfo(fileId);
@@ -466,7 +483,7 @@ async function streamLargeFileViaLocalBotApi(params: StreamParams): Promise<void
       const downloadController = new AbortController();
       const connectTimer = setTimeout(() => downloadController.abort(), 120_000);
 
-      let response: Response;
+      let response: globalThis.Response;
       try {
         response = await fetch(fileUrl, {
           headers: fetchHeaders,
@@ -616,7 +633,16 @@ async function streamViaMtProto(params: StreamParams): Promise<void> {
   const contentLength = end - start + 1;
   const isPartial = !!range;
 
-  // ── Set response headers ──────────────────────────────────────────────────
+  // Open the Telegram message and read the first chunk before committing
+  // HTTP headers. This lets the large-file path safely fall back to the
+  // Local Bot API if MTProto cannot resolve/download the message.
+  const streamResult = await getMtProtoFileStream(chatId, messageId, start, isPartial ? end : null);
+  const firstChunk = await streamResult.chunks.next();
+  if (firstChunk.done) {
+    throw new Error("MTProto returned no video data");
+  }
+
+  // ── Set response headers only after MTProto is confirmed to be readable ──
   res.setHeader("Content-Type", mimeType || "video/mp4");
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Content-Length", contentLength.toString());
@@ -635,20 +661,25 @@ async function streamViaMtProto(params: StreamParams): Promise<void> {
   res.on("close", onClose);
 
   try {
-    const streamResult = await getMtProtoFileStream(chatId, messageId, start, isPartial ? end : null);
-    await pipeGeneratorWithBackpressure(streamResult.chunks, res, () => aborted);
+    async function* streamWithPrefetchedChunk(): AsyncGenerator<Buffer> {
+      yield firstChunk.value;
+      yield* streamResult.chunks;
+    }
+
+    await pipeGeneratorWithBackpressure(streamWithPrefetchedChunk(), res, () => aborted);
     logger.info({ videoId }, "[TELEGRAM STREAM] MTProto download completed");
   } catch (err) {
     logger.error(
       { err: err instanceof Error ? err.message : String(err), videoId, chatId, messageId },
       "[TELEGRAM] MTProto streaming error",
     );
-    if (!res.headersSent) {
-      handleStreamError(err, res);
-    }
+    // Once bytes have been sent, switching providers would corrupt the file.
+    // End the partial response and let the caller avoid a second response.
+    if (res.headersSent) res.end();
+    throw err;
   } finally {
     res.off("close", onClose);
-    if (!aborted) res.end();
+    if (!aborted && !res.writableEnded) res.end();
   }
 }
 
@@ -768,6 +799,9 @@ async function streamLocalFile(
  */
 async function streamViaBotApi(params: StreamParams): Promise<void> {
   const { fileId, videoId } = params;
+  if (!fileId) {
+    throw new Error("Telegram Bot API streaming requires a file_id");
+  }
 
   let fileInfo;
   try {
@@ -909,7 +943,7 @@ async function streamViaBotApiHttp(params: StreamParams, fileInfo: TelegramFileI
     const downloadController = new AbortController();
     const connectTimer = setTimeout(() => downloadController.abort(), 120_000);
 
-    let response: Response;
+    let response: globalThis.Response;
     try {
       response = await fetch(fileUrl, {
         headers: fetchHeaders,

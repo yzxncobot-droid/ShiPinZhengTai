@@ -66,7 +66,7 @@ export async function checkLocalBotApiHealth(): Promise<boolean> {
   try {
     // Direct call to the configured local server — no fallback to api.telegram.org.
     const res = await fetch(`${TELEGRAM_API_BASE}/bot${BOT_TOKEN}/getMe`);
-    const data = await res.json();
+    const data = await res.json() as { ok?: boolean };
     return data.ok === true;
   } catch (err) {
     logger.warn(
