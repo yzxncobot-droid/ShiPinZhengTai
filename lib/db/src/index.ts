@@ -34,9 +34,9 @@ export const pool = new Pool({
 
 export const db = drizzle(pool, {
   schema,
-  // Log every SQL statement + parameters in development so INSERT failures
-  // show the exact query in the API server console.
-  logger: process.env.NODE_ENV === "development",
+  // SQL parameter logs can expose credentials stored in app_secrets (such as
+  // the Telegram MTProto session), so keep query logging disabled.
+  logger: false,
 });
 
 export * from "./schema";

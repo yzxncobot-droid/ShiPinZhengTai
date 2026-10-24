@@ -85,7 +85,10 @@ async function loadSession(): Promise<StringSession> {
       return new StringSession(row.value);
     }
   } catch (err: any) {
-    logger.warn({ err: err.message }, "[TELEGRAM] MTProto: DB session load failed — trying file fallback");
+    logger.warn(
+      { code: typeof err?.code === "string" ? err.code : undefined },
+      "[TELEGRAM] MTProto: DB session load failed — trying file fallback",
+    );
   }
 
   // 2. Migration fallback: load from file if it exists (one-time migration)
@@ -109,8 +112,11 @@ async function loadSession(): Promise<StringSession> {
  * Save the MTProto session to Neon PostgreSQL (primary) and the file system (backup).
  * Never logs the session string.
  */
-async function saveSession(session: StringSession): Promise<void> {
-  const sessionString = session.save();
+async function saveSession(sessionString: string): Promise<void> {
+  if (!sessionString) {
+    logger.error("[TELEGRAM] MTProto session serialization returned an empty value; session was not persisted");
+    return;
+  }
 
   // 1. Primary: save to Neon PostgreSQL (upsert)
   try {
@@ -123,7 +129,10 @@ async function saveSession(session: StringSession): Promise<void> {
       });
     logger.info("[TELEGRAM] MTProto: session saved to Neon PostgreSQL");
   } catch (err: any) {
-    logger.warn({ err: err.message }, "[TELEGRAM] MTProto: DB session save failed — trying file fallback");
+    logger.warn(
+      { code: typeof err?.code === "string" ? err.code : undefined },
+      "[TELEGRAM] MTProto: DB session save failed — trying file fallback",
+    );
   }
 
   // 2. Backup: also write to file (best-effort, never throws)
@@ -220,12 +229,12 @@ async function doInit(): Promise<void> {
       logger.info("[TELEGRAM] MTProto: session not authorized, authenticating as bot...");
       await client.signInBot({ apiId, apiHash }, { botAuthToken: botToken });
       const sessionString = (client.session as any).save() as string;
-      await saveSession(new StringSession(sessionString) as StringSession);
+      await saveSession(sessionString);
       logger.info("[TELEGRAM] MTProto: bot authenticated, session saved automatically");
     } else {
       // Session still valid — persist it (in case it changed during connect).
       const sessionString = (client.session as any).save() as string;
-      await saveSession(new StringSession(sessionString) as StringSession);
+      await saveSession(sessionString);
       logger.info("[TELEGRAM] MTProto: existing session is valid");
     }
 
