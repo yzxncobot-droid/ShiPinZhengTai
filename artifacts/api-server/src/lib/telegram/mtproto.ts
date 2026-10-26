@@ -468,15 +468,18 @@ async function doMtProtoDownload(
     thumbSize: "", // empty string = the actual file, not a thumbnail
   });
 
-  // Create the download iterator with the specified offset.
-  // fileSize MUST be passed so GramJS uses GenericDownloadIter for non-zero
-  // offsets — DirectDownloadIter sends the raw offset to upload.GetFile,
-  // which rejects non-aligned offsets with LIMIT_INVALID.
-  const offset = bigInt(startByte);
+  // Align explicitly: GramJS 2.x can select DirectDownloadIter for small
+  // non-zero offsets even when fileSize is provided. Telegram rejects those
+  // unaligned GetFile requests. Download the containing chunk, then discard
+  // its prefix so the HTTP response still begins at exactly startByte.
+  const alignedStart = Math.floor(startByte / CHUNK_SIZE) * CHUNK_SIZE;
+  const prefixBytes = startByte - alignedStart;
+  const offset = bigInt(alignedStart);
   const iter = client.iterDownload({
     file: fileLocation,
     offset,
     requestSize: CHUNK_SIZE,
+    limit: Math.ceil((prefixBytes + bytesToDownload) / CHUNK_SIZE),
     dcId: doc.dcId,
     fileSize: bigInt(fileSize),
   });
@@ -486,8 +489,13 @@ async function doMtProtoDownload(
   // 2. Handle file reference recovery (re-fetch message + retry)
   async function* rangeLimitedStream(): AsyncGenerator<Buffer> {
     let bytesSent = 0;
+    let bytesToSkip = prefixBytes;
     try {
-      for await (const chunk of iter) {
+      for await (const downloadedChunk of iter) {
+        const skip = Math.min(bytesToSkip, downloadedChunk.length);
+        bytesToSkip -= skip;
+        const chunk = downloadedChunk.subarray(skip);
+        if (!chunk.length) continue;
         const remaining = bytesToDownload - bytesSent;
         if (remaining <= 0) break;
 
@@ -499,6 +507,10 @@ async function doMtProtoDownload(
         }
         yield chunk;
         bytesSent += chunk.length;
+        if (bytesSent === bytesToDownload) break;
+      }
+      if (bytesSent !== bytesToDownload) {
+        throw new Error(`MTProto download ended early: expected ${bytesToDownload} bytes, received ${bytesSent}`);
       }
     } catch (err: any) {
       // File reference expired — recover by re-fetching the message.

@@ -281,6 +281,8 @@ async function streamLargeFile(params: StreamParams): Promise<void> {
         { err: err instanceof Error ? err.message : String(err), videoId },
         "[TELEGRAM] Large-file: MTProto streaming failed",
       );
+      // Never start another provider after writing part of the response.
+      if (res.headersSent) return;
       // Fall through to Local Bot API if healthy.
       if (getCachedLocalBotApiHealth() === true && fileId) {
         logger.warn({ videoId }, "[TELEGRAM] Large-file: falling back to Local Bot API Server");
@@ -675,7 +677,7 @@ async function streamViaMtProto(params: StreamParams): Promise<void> {
     );
     // Once bytes have been sent, switching providers would corrupt the file.
     // End the partial response and let the caller avoid a second response.
-    if (res.headersSent) res.end();
+    if (res.headersSent) res.destroy();
     throw err;
   } finally {
     res.off("close", onClose);
