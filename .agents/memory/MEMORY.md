@@ -19,4 +19,4 @@
 - [Dynamic role system (custom_role_id on users)](dynamic-role-system.md) — users.custom_role_id FK → custom_roles; display-only; system role (users.role) still drives auth middleware.
 - [Auth profile fetch resilience](auth-profile-fetch-resilience.md) — transient `/auth/me` failures must not clear a valid login token; only explicit 401/403 responses invalidate it
 - [JagoPay QRIS safety](jagopay-qris-safety.md) — mutation examples may lack order correlation; never auto-credit from amount alone
-- [MTProto session persistence](mtproto-session-persistence.md) — persist the serialized GramJS session directly; avoid logging SQL parameters that may contain its auth key
+- [MTProto session persistence](mtproto-session-persistence.md) — persist serialized GramJS sessions safely, isolate development/production auth keys, and keep secrets out of logs

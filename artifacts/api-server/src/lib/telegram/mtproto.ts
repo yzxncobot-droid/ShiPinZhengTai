@@ -32,10 +32,15 @@ import { eq } from "drizzle-orm";
 // ── Configuration ───────────────────────────────────────────────────────────
 
 const SESSION_DIR = process.env.TELEGRAM_SESSION_DIR || "/data";
-const SESSION_FILE = nodePath.join(SESSION_DIR, "telegram-session.json");
+// Development and production can share the same Neon database and bot
+// credentials. Telegram rejects simultaneous use of one MTProto auth key from
+// multiple deployments with AUTH_KEY_DUPLICATED, so each runtime keeps an
+// independent, persistent session.
+const SESSION_SCOPE = process.env.NODE_ENV === "production" ? "production" : "development";
+const SESSION_FILE = nodePath.join(SESSION_DIR, `telegram-session-${SESSION_SCOPE}.json`);
 
 /** Key used to store the MTProto session in the app_secrets table (Neon). */
-const SESSION_DB_KEY = "telegram_mtproto_session";
+const SESSION_DB_KEY = `telegram_mtproto_session_${SESSION_SCOPE}`;
 
 /** MTProto chunk size — 512 KB (max per upload.GetFile request). */
 const CHUNK_SIZE = 524288;
