@@ -30,8 +30,8 @@ export default function TelegramVideoDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  // Short-lived stream ticket flow — the native <video> element cannot send
-  // the Authorization header, so playback authenticates via ?ticket=.
+  // Playback ticket flow — the native <video> element cannot send the
+  // Authorization header, so playback authenticates via ?ticket=.
   const [streamSrc, setStreamSrc] = useState<string | null>(null);
   const [streamLoading, setStreamLoading] = useState(true);
   const [streamError, setStreamError] = useState<string | null>(null);
@@ -78,25 +78,27 @@ export default function TelegramVideoDetailPage() {
 
   const handleVideoError = async () => {
     const el = videoRef.current;
-    // Tickets expire after 60 s — a mid-playback Range request can then fail.
-    // Retry once with a fresh ticket, resuming at the current position.
-    if (ticketRetriesRef.current < 3) {
+    const code = el?.error?.code;
+    const fallback = `Stream gagal dimuat dari server.${code ? ` (Error code: ${code})` : ""}`;
+
+    // Surface HTTP errors immediately instead of repeatedly issuing new
+    // tickets for a stream the server has already rejected.
+    if (streamSrc) {
+      const probed = await probeStreamError(streamSrc);
+      if (probed) {
+        setStreamError(probed);
+        return;
+      }
+    }
+
+    // A ticket does not expire. Only recover once from a transient media
+    // network error, resuming at the current playback position.
+    if (code === 2 && ticketRetriesRef.current < 1) {
       ticketRetriesRef.current += 1;
       loadStreamTicket(el?.currentTime ?? 0);
       return;
     }
-    // The <video> element can only tell us "network error" (code 4) — it
-    // cannot read the HTTP status or the backend's JSON error. Probe the
-    // stream endpoint to surface the real reason (file too big, token
-    // missing, file_id expired, …) instead of a cryptic error code.
-    const code = el?.error?.code;
-    const fallback = `Stream gagal dimuat dari server.${code ? ` (Error code: ${code})` : ""}`;
-    if (streamSrc) {
-      const probed = await probeStreamError(streamSrc);
-      setStreamError(probed ?? fallback);
-    } else {
-      setStreamError(fallback);
-    }
+    setStreamError(fallback);
   };
 
   // Clear the metadata timeout as soon as the video has enough data to play.
@@ -105,8 +107,11 @@ export default function TelegramVideoDetailPage() {
       clearTimeout(metadataTimeoutRef.current);
       metadataTimeoutRef.current = null;
     }
-    // Video successfully loaded after (re)issuing a ticket — reset the retry
-    // counter so future ticket expiries can still trigger a fresh ticket.
+  };
+
+  // Reset retry budget only after playback actually starts, not merely after
+  // metadata arrives; otherwise repeated failures can retry indefinitely.
+  const handleVideoPlaying = () => {
     ticketRetriesRef.current = 0;
   };
 
@@ -210,7 +215,7 @@ export default function TelegramVideoDetailPage() {
           </Button>
         </Link>
 
-        {/* Video Player — authenticates via the short-lived ?ticket= URL */}
+        {/* Video Player — authenticates via the ?ticket= URL */}
         <div className="bg-black rounded-lg overflow-hidden">
           {streamError ? (
             <div className="flex flex-col items-center justify-center gap-3 py-20 px-4 text-center">
@@ -242,6 +247,7 @@ export default function TelegramVideoDetailPage() {
               controlsList="nodownload"
               onError={handleVideoError}
               onLoadedMetadata={handleLoadedMetadata}
+              onPlaying={handleVideoPlaying}
             />
           )}
         </div>
