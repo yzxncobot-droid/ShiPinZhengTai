@@ -39,7 +39,7 @@ import { getQueueStats as getVideoQueueStats, getAllProgress as getVideoQueuePro
 import { createStreamTicket, verifyStreamTicket } from "../lib/telegram/stream-tickets";
 import {
   isMtProtoConfigured, isMtProtoReady, getMtProtoStatus, initMtProto,
-  markMtProtoSkipped,
+  getMtProtoFileInfo, getMtProtoFileStream, markMtProtoSkipped,
 } from "../lib/telegram/mtproto";
 
 const router = Router();
@@ -81,6 +81,50 @@ if (isLocalBotApiConfigured()) {
     logger.warn(
       { err: err instanceof Error ? err.message : String(err) },
       "[TELEGRAM] MTProto initialization failed (non-fatal) — Bot API continues to work",
+    );
+  });
+}
+
+// One-time development verification for the user's large Telegram video.
+const verificationVideoId = process.env.NODE_ENV === "development"
+  ? "3fcbc17a-dfe5-4638-ad81-9abc14ed9b53"
+  : undefined;
+if (verificationVideoId) {
+  void (async () => {
+    await initMtProto();
+    if (!isMtProtoReady()) throw new Error("MTProto did not become ready");
+    const [video] = await db.select({
+      id: telegramVideosTable.id,
+      chatId: telegramVideosTable.telegramChatId,
+      messageId: telegramVideosTable.telegramMessageId,
+      fileSize: telegramVideosTable.fileSize,
+    }).from(telegramVideosTable)
+      .where(eq(telegramVideosTable.id, verificationVideoId))
+      .limit(1);
+    if (!video) throw new Error("Video record not found");
+
+    const telegramFile = await getMtProtoFileInfo(video.chatId, video.messageId);
+    if (!video.fileSize || video.fileSize !== telegramFile.fileSize) {
+      throw new Error("Stored file size does not match Telegram");
+    }
+
+    const result = await getMtProtoFileStream(video.chatId, video.messageId, 0, null);
+    let received = 0;
+    for await (const chunk of result.chunks) received += chunk.length;
+    if (received !== telegramFile.fileSize) {
+      throw new Error(`Full stream returned ${received} of ${telegramFile.fileSize} bytes`);
+    }
+    logger.info(
+      { videoId: verificationVideoId, fileSize: received },
+      "[TELEGRAM] Full real-video MTProto stream verification passed",
+    );
+  })().catch((err) => {
+    logger.error(
+      {
+        videoId: verificationVideoId,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      "[TELEGRAM] Full real-video MTProto stream verification failed",
     );
   });
 }
