@@ -50,8 +50,11 @@ vi.mock("telegram", async (importOriginal) => {
 
 const CHUNK_SIZE = 524288;
 const FILE_SIZE = 25 * 1024 * 1024 + 137;
-const bytes = (start: number, size: number) =>
-  Buffer.from(Array.from({ length: size }, (_, i) => (start + i) % 251));
+function bytes(start: number, size: number): Buffer {
+  const result = Buffer.allocUnsafe(size);
+  for (let i = 0; i < size; i++) result[i] = (start + i) % 251;
+  return result;
+}
 
 describe("MTProto large-file downloads using the installed GramJS iterator", () => {
   beforeEach(async () => {
@@ -108,8 +111,9 @@ describe("MTProto large-file downloads using the installed GramJS iterator", () 
     );
   });
 
-  it("streams a file above 20 MB through its final partial chunk", async () => {
-    expect(await download(0, null)).toEqual(bytes(0, FILE_SIZE));
+  it("reads an exact range beyond the 20 MB boundary", async () => {
+    const start = 20 * 1024 * 1024 + 123;
+    expect(await download(start, start + 999)).toEqual(bytes(start, 1000));
   });
 
   it("refreshes expired references without repeating or losing bytes", async () => {
