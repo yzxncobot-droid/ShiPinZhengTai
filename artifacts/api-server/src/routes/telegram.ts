@@ -22,7 +22,7 @@ import { logger } from "../lib/logger";
 import {
   isTelegramConfigured, isLocalBotApiConfigured, checkLocalBotApiHealth,
   refreshLocalBotApiHealth,
-  testConnection, getBotInfo, testBotApi,
+  testConnection, getBotInfo, testBotApi, getFileInfo, getFileUrl,
   setWebhook, getWebhookInfo, deleteWebhook,
 } from "../lib/telegram/client";
 import {
@@ -1168,6 +1168,8 @@ router.get("/telegram-videos", optionalAuth, async (req, res) => {
       ...r.video,
       sourceName: r.sourceName,
       telegramFileId: undefined,
+      thumbnailFileId: undefined,
+      hasThumbnail: Boolean(r.video.thumbnailUrl || r.video.thumbnailFileId),
     }));
 
     logger.info(
@@ -1235,6 +1237,8 @@ router.get("/telegram-videos/:id", optionalAuth, async (req, res) => {
       ...row.video,
       sourceName: row.sourceName,
       telegramFileId: undefined,
+      thumbnailFileId: undefined,
+      hasThumbnail: Boolean(row.video.thumbnailUrl || row.video.thumbnailFileId),
       hasAccess,
     });
   } catch (err) {
@@ -1243,12 +1247,70 @@ router.get("/telegram-videos/:id", optionalAuth, async (req, res) => {
   }
 });
 
+// Serve the original Telegram thumbnail when persistent media storage has not
+// produced a public thumbnail URL. Telegram file IDs and the bot token stay on
+// the server; clients request this endpoint by video ID only.
+router.get("/telegram-videos/:id/thumbnail", optionalAuth, async (req, res) => {
+  const videoId = req.params.id as string;
+  try {
+    const [row] = await db.select({
+      video: telegramVideosTable,
+    }).from(telegramVideosTable)
+      .innerJoin(telegramSourcesTable,
+        eq(telegramVideosTable.telegramSourceId, telegramSourcesTable.id))
+      .where(and(
+        eq(telegramVideosTable.id, videoId),
+        eq(telegramSourcesTable.enabled, true),
+      ))
+      .limit(1);
+
+    if (!row) { res.status(404).json({ error: "Not found" }); return; }
+    const isStaff = req.user && ["admin", "owner"].includes(req.user.role);
+    if (!isStaff && !TELEGRAM_VIDEO_PUBLIC_STATUSES.includes(row.video.status as any)) {
+      res.status(404).json({ error: "Not found" }); return;
+    }
+    if (!(await checkTelegramVideoAccess(req.user?.userId, row.video))) {
+      res.status(403).json({ error: "Access denied" }); return;
+    }
+    if (!row.video.thumbnailFileId) {
+      res.status(404).json({ error: "Thumbnail not available" }); return;
+    }
+
+    const fileInfo = await getFileInfo(row.video.thumbnailFileId);
+    const imageResponse = await fetch(getFileUrl(fileInfo.filePath));
+    const contentType = imageResponse.headers.get("content-type") || "image/jpeg";
+    if (!imageResponse.ok || !contentType.toLowerCase().startsWith("image/")) {
+      logger.warn(
+        { videoId, status: imageResponse.status, contentType },
+        "[TELEGRAM THUMBNAIL] Telegram returned a non-image response",
+      );
+      res.status(502).json({ error: "Telegram thumbnail unavailable" }); return;
+    }
+
+    const image = Buffer.from(await imageResponse.arrayBuffer());
+    if (image.length === 0 || image.length > 2 * 1024 * 1024) {
+      res.status(502).json({ error: "Invalid Telegram thumbnail" }); return;
+    }
+    res
+      .status(200)
+      .setHeader("Content-Type", contentType)
+      .setHeader("Content-Length", String(image.length))
+      .setHeader("Cache-Control", "private, max-age=300")
+      .send(image);
+  } catch {
+    // Avoid logging Bot API URLs, which contain the bot token.
+    logger.warn({ videoId }, "[TELEGRAM THUMBNAIL] Telegram thumbnail fetch failed");
+    if (!res.headersSent) res.status(502).json({ error: "Telegram thumbnail unavailable" });
+  }
+});
+
 // ── POST /api/telegram-videos/:id/stream-ticket — issue a playback ticket ──
 // The native HTML5 <video> element cannot attach an Authorization header to
-// its src request, so the frontend first asks for this short-lived signed
+// its src request, so the frontend first asks for this signed
 // ticket (after full authentication + premium access checks) and then plays
-// GET .../stream?ticket=<ticket>. The ticket contains ONLY videoId + userId
-// with a 60 s expiry — never the bot token or a Telegram file_id.
+// GET .../stream?ticket=<ticket>. The ticket contains ONLY videoId + userId,
+// with no expiry so later Range requests remain valid — never the bot token
+// or a Telegram file_id.
 router.post("/telegram-videos/:id/stream-ticket", authenticate, async (req, res) => {
   try {
     const [row] = await db.select({

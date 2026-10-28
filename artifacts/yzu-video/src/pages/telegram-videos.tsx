@@ -120,6 +120,14 @@ export default function TelegramVideosPage() {
                     {/* Thumbnail placeholder */}
                     <div className="aspect-video bg-muted flex items-center justify-center relative">
                       <Film className="h-8 w-8 text-muted-foreground/40" />
+                      {(v.thumbnailUrl || v.hasThumbnail) && (
+                        <img
+                          src={v.thumbnailUrl || tgApi.thumbnailUrl(v.id)}
+                          alt={v.title}
+                          className="absolute inset-0 h-full w-full object-cover"
+                          onError={(event) => { event.currentTarget.style.display = "none"; }}
+                        />
+                      )}
                       {v.duration && (
                         <span className="absolute bottom-1 right-1 bg-black/70 text-white text-xs px-1 rounded">
                           {formatDuration(v.duration)}

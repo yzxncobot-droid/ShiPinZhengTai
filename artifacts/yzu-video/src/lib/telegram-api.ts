@@ -33,6 +33,8 @@ export interface TelegramVideo {
   duration: number | null;
   width: number | null;
   height: number | null;
+  thumbnailUrl?: string | null;
+  hasThumbnail?: boolean;
   caption: string | null;
   telegramDate: string | null;
   isPremium: boolean;
@@ -233,7 +235,8 @@ export const tgApi = {
   listVideoSources: () =>
     tgFetch<{ id: string; name: string; type: string; videoCount: number }[]>("/telegram-videos/sources"),
   getVideo: (id: string) => tgFetch<TelegramVideo>(`/telegram-videos/${id}`),
-  // Request a short-lived signed playback ticket — the native <video> element
+  thumbnailUrl: (id: string) => `/api/telegram-videos/${id}/thumbnail`,
+  // Request a signed playback ticket — the native <video> element
   // cannot attach the Authorization header, so playback authenticates via
   // ?ticket= instead. Issued only after auth + premium checks server-side.
   createStreamTicket: (videoId: string) =>

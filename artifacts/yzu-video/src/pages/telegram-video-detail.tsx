@@ -55,6 +55,8 @@ export default function TelegramVideoDetailPage() {
   // (the premium-locked / not-logged-in early returns below already handle
   // the cases where this stays false).
   const canStream = !!video && !!user && !(video.isPremium && video.hasAccess === false);
+  const thumbnailSrc = video?.thumbnailUrl ||
+    (video?.hasThumbnail ? tgApi.thumbnailUrl(video.id) : undefined);
 
   const loadStreamTicket = useCallback((resumeAt?: number) => {
     if (!id) return;
@@ -218,23 +220,41 @@ export default function TelegramVideoDetailPage() {
         {/* Video Player — authenticates via the ?ticket= URL */}
         <div className="bg-black rounded-lg overflow-hidden">
           {streamError ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-20 px-4 text-center">
-              <AlertCircle className="h-10 w-10 text-red-500" />
-              <p className="text-sm font-semibold text-white">Video gagal diputar.</p>
-              <p className="text-xs text-white/60">{streamError}</p>
-              <Button
-                size="sm" variant="secondary"
-                onClick={() => {
-                  ticketRetriesRef.current = 0;
-                  loadStreamTicket(videoRef.current?.currentTime ?? 0);
-                }}
-              >
-                Coba Lagi
-              </Button>
+            <div className="relative flex min-h-64 flex-col items-center justify-center gap-3 px-4 py-20 text-center">
+              {thumbnailSrc && (
+                <img
+                  src={thumbnailSrc}
+                  alt={video.title}
+                  className="absolute inset-0 h-full w-full object-contain opacity-35"
+                  onError={(event) => { event.currentTarget.style.display = "none"; }}
+                />
+              )}
+              <div className="relative z-10 flex flex-col items-center gap-3">
+                <AlertCircle className="h-10 w-10 text-red-500" />
+                <p className="text-sm font-semibold text-white">Video gagal diputar.</p>
+                <p className="text-xs text-white/80">{streamError}</p>
+                <Button
+                  size="sm" variant="secondary"
+                  onClick={() => {
+                    ticketRetriesRef.current = 0;
+                    loadStreamTicket(videoRef.current?.currentTime ?? 0);
+                  }}
+                >
+                  Coba Lagi
+                </Button>
+              </div>
             </div>
           ) : streamLoading || !streamSrc ? (
-            <div className="flex items-center justify-center py-24">
-              <Loader2 className="h-8 w-8 animate-spin text-white/60" />
+            <div className="relative flex aspect-video items-center justify-center">
+              {thumbnailSrc && (
+                <img
+                  src={thumbnailSrc}
+                  alt={video.title}
+                  className="absolute inset-0 h-full w-full object-contain opacity-35"
+                  onError={(event) => { event.currentTarget.style.display = "none"; }}
+                />
+              )}
+              <Loader2 className="relative z-10 h-8 w-8 animate-spin text-white/80" />
             </div>
           ) : (
             <video
@@ -244,6 +264,7 @@ export default function TelegramVideoDetailPage() {
               preload="metadata"
               className="w-full max-h-[70vh]"
               src={streamSrc}
+              poster={thumbnailSrc}
               controlsList="nodownload"
               onError={handleVideoError}
               onLoadedMetadata={handleLoadedMetadata}

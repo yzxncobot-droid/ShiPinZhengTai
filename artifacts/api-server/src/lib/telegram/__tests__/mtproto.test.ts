@@ -7,17 +7,19 @@ const mocks = vi.hoisted(() => ({
   getMessages: vi.fn(),
   iterDownload: vi.fn(),
   invokeWithSender: vi.fn(),
+  dbSelect: vi.fn(() => ({
+    from: () => ({ where: () => ({ limit: async () => [] }) }),
+  })),
+  dbInsert: vi.fn(() => ({
+    values: () => ({ onConflictDoUpdate: async () => undefined }),
+  })),
 }));
 
 vi.mock("@workspace/db", () => ({
   appSecretsTable: { key: "key", value: "value" },
   db: {
-    select: () => ({
-      from: () => ({ where: () => ({ limit: async () => [] }) }),
-    }),
-    insert: () => ({
-      values: () => ({ onConflictDoUpdate: async () => undefined }),
-    }),
+    select: mocks.dbSelect,
+    insert: mocks.dbInsert,
   },
 }));
 vi.mock("node:fs", () => ({
@@ -63,6 +65,7 @@ describe("MTProto large-file downloads using the installed GramJS iterator", () 
     vi.stubEnv("TELEGRAM_API_ID", "123");
     vi.stubEnv("TELEGRAM_API_HASH", "test-hash");
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-token");
+    vi.stubEnv("REPLIT_DEPLOYMENT", "");
     mocks.getMessages.mockResolvedValue([{
       media: { document: {
         id: bigInt(1), accessHash: bigInt(2), fileReference: Buffer.from("ref"),
@@ -127,5 +130,15 @@ describe("MTProto large-file downloads using the installed GramJS iterator", () 
       type: new Api.storage.FileMp4(), mtime: 0, bytes: Buffer.alloc(5),
     }));
     await expect(download(0, 99)).rejects.toThrow("MTProto download ended early");
+  });
+
+  it("uses an isolated in-memory session in published deployments", async () => {
+    vi.stubEnv("REPLIT_DEPLOYMENT", "1");
+    const { initMtProto } = await import("../mtproto");
+
+    await initMtProto();
+
+    expect(mocks.dbSelect).not.toHaveBeenCalled();
+    expect(mocks.dbInsert).not.toHaveBeenCalled();
   });
 });

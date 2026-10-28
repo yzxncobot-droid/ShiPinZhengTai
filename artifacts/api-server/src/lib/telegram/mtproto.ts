@@ -22,6 +22,7 @@
 import { TelegramClient, Api } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import bigInt from "big-integer";
+import { randomUUID } from "node:crypto";
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { logger } from "../logger";
@@ -32,11 +33,13 @@ import { eq } from "drizzle-orm";
 // ── Configuration ───────────────────────────────────────────────────────────
 
 const SESSION_DIR = process.env.TELEGRAM_SESSION_DIR || "/data";
-// Development and production can share the same Neon database and bot
-// credentials. Telegram rejects simultaneous use of one MTProto auth key from
-// multiple deployments with AUTH_KEY_DUPLICATED, so each runtime keeps an
-// independent, persistent session.
-const SESSION_SCOPE = process.env.NODE_ENV === "production" ? "production" : "development";
+// Replit Autoscale can run multiple production replicas at once. Telegram
+// rejects concurrent use of the same MTProto auth key with AUTH_KEY_DUPLICATED,
+// so each published process gets a fresh, in-memory-only session.
+const IS_PUBLISHED_DEPLOYMENT = process.env.REPLIT_DEPLOYMENT === "1";
+const SESSION_SCOPE = IS_PUBLISHED_DEPLOYMENT
+  ? `production-${randomUUID()}`
+  : process.env.NODE_ENV === "production" ? "production" : "development";
 const SESSION_FILE = nodePath.join(SESSION_DIR, `telegram-session-${SESSION_SCOPE}.json`);
 
 /** Key used to store the MTProto session in the app_secrets table (Neon). */
@@ -78,6 +81,11 @@ let retryTimer: ReturnType<typeof setTimeout> | null = null;
  * Never logs the session string itself.
  */
 async function loadSession(): Promise<StringSession> {
+  if (IS_PUBLISHED_DEPLOYMENT) {
+    logger.info("[TELEGRAM] MTProto: creating an isolated session for this Autoscale process");
+    return new StringSession("");
+  }
+
   // 1. Primary: load from Neon PostgreSQL (app_secrets table)
   try {
     const [row] = await db
@@ -118,6 +126,13 @@ async function loadSession(): Promise<StringSession> {
  * Never logs the session string.
  */
 async function saveSession(sessionString: string): Promise<void> {
+  if (IS_PUBLISHED_DEPLOYMENT) {
+    // Never save a production Autoscale auth key where another replica could
+    // load and use it concurrently.
+    logger.info("[TELEGRAM] MTProto: Autoscale session retained in this process only");
+    return;
+  }
+
   if (!sessionString) {
     logger.error("[TELEGRAM] MTProto session serialization returned an empty value; session was not persisted");
     return;
