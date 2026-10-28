@@ -1278,11 +1278,10 @@ router.get("/telegram-videos/:id/thumbnail", optionalAuth, async (req, res) => {
 
     const fileInfo = await getFileInfo(row.video.thumbnailFileId);
     const imageResponse = await fetch(getFileUrl(fileInfo.filePath));
-    const contentType = imageResponse.headers.get("content-type") || "image/jpeg";
-    if (!imageResponse.ok || !contentType.toLowerCase().startsWith("image/")) {
+    if (!imageResponse.ok) {
       logger.warn(
-        { videoId, status: imageResponse.status, contentType },
-        "[TELEGRAM THUMBNAIL] Telegram returned a non-image response",
+        { videoId, status: imageResponse.status },
+        "[TELEGRAM THUMBNAIL] Telegram file download failed",
       );
       res.status(502).json({ error: "Telegram thumbnail unavailable" }); return;
     }
@@ -1291,15 +1290,34 @@ router.get("/telegram-videos/:id/thumbnail", optionalAuth, async (req, res) => {
     if (image.length === 0 || image.length > 2 * 1024 * 1024) {
       res.status(502).json({ error: "Invalid Telegram thumbnail" }); return;
     }
+    const declaredType = imageResponse.headers.get("content-type")?.split(";")[0].toLowerCase();
+    const detectedType =
+      image.length >= 3 && image[0] === 0xff && image[1] === 0xd8 && image[2] === 0xff ? "image/jpeg"
+        : image.subarray(0, 8).toString("hex") === "89504e470d0a1a0a" ? "image/png"
+          : image.subarray(0, 4).toString("ascii") === "GIF8" ? "image/gif"
+            : image.subarray(0, 4).toString("ascii") === "RIFF" &&
+              image.subarray(8, 12).toString("ascii") === "WEBP" ? "image/webp"
+              : null;
+    const contentType = detectedType ?? (declaredType?.startsWith("image/") ? declaredType : null);
+    if (!contentType) {
+      logger.warn(
+        { videoId, declaredType },
+        "[TELEGRAM THUMBNAIL] Telegram returned an unrecognized image",
+      );
+      res.status(502).json({ error: "Telegram thumbnail unavailable" }); return;
+    }
     res
       .status(200)
       .setHeader("Content-Type", contentType)
       .setHeader("Content-Length", String(image.length))
       .setHeader("Cache-Control", "private, max-age=300")
       .send(image);
-  } catch {
+  } catch (err) {
     // Avoid logging Bot API URLs, which contain the bot token.
-    logger.warn({ videoId }, "[TELEGRAM THUMBNAIL] Telegram thumbnail fetch failed");
+    const errorCode = typeof (err as { errorCode?: unknown })?.errorCode === "number"
+      ? (err as { errorCode: number }).errorCode
+      : undefined;
+    logger.warn({ videoId, errorCode }, "[TELEGRAM THUMBNAIL] Telegram thumbnail fetch failed");
     if (!res.headersSent) res.status(502).json({ error: "Telegram thumbnail unavailable" });
   }
 });
