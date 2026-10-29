@@ -21,7 +21,8 @@ export async function probeStreamError(url: string): Promise<string | null> {
         416: "Server menolak rentang data video. Muat ulang halaman untuk mencoba lagi.",
         429: "Server sedang menangani banyak permintaan. Tunggu sebentar lalu coba lagi.",
       };
-      const message = messages[res.status] ??
+      const message =
+        messages[res.status] ??
         (res.status >= 500
           ? "Server streaming sedang mengalami gangguan. Coba lagi sebentar."
           : "Server menolak permintaan pemutaran video.");
@@ -29,7 +30,8 @@ export async function probeStreamError(url: string): Promise<string | null> {
       return message;
     }
 
-    const contentType = res.headers.get("content-type")
+    const contentType = res.headers
+      .get("content-type")
       ?.split(";")[0]
       ?.trim()
       .toLowerCase();
@@ -38,7 +40,10 @@ export async function probeStreamError(url: string): Promise<string | null> {
       await res.body?.cancel().catch(() => {});
       return "Server tidak mengembalikan format video yang dikenali.";
     }
-    if (res.status === 206 && !/^bytes 0-15\/[1-9]\d*$/.test(contentRange ?? "")) {
+    if (
+      res.status === 206 &&
+      !/^bytes 0-15\/[1-9]\d*$/.test(contentRange ?? "")
+    ) {
       await res.body?.cancel().catch(() => {});
       return "Respons streaming memiliki rentang byte yang tidak valid.";
     }
@@ -58,12 +63,17 @@ export async function probeStreamError(url: string): Promise<string | null> {
     if (!sample?.byteLength) return "Server mengirim file video kosong.";
 
     const prefix = new TextDecoder().decode(sample.subarray(0, 16)).trimStart();
-    if (prefix.startsWith("<") || prefix.startsWith("{") || prefix.startsWith("[")) {
+    if (
+      prefix.startsWith("<") ||
+      prefix.startsWith("{") ||
+      prefix.startsWith("[")
+    ) {
       return "Server mengembalikan halaman atau data error, bukan file video.";
     }
     if (
       contentType === "video/mp4" &&
-      (sample.byteLength < 8 || new TextDecoder().decode(sample.subarray(4, 8)) !== "ftyp")
+      (sample.byteLength < 8 ||
+        new TextDecoder().decode(sample.subarray(4, 8)) !== "ftyp")
     ) {
       return "Data yang dikirim tidak memiliki struktur kontainer MP4 yang valid.";
     }
