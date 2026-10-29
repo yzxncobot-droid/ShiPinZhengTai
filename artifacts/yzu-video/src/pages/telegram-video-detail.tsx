@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { tgApi, formatFileSize, formatDuration, type TelegramVideo } from "@/lib/telegram-api";
 import { probeStreamError } from "@/lib/probe-stream-error";
+import { describeVideoPlaybackError } from "@/lib/video-playback-error";
 import { useAuth } from "@/lib/auth";
 
 export default function TelegramVideoDetailPage() {
@@ -36,6 +37,7 @@ export default function TelegramVideoDetailPage() {
   const [streamLoading, setStreamLoading] = useState(true);
   const [streamError, setStreamError] = useState<string | null>(null);
   const ticketRetriesRef = useRef(0);
+  const ticketRequestId = useRef(0);
   // Metadata-load timeout: if the <video> never receives even metadata within
   // this window, the stream is stalled (not merely slow) — probe the endpoint
   // for the real error and surface it instead of an infinite native spinner.
@@ -58,18 +60,29 @@ export default function TelegramVideoDetailPage() {
   const thumbnailSrc = video?.thumbnailUrl ||
     (video?.hasThumbnail ? tgApi.thumbnailUrl(video.id) : undefined);
 
-  const loadStreamTicket = useCallback((resumeAt?: number) => {
+  const loadStreamTicket = useCallback(async (resumeAt?: number) => {
     if (!id) return;
+    const requestId = ++ticketRequestId.current;
     setStreamLoading(true);
     setStreamError(null);
-    tgApi.createStreamTicket(id)
-      .then(({ ticket }) => {
-        const url = tgApi.streamUrl(id, ticket);
-        // "#t=" media fragment resumes at resumeAt after a ticket refresh.
+    setStreamSrc(null);
+    try {
+      const { ticket } = await tgApi.createStreamTicket(id);
+      if (typeof ticket !== "string" || !ticket) {
+        throw new Error("Invalid playback ticket");
+      }
+      const url = tgApi.streamUrl(id, ticket);
+      // "#t=" media fragment resumes at resumeAt after a ticket refresh.
+      if (requestId === ticketRequestId.current) {
         setStreamSrc(resumeAt && resumeAt > 0 ? `${url}#t=${resumeAt}` : url);
-      })
-      .catch((err) => setStreamError(err.message || "Gagal menyiapkan streaming"))
-      .finally(() => setStreamLoading(false));
+      }
+    } catch {
+      if (requestId === ticketRequestId.current) {
+        setStreamError("Tidak dapat menyiapkan akses pemutaran. Muat ulang halaman dan masuk kembali jika diminta.");
+      }
+    } finally {
+      if (requestId === ticketRequestId.current) setStreamLoading(false);
+    }
   }, [id]);
 
   useEffect(() => {
@@ -81,7 +94,10 @@ export default function TelegramVideoDetailPage() {
   const handleVideoError = async () => {
     const el = videoRef.current;
     const code = el?.error?.code;
-    const fallback = `Stream gagal dimuat dari server.${code ? ` (Error code: ${code})` : ""}`;
+    if (metadataTimeoutRef.current) {
+      clearTimeout(metadataTimeoutRef.current);
+      metadataTimeoutRef.current = null;
+    }
 
     // Surface HTTP errors immediately instead of repeatedly issuing new
     // tickets for a stream the server has already rejected.
@@ -97,10 +113,10 @@ export default function TelegramVideoDetailPage() {
     // network error, resuming at the current playback position.
     if (code === 2 && ticketRetriesRef.current < 1) {
       ticketRetriesRef.current += 1;
-      loadStreamTicket(el?.currentTime ?? 0);
+      void loadStreamTicket(el?.currentTime ?? 0);
       return;
     }
-    setStreamError(fallback);
+    setStreamError(describeVideoPlaybackError(code));
   };
 
   // Clear the metadata timeout as soon as the video has enough data to play.
@@ -235,12 +251,13 @@ export default function TelegramVideoDetailPage() {
                 <p className="text-xs text-white/80">{streamError}</p>
                 <Button
                   size="sm" variant="secondary"
+                  disabled={streamLoading}
                   onClick={() => {
                     ticketRetriesRef.current = 0;
-                    loadStreamTicket(videoRef.current?.currentTime ?? 0);
+                    void loadStreamTicket(videoRef.current?.currentTime ?? 0);
                   }}
                 >
-                  Coba Lagi
+                  {streamLoading ? "Memuat..." : "Coba Lagi"}
                 </Button>
               </div>
             </div>

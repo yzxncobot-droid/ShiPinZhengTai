@@ -33,13 +33,13 @@ import {
   processIncomingUpdate, startQueueProcessor, getQueueStats,
   retryImportLog, syncSource, getTelegramErrorDiagnostics,
 } from "../lib/telegram/indexer";
-import { streamTelegramVideo } from "../lib/telegram/streamer";
+import { getVideoContentType, streamTelegramVideo } from "../lib/telegram/streamer";
 import { enqueueStream, getStreamQueueStats } from "../lib/telegram/stream-queue";
 import { getQueueStats as getVideoQueueStats, getAllProgress as getVideoQueueProgress } from "../lib/telegram/video-processing-queue";
 import { createStreamTicket, verifyStreamTicket } from "../lib/telegram/stream-tickets";
 import {
   isMtProtoConfigured, isMtProtoReady, getMtProtoStatus, initMtProto,
-  getMtProtoFileInfo, getMtProtoFileStream, markMtProtoSkipped,
+  markMtProtoSkipped,
 } from "../lib/telegram/mtproto";
 
 const router = Router();
@@ -81,50 +81,6 @@ if (isLocalBotApiConfigured()) {
     logger.warn(
       { err: err instanceof Error ? err.message : String(err) },
       "[TELEGRAM] MTProto initialization failed (non-fatal) — Bot API continues to work",
-    );
-  });
-}
-
-// One-time development verification for the user's large Telegram video.
-const verificationVideoId = process.env.NODE_ENV === "development"
-  ? "3fcbc17a-dfe5-4638-ad81-9abc14ed9b53"
-  : undefined;
-if (verificationVideoId) {
-  void (async () => {
-    await initMtProto();
-    if (!isMtProtoReady()) throw new Error("MTProto did not become ready");
-    const [video] = await db.select({
-      id: telegramVideosTable.id,
-      chatId: telegramVideosTable.telegramChatId,
-      messageId: telegramVideosTable.telegramMessageId,
-      fileSize: telegramVideosTable.fileSize,
-    }).from(telegramVideosTable)
-      .where(eq(telegramVideosTable.id, verificationVideoId))
-      .limit(1);
-    if (!video) throw new Error("Video record not found");
-
-    const telegramFile = await getMtProtoFileInfo(video.chatId, video.messageId);
-    if (!video.fileSize || video.fileSize !== telegramFile.fileSize) {
-      throw new Error("Stored file size does not match Telegram");
-    }
-
-    const result = await getMtProtoFileStream(video.chatId, video.messageId, 0, null);
-    let received = 0;
-    for await (const chunk of result.chunks) received += chunk.length;
-    if (received !== telegramFile.fileSize) {
-      throw new Error(`Full stream returned ${received} of ${telegramFile.fileSize} bytes`);
-    }
-    logger.info(
-      { videoId: verificationVideoId, fileSize: received },
-      "[TELEGRAM] Full real-video MTProto stream verification passed",
-    );
-  })().catch((err) => {
-    logger.error(
-      {
-        videoId: verificationVideoId,
-        err: err instanceof Error ? err.message : String(err),
-      },
-      "[TELEGRAM] Full real-video MTProto stream verification failed",
     );
   });
 }
@@ -1369,6 +1325,53 @@ router.post("/telegram-videos/:id/stream-ticket", authenticate, async (req, res)
 // ── GET /api/telegram-videos/:id/stream — stream video (Range support) ──────
 // Auth: Bearer header (normal API clients) OR ?ticket= playback ticket —
 // never public. See streamAuth above.
+router.head("/telegram-videos/:id/stream", streamAuth, async (req, res) => {
+  try {
+    const [row] = await db.select({
+      video: telegramVideosTable,
+    }).from(telegramVideosTable)
+      .innerJoin(telegramSourcesTable,
+        eq(telegramVideosTable.telegramSourceId, telegramSourcesTable.id))
+      .where(and(
+        eq(telegramVideosTable.id, req.params.id as string),
+        eq(telegramSourcesTable.enabled, true),
+      ))
+      .limit(1);
+
+    if (!row) { res.status(404).end(); return; }
+
+    const isStaff = req.user && ["admin", "owner"].includes(req.user.role);
+    if (!isStaff && !TELEGRAM_VIDEO_PUBLIC_STATUSES.includes(row.video.status as any)) {
+      res.status(404).end();
+      return;
+    }
+    if (!(await checkTelegramVideoAccess(req.user!.userId, row.video))) {
+      res.status(403).end();
+      return;
+    }
+    if (row.video.status === "error" || row.video.status === "unavailable") {
+      res.status(503).end();
+      return;
+    }
+    if (!row.video.telegramFileId && !isMtProtoReady()) {
+      res.status(404).end();
+      return;
+    }
+
+    res.setHeader("Content-Type", getVideoContentType(row.video.mimeType));
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "private, no-store");
+    const fileSize = row.video.fileSize;
+    if (typeof fileSize === "number" && Number.isSafeInteger(fileSize) && fileSize >= 0) {
+      res.setHeader("Content-Length", String(fileSize));
+    }
+    res.status(200).end();
+  } catch (err) {
+    logger.error({ err, videoId: req.params.id }, "[TELEGRAM STREAM] HEAD failed");
+    res.status(500).end();
+  }
+});
+
 router.get("/telegram-videos/:id/stream", streamAuth, async (req, res) => {
   try {
     const rangeHeader = req.headers.range;
@@ -1432,7 +1435,7 @@ router.get("/telegram-videos/:id/stream", streamAuth, async (req, res) => {
       videoId,
       chatId,
       messageId,
-      mimeType: row.video.mimeType || "video/mp4",
+      mimeType: row.video.mimeType || "application/octet-stream",
       res,
       rangeHeader: req.headers.range,
       fileSize: row.video.fileSize ?? null,

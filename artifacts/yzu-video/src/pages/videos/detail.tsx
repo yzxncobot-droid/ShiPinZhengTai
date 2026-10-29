@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, type SyntheticEvent } from "react";
 import { useLocation, useRoute } from "wouter";
 import { formatDistanceToNow } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
@@ -15,6 +15,7 @@ import { VideoCard } from "@/components/video/VideoCard";
 import { FunLogo } from "@/components/layout/AppLayout";
 import { tgApi } from "@/lib/telegram-api";
 import { probeStreamError } from "@/lib/probe-stream-error";
+import { describeVideoPlaybackError } from "@/lib/video-playback-error";
 import { getToken } from "@/lib/admin-api";
 
 export default function VideoDetailPage() {
@@ -43,19 +44,22 @@ export default function VideoDetailPage() {
   const addComment = useAddComment();
 
   const [commentText, setCommentText] = useState("");
+  const [directVideoError, setDirectVideoError] = useState<string | null>(null);
+  const [directVideoLoading, setDirectVideoLoading] = useState(false);
+  const directVideoRef = useRef<HTMLVideoElement>(null);
 
   // ── Telegram video streaming via short-lived playback ticket ──────────────
   // When videoSourceType === "telegram", the videoUrl points to the Telegram
   // stream endpoint which requires auth. The native <video> element cannot
-  // send the Authorization header, so we use the existing stream ticket system:
-  // 1. POST /api/telegram-videos/:id/stream-ticket → get a signed 60s ticket
-  // 2. Use the ticket URL as the <video src>
-  // 3. On error (ticket expiry mid-playback), retry once with a fresh ticket
+  // send the Authorization header, so use the existing signed ticket endpoint
+  // and place its ticket URL in the <video src>. Retry only transient network
+  // failures automatically; format/codec errors need a manual retry.
   const [tgStreamSrc, setTgStreamSrc] = useState<string | null>(null);
   const [tgStreamLoading, setTgStreamLoading] = useState(false);
   const [tgStreamError, setTgStreamError] = useState<string | null>(null);
   const tgVideoRef = useRef<HTMLVideoElement>(null);
   const tgTicketRetries = useRef(0);
+  const tgTicketRequestId = useRef(0);
   const tgMetadataTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const TG_METADATA_TIMEOUT_MS = 25000;
 
@@ -63,26 +67,74 @@ export default function VideoDetailPage() {
   // the generated VideoDetail type — cast to access them safely.
   const videoExt = video as (typeof video & { videoSourceType?: string; telegramVideoId?: string }) | undefined;
   const isTelegramVideo = videoExt?.videoSourceType === "telegram" && !!videoExt?.telegramVideoId;
+  const directVideoUrl = !isTelegramVideo ? video?.videoUrl?.trim() || "" : "";
 
-  const loadTgStreamTicket = useCallback((resumeAt?: number) => {
+  const handleDirectVideoError = async (event: SyntheticEvent<HTMLVideoElement>) => {
+    setDirectVideoLoading(false);
+    const code = event.currentTarget.error?.code;
+    const url = directVideoUrl;
+    const probed = url ? await probeStreamError(url) : null;
+    setDirectVideoError(probed ?? describeVideoPlaybackError(code));
+  };
+
+  useEffect(() => {
+    if (!directVideoLoading || !directVideoUrl) return;
+    const timeout = setTimeout(async () => {
+      if (directVideoRef.current?.readyState === 0) {
+        const probed = await probeStreamError(directVideoUrl);
+        setDirectVideoLoading(false);
+        setDirectVideoError(
+          probed ?? "Video belum menerima data dari sumber. Periksa koneksi lalu coba lagi.",
+        );
+      }
+    }, 25000);
+    return () => clearTimeout(timeout);
+  }, [directVideoLoading, directVideoUrl]);
+
+  useEffect(() => {
+    setDirectVideoError(null);
+  }, [id]);
+
+  const loadTgStreamTicket = useCallback(async (resumeAt?: number) => {
     if (!videoExt?.telegramVideoId) return;
+    const requestId = ++tgTicketRequestId.current;
     setTgStreamLoading(true);
     setTgStreamError(null);
+    setTgStreamSrc(null);
     const token = getToken();
-    fetch(`/api/telegram-videos/${videoExt.telegramVideoId}/stream-ticket`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-    })
-      .then(res => res.json())
-      .then(({ ticket }) => {
-        const url = `/api/telegram-videos/${videoExt.telegramVideoId}/stream?ticket=${encodeURIComponent(ticket)}`;
+    try {
+      const response = await fetch(`/api/telegram-videos/${videoExt.telegramVideoId}/stream-ticket`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        const message = response.status === 401
+          ? "Sesi login tidak berlaku. Masuk kembali untuk memutar video."
+          : response.status === 403
+            ? "Akun ini tidak memiliki akses untuk memutar video."
+            : response.status === 404
+              ? "Video tidak ditemukan atau sumbernya tidak tersedia."
+              : "Server tidak dapat menyiapkan pemutaran video.";
+        throw new Error(message);
+      }
+      if (typeof data?.ticket !== "string" || !data.ticket) {
+        throw new Error("Server tidak mengirim tiket pemutaran yang valid.");
+      }
+      const url = `/api/telegram-videos/${videoExt.telegramVideoId}/stream?ticket=${encodeURIComponent(data.ticket)}`;
+      if (requestId === tgTicketRequestId.current) {
         setTgStreamSrc(resumeAt && resumeAt > 0 ? `${url}#t=${resumeAt}` : url);
-      })
-      .catch(err => setTgStreamError(err.message || "Gagal menyiapkan streaming"))
-      .finally(() => setTgStreamLoading(false));
+      }
+    } catch (err) {
+      if (requestId === tgTicketRequestId.current) {
+        setTgStreamError(err instanceof Error ? err.message : "Tidak dapat menyiapkan pemutaran video.");
+      }
+    } finally {
+      if (requestId === tgTicketRequestId.current) setTgStreamLoading(false);
+    }
   }, [videoExt?.telegramVideoId]);
 
   useEffect(() => {
@@ -94,19 +146,26 @@ export default function VideoDetailPage() {
 
   const handleTgVideoError = async () => {
     const el = tgVideoRef.current;
-    if (tgTicketRetries.current < 3) {
-      tgTicketRetries.current += 1;
-      loadTgStreamTicket(el?.currentTime ?? 0);
-      return;
-    }
     const code = el?.error?.code;
-    const fallback = `Stream gagal dimuat dari server.${code ? ` (Error code: ${code})` : ""}`;
+    if (tgMetadataTimeout.current) {
+      clearTimeout(tgMetadataTimeout.current);
+      tgMetadataTimeout.current = null;
+    }
     if (tgStreamSrc) {
       const probed = await probeStreamError(tgStreamSrc);
-      setTgStreamError(probed ?? fallback);
-    } else {
-      setTgStreamError(fallback);
+      if (probed) {
+        setTgStreamError(probed);
+        return;
+      }
     }
+    // A new ticket can recover a transient network interruption, but cannot
+    // repair an unsupported codec or malformed media response.
+    if (code === 2 && tgTicketRetries.current < 1) {
+      tgTicketRetries.current += 1;
+      void loadTgStreamTicket(el?.currentTime ?? 0);
+      return;
+    }
+    setTgStreamError(describeVideoPlaybackError(code));
   };
 
   const handleTgLoadedMetadata = () => {
@@ -114,8 +173,11 @@ export default function VideoDetailPage() {
       clearTimeout(tgMetadataTimeout.current);
       tgMetadataTimeout.current = null;
     }
-    // Video successfully loaded after (re)issuing a ticket — reset the retry
-    // counter so future ticket expiries can still trigger a fresh ticket.
+  };
+
+  const handleTgVideoPlaying = () => {
+    // Only reset after actual playback starts so repeated metadata-only
+    // failures cannot create an automatic retry loop.
     tgTicketRetries.current = 0;
   };
 
@@ -246,12 +308,13 @@ export default function VideoDetailPage() {
                     <p className="text-xs text-white/60">{tgStreamError}</p>
                     <Button
                       size="sm" variant="secondary"
+                      disabled={tgStreamLoading}
                       onClick={() => {
                         tgTicketRetries.current = 0;
-                        loadTgStreamTicket(tgVideoRef.current?.currentTime ?? 0);
+                        void loadTgStreamTicket(tgVideoRef.current?.currentTime ?? 0);
                       }}
                     >
-                      Coba Lagi
+                      {tgStreamLoading ? "Memuat..." : "Coba Lagi"}
                     </Button>
                   </div>
                 ) : tgStreamLoading || !tgStreamSrc ? (
@@ -270,16 +333,53 @@ export default function VideoDetailPage() {
                     src={tgStreamSrc}
                     onError={handleTgVideoError}
                     onLoadedMetadata={handleTgLoadedMetadata}
+                    onPlaying={handleTgVideoPlaying}
                   />
                 )
               ) : (
-                <video
-                  controls
-                  autoPlay
-                  poster={video.thumbnail || ''}
-                  className="w-full h-full object-contain"
-                  src={video.videoUrl || ''}
-                />
+                <div className="relative h-full w-full">
+                  {directVideoUrl && (
+                    <video
+                      ref={directVideoRef}
+                      controls
+                      autoPlay
+                      playsInline
+                      preload="metadata"
+                      poster={video.thumbnail || ""}
+                      className="h-full w-full object-contain"
+                      src={directVideoUrl}
+                      onLoadStart={() => setDirectVideoLoading(true)}
+                      onCanPlay={() => setDirectVideoLoading(false)}
+                      onError={handleDirectVideoError}
+                    />
+                  )}
+                  {directVideoLoading && !directVideoError && directVideoUrl && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                      <Loader2 className="h-8 w-8 animate-spin text-white/80" />
+                    </div>
+                  )}
+                  {(directVideoError || !directVideoUrl) && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-4 text-center">
+                      <AlertCircle className="h-10 w-10 text-red-500" />
+                      <p className="text-sm font-semibold text-white">Video gagal diputar.</p>
+                      <p className="text-xs text-white/70">
+                        {directVideoError || "URL video tidak tersedia dari server."}
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={directVideoLoading || !directVideoUrl}
+                        onClick={() => {
+                          setDirectVideoError(null);
+                          setDirectVideoLoading(true);
+                          directVideoRef.current?.load();
+                        }}
+                      >
+                        {directVideoLoading ? "Memuat..." : "Coba Lagi"}
+                      </Button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>

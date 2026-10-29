@@ -764,3 +764,13 @@ describe("Database duplicate protection", () => {
     }));
   });
 });
+
+describe("Video streaming MIME metadata", () => {
+  it("advertises only video MIME types and does not guess unknown formats", async () => {
+    const { getVideoContentType } = await import("../streamer");
+    expect(getVideoContentType("video/mp4")).toBe("video/mp4");
+    expect(getVideoContentType(" Video/MP4; codecs=h264 ")).toBe("video/mp4");
+    expect(getVideoContentType("text/html")).toBe("application/octet-stream");
+    expect(getVideoContentType(null)).toBe("application/octet-stream");
+  });
+});

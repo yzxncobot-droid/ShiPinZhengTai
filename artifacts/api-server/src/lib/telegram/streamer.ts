@@ -45,6 +45,14 @@ function isLocalFilePath(filePath: string): boolean {
   return filePath.startsWith("/");
 }
 
+/** Only advertise a video MIME type when the source metadata identifies one. */
+export function getVideoContentType(mimeType?: string | null): string {
+  const normalized = mimeType?.trim().split(";")[0].toLowerCase();
+  return normalized && /^video\/[a-z0-9.+-]+$/.test(normalized)
+    ? normalized
+    : "application/octet-stream";
+}
+
 // ── getFile result cache (Bot API) ──────────────────────────────────────────
 // A browser playing a video sends many Range requests in quick succession
 // (initial load + seeks). Each Range request previously made a separate Bot API
@@ -435,7 +443,7 @@ async function streamLargeFileViaLocalBotApi(params: StreamParams): Promise<void
   const isPartial = !!range;
 
   // ── 3. Set response headers ───────────────────────────────────────────────
-  res.setHeader("Content-Type", mimeType || "video/mp4");
+  res.setHeader("Content-Type", getVideoContentType(mimeType));
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Content-Length", contentLength.toString());
   res.setHeader("Cache-Control", "private, no-store");
@@ -645,7 +653,7 @@ async function streamViaMtProto(params: StreamParams): Promise<void> {
   }
 
   // ── Set response headers only after MTProto is confirmed to be readable ──
-  res.setHeader("Content-Type", mimeType || "video/mp4");
+  res.setHeader("Content-Type", getVideoContentType(mimeType));
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Content-Length", contentLength.toString());
   res.setHeader("Cache-Control", "private, no-store");
@@ -745,7 +753,7 @@ async function streamLocalFile(
   const isPartial = !!range;
 
   // Set response headers
-  res.setHeader("Content-Type", mimeType || "video/mp4");
+  res.setHeader("Content-Type", getVideoContentType(mimeType));
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Content-Length", contentLength.toString());
   res.setHeader("Cache-Control", "private, no-store");
@@ -895,7 +903,7 @@ async function streamViaBotApiHttp(params: StreamParams, fileInfo: TelegramFileI
 
   const fileSize = fileInfo.fileSize;
   const fileUrl = getFileUrl(fileInfo.filePath);
-  const contentType = mimeType || "video/mp4";
+  const contentType = getVideoContentType(mimeType);
 
   // ── Parse & validate the browser's Range request ──────────────────────────
   let range: { start: number; end: number } | null = null;
