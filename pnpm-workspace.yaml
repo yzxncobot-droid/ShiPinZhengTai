@@ -35,11 +35,16 @@ minimumReleaseAgeExclude:
   - stripe-replit-sync
   - telegram
 
+# Each glob leads with a placeholder brace alternative (`_`, which doesn't
+# exist). pnpm expands every alternative, so the workspace is unchanged, but
+# the Netlify CLI only scans the first one — so it doesn't see a multi-project
+# monorepo and stop deploys with "Projects detected ... Configure the project".
+# Netlify builds the whole workspace from the root via netlify.toml.
 packages:
-  - artifacts/*
-  - lib/*
-  - lib/integrations/*
-  - scripts
+  - '{_,artifacts}/*'
+  - '{_,lib}/*'
+  - '{_,lib/integrations}/*'
+  - '{_,scripts}'
 
 catalog:
   '@replit/vite-plugin-cartographer': ^0.5.21

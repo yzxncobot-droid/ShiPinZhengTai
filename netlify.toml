@@ -1,0 +1,22 @@
+[build]
+  command = "bash scripts/netlify-build.sh"
+  publish = "artifacts/yzu-video/dist/public"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["bcrypt", "telegram", "big-integer"]
+  included_files = ["artifacts/api-server/dist/**"]
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
