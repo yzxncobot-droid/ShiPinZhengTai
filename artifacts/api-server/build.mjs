@@ -18,6 +18,7 @@ async function buildAll() {
     entryPoints: [
       path.resolve(artifactDir, "src/index.ts"),
       path.resolve(artifactDir, "src/migrate.ts"),
+      path.resolve(artifactDir, "src/lambda.ts"),
     ],
     platform: "node",
     bundle: true,
