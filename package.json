@@ -9,6 +9,11 @@
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
   "private": true,
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "big-integer": "^1.6.52",
+    "telegram": "^2.26.22"
+  },
   "devDependencies": {
     "prettier": "^3.8.4",
     "typescript": "~5.9.3"

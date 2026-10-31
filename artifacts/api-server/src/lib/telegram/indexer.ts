@@ -675,46 +675,53 @@ export async function processQueueItem(log: typeof telegramImportLogsTable.$infe
 
 let queueTimer: ReturnType<typeof setInterval> | null = null;
 
+/**
+ * Process one batch of pending / retryable import-log entries. Used by the
+ * background interval and, on serverless (where timers don't survive between
+ * invocations), awaited directly by the webhook before it responds.
+ */
+export async function processPendingQueue(): Promise<void> {
+  try {
+    // Pick up pending entries + retryable failed entries.
+    // Filter at the DB level to avoid filling the batch with entries that
+    // would be skipped (null-source rejects, permanently failed entries).
+    const now = new Date();
+    const entries = await db.select()
+      .from(telegramImportLogsTable)
+      .where(
+        and(
+          inArray(telegramImportLogsTable.status, ["pending", "failed"]),
+          isNotNull(telegramImportLogsTable.telegramSourceId),
+          sql`NOT (${telegramImportLogsTable.status} = 'failed' AND ${telegramImportLogsTable.attempts} >= ${MAX_ATTEMPTS})`,
+        ),
+      )
+      .orderBy(telegramImportLogsTable.createdAt)
+      .limit(BATCH_SIZE);
+
+    for (const entry of entries) {
+      // For failed entries, check backoff.
+      if (entry.status === "failed" && entry.processedAt) {
+        const backoff = getBackoffMs(entry.attempts);
+        const eligibleAt = new Date(entry.processedAt.getTime() + backoff);
+        if (eligibleAt > now) continue;
+      }
+
+      try {
+        await processQueueItem(entry);
+      } catch (err) {
+        // Error already logged in processQueueItem — continue with next.
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "[TELEGRAM] Queue processor error");
+  }
+}
+
 /** Start the background queue processor. Call once on module load. */
 export function startQueueProcessor(): void {
   if (queueTimer) return;
 
-  queueTimer = setInterval(async () => {
-    try {
-      // Pick up pending entries + retryable failed entries.
-      // Filter at the DB level to avoid filling the batch with entries that
-      // would be skipped (null-source rejects, permanently failed entries).
-      const now = new Date();
-      const entries = await db.select()
-        .from(telegramImportLogsTable)
-        .where(
-          and(
-            inArray(telegramImportLogsTable.status, ["pending", "failed"]),
-            isNotNull(telegramImportLogsTable.telegramSourceId),
-            sql`NOT (${telegramImportLogsTable.status} = 'failed' AND ${telegramImportLogsTable.attempts} >= ${MAX_ATTEMPTS})`,
-          ),
-        )
-        .orderBy(telegramImportLogsTable.createdAt)
-        .limit(BATCH_SIZE);
-
-      for (const entry of entries) {
-        // For failed entries, check backoff.
-        if (entry.status === "failed" && entry.processedAt) {
-          const backoff = getBackoffMs(entry.attempts);
-          const eligibleAt = new Date(entry.processedAt.getTime() + backoff);
-          if (eligibleAt > now) continue;
-        }
-
-        try {
-          await processQueueItem(entry);
-        } catch (err) {
-          // Error already logged in processQueueItem — continue with next.
-        }
-      }
-    } catch (err) {
-      logger.error({ err }, "[TELEGRAM] Queue processor error");
-    }
-  }, POLL_INTERVAL_MS);
+  queueTimer = setInterval(() => { void processPendingQueue(); }, POLL_INTERVAL_MS);
 
   logger.info(`[TELEGRAM] Queue processor started (interval: ${POLL_INTERVAL_MS / 1000}s)`);
 }
