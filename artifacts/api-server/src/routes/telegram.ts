@@ -30,7 +30,7 @@ import {
   resolveTelegramWebhookUrl,
 } from "../lib/telegram/webhook-url";
 import {
-  processIncomingUpdate, startQueueProcessor, getQueueStats,
+  processIncomingUpdate, startQueueProcessor, processPendingQueue, getQueueStats,
   retryImportLog, syncSource, getTelegramErrorDiagnostics,
 } from "../lib/telegram/indexer";
 import { getVideoContentType, streamTelegramVideo } from "../lib/telegram/streamer";
@@ -207,6 +207,11 @@ router.post("/telegram/webhook", async (req, res) => {
     if (result.reason === "error") {
       res.status(500).json({ ok: false });
       return;
+    }
+    // Serverless (Netlify Functions): the 5 s interval doesn't run between
+    // invocations, so process the queued entry before the function freezes.
+    if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
+      await processPendingQueue();
     }
     res.status(200).json({ ok: true });
   } catch (err) {
