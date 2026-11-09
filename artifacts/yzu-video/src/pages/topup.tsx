@@ -40,13 +40,12 @@ export default function TopupPage() {
   const handlePreset = (amount: number) => {
     setSelected(amount);
     setCustom("");
-    openModal(amount);
+    setTopupAmount(amount);
   };
 
-  const handleCustomTopup = () => {
-    const amount = Number(custom);
-    if (!Number.isInteger(amount) || amount < MIN_TOPUP) return;
-    setSelected(null);
+  const handleTopupClick = () => {
+    const amount = selected || Number(custom);
+    if (!amount || amount < MIN_TOPUP) return;
     openModal(amount);
   };
 
@@ -147,13 +146,13 @@ export default function TopupPage() {
             </div>
 
             <button
-              onClick={handleCustomTopup}
-              disabled={!custom || Number(custom) < MIN_TOPUP}
-              className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-full text-sm font-extrabold text-white shadow-md transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-              style={{ background: "linear-gradient(135deg, #f472b6 0%, #ec4899 100%)" }}
+              onClick={handleTopupClick}
+              disabled={!(selected || (custom && Number(custom) >= MIN_TOPUP))}
+              className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-extrabold text-white shadow-lg shadow-violet-500/25 transition hover:opacity-95 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
             >
-              <Star className="h-4 w-4 fill-white" />
-              Top Up
+              <QrCode className="h-4 w-4" />
+              Top Up {selected ? fmtRp(selected) : custom && Number(custom) >= MIN_TOPUP ? fmtRp(Number(custom)) : ""}
             </button>
 
             {/* ── QRIS info card ─────────────────────────────────────────── */}
