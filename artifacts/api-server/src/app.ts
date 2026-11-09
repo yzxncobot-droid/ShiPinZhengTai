@@ -72,11 +72,6 @@ app.use(
 
 app.use(express.json({
   limit: "10mb",
-  verify: (req, _res, buf) => {
-    if ((req as any).originalUrl?.includes("/webhooks/buatqris")) {
-      (req as any).rawBody = Buffer.from(buf);
-    }
-  },
 }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
