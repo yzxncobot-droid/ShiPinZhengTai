@@ -28,7 +28,7 @@ import { statSync } from "fs";
 import { logger } from "../logger";
 import { getFileInfo, getFileUrl, refreshFileId, isLocalBotApiConfigured } from "./client";
 import type { TelegramFileInfo } from "./client";
-import { isMtProtoReady, getMtProtoFileStream, getMtProtoFileInfo, BOT_API_THRESHOLD } from "./mtproto";
+import { isMtProtoReady, isMtProtoConfigured, getMtProtoFileStream, getMtProtoFileInfo, BOT_API_THRESHOLD } from "./mtproto";
 import { shouldUseMtProto } from "./file-provider";
 import { getCachedLocalBotApiHealth } from "./client";
 import { db } from "@workspace/db";
@@ -232,7 +232,7 @@ export async function streamTelegramVideo(params: StreamParams): Promise<void> {
   // If fileId is null (AutoUP video) and we fell through to here, Bot API
   // can't work — it requires a file_id. Try MTProto as a fallback if available.
   if (!params.fileId) {
-    if (isMtProtoReady()) {
+    if (isMtProtoReady() || isMtProtoConfigured()) {
       try {
         await streamViaMtProto(params);
         return;
@@ -280,7 +280,7 @@ async function streamLargeFile(params: StreamParams): Promise<void> {
   const { videoId, fileId, res } = params;
 
   // ── 1. Try MTProto first (no size limit) ──────────────────────────────────
-  if (isMtProtoReady()) {
+  if (isMtProtoReady() || isMtProtoConfigured()) {
     try {
       await streamViaMtProto(params);
       return;
