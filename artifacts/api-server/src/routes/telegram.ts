@@ -666,6 +666,10 @@ router.get("/admin/telegram/mtproto/health", authenticate, requireRole("admin", 
       apiIdConfigured: status.apiIdConfigured,
       state: status.state,
       error: status.error,
+      runtime: {
+        nodeEnv: process.env.NODE_ENV || "development",
+        isServerless: !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.NETLIFY,
+      },
     });
   } catch (err) {
     logger.error({ err }, "GET /admin/telegram/mtproto/health failed");
@@ -1353,7 +1357,18 @@ router.head("/telegram-videos/:id/stream", streamAuth, async (req, res) => {
       res.status(503).end();
       return;
     }
-    if (!row.video.telegramFileId && !isMtProtoReady()) {
+
+    let fileSize = row.video.fileSize;
+    if ((!fileSize || fileSize <= 0) && isMtProtoConfigured()) {
+      try {
+        const info = await import("../lib/telegram/mtproto").then(m => m.getMtProtoFileInfo(row.video.telegramChatId, row.video.telegramMessageId));
+        fileSize = info.fileSize;
+      } catch {
+        // Fallback to row.video.fileSize
+      }
+    }
+
+    if (!row.video.telegramFileId && !isMtProtoConfigured() && !isMtProtoReady()) {
       res.status(404).end();
       return;
     }
@@ -1361,7 +1376,6 @@ router.head("/telegram-videos/:id/stream", streamAuth, async (req, res) => {
     res.setHeader("Content-Type", getVideoContentType(row.video.mimeType));
     res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Cache-Control", "private, no-store");
-    const fileSize = row.video.fileSize;
     if (typeof fileSize === "number" && Number.isSafeInteger(fileSize) && fileSize >= 0) {
       res.setHeader("Content-Length", String(fileSize));
     }
@@ -1410,9 +1424,8 @@ router.get("/telegram-videos/:id/stream", streamAuth, async (req, res) => {
 
     // AutoUP-imported videos have telegramFileId = null (they use MTProto
     // with chatId + messageId, not a Bot API file_id). Allow streaming when
-    // MTProto is available; only block when BOTH fileId is missing AND
-    // MTProto is not ready (Bot API requires a file_id).
-    if (!row.video.telegramFileId && !isMtProtoReady()) {
+    // MTProto is available or configured (it can be initialized on demand).
+    if (!row.video.telegramFileId && !isMtProtoConfigured() && !isMtProtoReady()) {
       res.status(404).json({
         error: "Video file_id not available",
         detail: "Video ini tidak memiliki file_id Telegram dan MTProto tidak tersedia. Set TELEGRAM_API_ID dan TELEGRAM_API_HASH untuk mengaktifkan streaming video tanpa file_id.",

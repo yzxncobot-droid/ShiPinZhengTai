@@ -36,10 +36,11 @@ const SESSION_DIR = process.env.TELEGRAM_SESSION_DIR || "/data";
 // Replit Autoscale can run multiple production replicas at once. Telegram
 // rejects concurrent use of the same MTProto auth key with AUTH_KEY_DUPLICATED,
 // so each published process gets a fresh, in-memory-only session.
-const IS_PUBLISHED_DEPLOYMENT = process.env.REPLIT_DEPLOYMENT === "1";
-const SESSION_SCOPE = IS_PUBLISHED_DEPLOYMENT
-  ? `production-${randomUUID()}`
-  : process.env.NODE_ENV === "production" ? "production" : "development";
+// In published deployments, unless configured with TELEGRAM_PERSIST_SESSION="1",
+// isolate the session in-memory to prevent AUTH_KEY_DUPLICATED when replicas run concurrently.
+const IS_PUBLISHED_DEPLOYMENT = process.env.REPLIT_DEPLOYMENT === "1" && process.env.TELEGRAM_PERSIST_SESSION !== "1";
+const SESSION_SCOPE = process.env.TELEGRAM_SESSION_SCOPE ||
+  (IS_PUBLISHED_DEPLOYMENT ? `production-${randomUUID()}` : process.env.NODE_ENV === "production" ? "production" : "development");
 const SESSION_FILE = nodePath.join(SESSION_DIR, `telegram-session-${SESSION_SCOPE}.json`);
 
 /** Key used to store the MTProto session in the app_secrets table (Neon). */
@@ -367,17 +368,29 @@ export interface MtProtoStreamResult {
  * @param startByte Start byte offset (inclusive)
  * @param endByte   End byte offset (inclusive), or null for end-of-file
  */
+/** Ensure MTProto client is connected and ready, attempting on-demand init if needed. */
+async function ensureMtProtoReady(): Promise<TelegramClient> {
+  if (isMtProtoReady() && client) {
+    return client;
+  }
+  if (isMtProtoConfigured()) {
+    logger.info("[TELEGRAM] MTProto client requested on-demand — initializing/connecting...");
+    await initMtProto();
+    if (isMtProtoReady() && client) {
+      return client;
+    }
+  }
+  throw new Error(`MTProto client not ready (state: ${connectionState}${connectionError ? `: ${connectionError}` : ""})`);
+}
+
 export async function getMtProtoFileStream(
   chatId: string,
   messageId: string,
   startByte: number,
   endByte: number | null,
 ): Promise<MtProtoStreamResult> {
-  if (!isMtProtoReady() || !client) {
-    throw new Error("MTProto client not initialized");
-  }
-
-  return doMtProtoDownload(client, chatId, messageId, startByte, endByte, false);
+  const readyClient = await ensureMtProtoReady();
+  return doMtProtoDownload(readyClient, chatId, messageId, startByte, endByte, false);
 }
 
 /**
@@ -389,11 +402,8 @@ export async function getMtProtoFileInfo(
   chatId: string,
   messageId: string,
 ): Promise<{ fileSize: number; mimeType: string }> {
-  if (!isMtProtoReady() || !client) {
-    throw new Error("MTProto client not initialized");
-  }
-
-  const message = await fetchMessage(client, chatId, messageId);
+  const readyClient = await ensureMtProtoReady();
+  const message = await fetchMessage(readyClient, chatId, messageId);
   const doc = extractDocument(message);
   return {
     fileSize: Number(doc.size),
@@ -403,20 +413,87 @@ export async function getMtProtoFileInfo(
 
 // ── Internal helpers ────────────────────────────────────────────────────────
 
+/**
+ * Resolve an input peer for a chat/channel ID in GramJS.
+ * Handles channel IDs (-100...), basic groups, and usernames.
+ */
+async function resolvePeer(client: TelegramClient, chatId: string): Promise<any> {
+  const cleanStr = chatId.trim();
+  const chatIdNum = parseInt(cleanStr, 10);
+
+  if (Number.isNaN(chatIdNum)) {
+    throw new Error(`Invalid chat ID: ${chatId}`);
+  }
+
+  // 1. Try passing the numeric ID directly to GramJS if available in session/cache.
+  try {
+    return await client.getInputEntity(chatIdNum);
+  } catch (err) {
+    logger.info({ chatId, err: err instanceof Error ? err.message : String(err) }, "[TELEGRAM MTProto] Standard entity resolution failed, attempting fallback resolution");
+  }
+
+  // 2. If it is a channel/supergroup (-100 prefix), construct an InputChannel or InputPeerChannel.
+  if (cleanStr.startsWith("-100")) {
+    const rawChannelId = cleanStr.slice(4);
+    const channelBigInt = bigInt(rawChannelId);
+
+    // Try resolving channel via channels.GetChannels with accessHash: 0
+    try {
+      const channelResult = await client.invoke(new Api.channels.GetChannels({
+        id: [new Api.InputChannel({ channelId: channelBigInt, accessHash: bigInt.zero })],
+      }));
+      const chat = (channelResult as any)?.chats?.[0];
+      if (chat) {
+        return new Api.InputPeerChannel({
+          channelId: chat.id,
+          accessHash: chat.accessHash,
+        });
+      }
+    } catch (chanErr) {
+      logger.warn({ chatId, err: chanErr instanceof Error ? chanErr.message : String(chanErr) }, "[TELEGRAM MTProto] channels.GetChannels failed");
+    }
+
+    // Try fetching dialogs once to prime the entity cache if empty
+    try {
+      await client.getDialogs({ limit: 50 });
+      return await client.getInputEntity(chatIdNum);
+    } catch {
+      // Continue to fallback
+    }
+
+    // Return an InputPeerChannel with accessHash: 0 as best effort
+    return new Api.InputPeerChannel({
+      channelId: channelBigInt,
+      accessHash: bigInt.zero,
+    });
+  }
+
+  // Fallback to basic chat or number
+  return chatIdNum;
+}
+
 /** Fetch a single message by chat ID + message ID via MTProto. */
 async function fetchMessage(
   client: TelegramClient,
   chatId: string,
   messageId: string,
 ): Promise<any> {
-  const chatIdNum = parseInt(chatId, 10);
   const msgIdNum = parseInt(messageId, 10);
 
-  if (Number.isNaN(chatIdNum) || Number.isNaN(msgIdNum)) {
-    throw new Error(`Invalid chat ID or message ID: chatId=${chatId}, messageId=${messageId}`);
+  if (Number.isNaN(msgIdNum)) {
+    throw new Error(`Invalid message ID: ${messageId}`);
   }
 
-  const messages = await client.getMessages(chatIdNum, { ids: [msgIdNum] });
+  const peer = await resolvePeer(client, chatId);
+  let messages: any[];
+  try {
+    messages = await client.getMessages(peer, { ids: [msgIdNum] });
+  } catch (err: any) {
+    logger.warn({ chatId, messageId, err: err?.message || String(err) }, "[TELEGRAM MTProto] getMessages failed with peer, trying direct integer ID");
+    const chatIdNum = parseInt(chatId, 10);
+    messages = await client.getMessages(chatIdNum, { ids: [msgIdNum] });
+  }
+
   const message = messages?.[0];
 
   if (!message) {
