@@ -478,9 +478,9 @@ export default function AdminUploadVideo() {
                     <FormMessage />
                     {field.value && (
                       <p className="text-xs text-teal-600 font-medium mt-1">
-                        {field.value === "Public"  && <span>🌐 Video → <code className="bg-sky-50 px-1 rounded">API Public · PUBLIC Supabase</code></span>}
-                        {field.value === "Owner"   && <span>👑 Video → <code className="bg-amber-50 px-1 rounded">API Owner · OWNER Supabase</code></span>}
-                        {field.value === "Media"   && <span>🖼️ Thumbnail → <code className="bg-violet-50 px-1 rounded">MEDIA Supabase</code> · Video → storage default</span>}
+                        {field.value === "Public"  && <span>🌐 Video → <code className="bg-sky-50 px-1 rounded">Creator Storage · Unified Supabase</code></span>}
+                        {field.value === "Owner"   && <span>👑 Video → <code className="bg-amber-50 px-1 rounded">Owner Storage · Unified Supabase</code></span>}
+                        {field.value === "Media"   && <span>🖼️ Thumbnail → <code className="bg-violet-50 px-1 rounded">Media Storage · Unified Supabase</code></span>}
                       </p>
                     )}
                   </FormItem>

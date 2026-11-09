@@ -1,74 +1,55 @@
 /**
- * OwnerStorage — Supabase OWNER project
+ * OwnerStorage — Unified Supabase project
  *
  * Used exclusively for Owner and Admin video uploads.
  *
  * Environment variables:
- *   OWNER_SUPABASE_URL         (required)
- *   OWNER_SUPABASE_SERVICE_KEY (required)
+ *   SUPABASE_URL               (required)
+ *   SUPABASE_SERVICE_ROLE_KEY  (required)
  *
  * Bucket: yzx
  * Folders:
  *   Videos:     yzx/owner/videos/
  *   Thumbnails: yzx/owner/thumbnails/
- *
- * ── Legacy Bunny Stream ────────────────────────────────────────────────────────
- * The old implementation used Bunny Stream for Owner video uploads.
- * Bunny Stream support has been removed from new uploads. Existing DB rows
- * with videoStorageProvider = "bunny_stream" continue to work because
- * the video_url stored in Neon is a direct CDN/embed URL that needs no
- * server-side routing — only the upload path has changed.
  */
 
 import { logger } from "../logger";
 import type { StorageService, UploadThumbnailResult, UploadVideoResult } from "./types";
 import {
-  buildSupabaseClient,
   generateStoragePath,
   makeSupabaseThumbnailResult,
   makeSupabaseVideoResult,
-  normalizeSupabaseUrl,
   supabaseDeleteFile,
   supabaseUploadWithRetry,
+  unifiedSupabaseClient as client,
+  UNIFIED_SUPABASE_URL as SUPABASE_URL,
+  UNIFIED_BUCKET as BUCKET,
+  isUnifiedSupabaseAvailable,
 } from "./supabase-helpers";
 
-// Consolidated: OWNER falls back to PUBLIC Supabase project when OWNER-specific
-// env vars are not set. This allows using a single Supabase project for both
-// owner and creator uploads (bucket "yzx", separate folder prefixes).
-const OWNER_SUPABASE_KEY = process.env.OWNER_SUPABASE_SERVICE_KEY || process.env.PUBLIC_SUPABASE_SERVICE_KEY || "";
-const OWNER_SUPABASE_URL = normalizeSupabaseUrl(
-  process.env.OWNER_SUPABASE_URL || process.env.PUBLIC_SUPABASE_URL || "",
-  OWNER_SUPABASE_KEY,
-);
-const BUCKET = "yzx";
 const VIDEO_FOLDER = "owner/videos";
 const THUMB_FOLDER = "owner/thumbnails";
 
-export const isOwnerStorageAvailable =
-  !!OWNER_SUPABASE_URL && !!OWNER_SUPABASE_KEY;
+export const isOwnerStorageAvailable = isUnifiedSupabaseAvailable;
 
 /**
  * Kept for backward-compat imports in upload.ts debug endpoint.
- * Always false in new architecture (Bunny Stream no longer used).
+ * Always false in current architecture (Bunny Stream no longer used).
  */
 export const isBunnyStreamAvailable = false;
 
 if (!isOwnerStorageAvailable) {
   logger.warn(
-    "OWNER_SUPABASE_URL / OWNER_SUPABASE_SERVICE_KEY (or PUBLIC_SUPABASE_URL / PUBLIC_SUPABASE_SERVICE_KEY) not set — " +
+    "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set — " +
     "Owner video uploads will fail. Set these secrets to enable Owner storage.",
   );
-} else if (!process.env.OWNER_SUPABASE_URL && process.env.PUBLIC_SUPABASE_URL) {
-  logger.info("OwnerStorage: using PUBLIC Supabase project (consolidated mode — no OWNER_SUPABASE_URL set)");
 }
-
-const client = buildSupabaseClient(OWNER_SUPABASE_URL, OWNER_SUPABASE_KEY);
 
 function checkAvailable() {
   if (!isOwnerStorageAvailable) {
     throw new Error(
       "Owner storage tidak dikonfigurasi " +
-      "(OWNER_SUPABASE_URL / OWNER_SUPABASE_SERVICE_KEY belum diset). " +
+      "(SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY belum diset). " +
       "Hubungi admin untuk mengaktifkan Owner upload.",
     );
   }
@@ -80,7 +61,7 @@ export const ownerStorage: StorageService = {
     const storagePath = generateStoragePath(VIDEO_FOLDER, file.originalname);
     logger.info({ bucket: BUCKET, path: storagePath, size: file.size }, "OwnerStorage: upload video START");
     const { path: savedPath, url } = await supabaseUploadWithRetry(
-      client, OWNER_SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
+      client, SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
     );
     logger.info({ path: savedPath }, "OwnerStorage: upload video SUCCESS");
     return makeSupabaseVideoResult({
@@ -97,7 +78,7 @@ export const ownerStorage: StorageService = {
     const storagePath = generateStoragePath(THUMB_FOLDER, file.originalname);
     logger.info({ bucket: BUCKET, path: storagePath, size: file.size }, "OwnerStorage: upload thumbnail START");
     const { path: savedPath, url } = await supabaseUploadWithRetry(
-      client, OWNER_SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
+      client, SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
     );
     logger.info({ path: savedPath }, "OwnerStorage: upload thumbnail SUCCESS");
     return makeSupabaseThumbnailResult({

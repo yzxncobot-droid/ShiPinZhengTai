@@ -1,7 +1,7 @@
 /**
- * MediaStorage — Supabase MEDIA project
+ * MediaStorage — Unified Supabase project
  *
- * Dedicated storage for all non-video media assets:
+ * Dedicated storage handler for all non-video media assets:
  *   Profile photos (avatars)
  *   QRIS payment images
  *   Banners (site, user, category)
@@ -9,10 +9,10 @@
  *   Site logos / generic images
  *
  * Environment variables:
- *   MEDIA_SUPABASE_URL         (required)
- *   MEDIA_SUPABASE_SERVICE_KEY (required)
+ *   SUPABASE_URL               (required)
+ *   SUPABASE_SERVICE_ROLE_KEY  (required)
  *
- * Bucket: yzx  (configurable via MEDIA_SUPABASE_BUCKET)
+ * Bucket: yzx
  * Folder layout:
  *   media/avatars/           ← profile photos
  *   media/qris/              ← QRIS payment images
@@ -25,40 +25,28 @@
 
 import { logger } from "../logger";
 import {
-  buildSupabaseClient,
   generateStoragePath,
-  normalizeSupabaseUrl,
   supabaseUploadWithRetry,
+  unifiedSupabaseClient as client,
+  UNIFIED_SUPABASE_URL as SUPABASE_URL,
+  UNIFIED_BUCKET as BUCKET,
+  isUnifiedSupabaseAvailable,
 } from "./supabase-helpers";
 
-// Consolidated: MEDIA falls back to PUBLIC Supabase project when MEDIA-specific
-// env vars are not set. This allows using a single Supabase project for all
-// storage (PUBLIC + OWNER + MEDIA) with the same bucket "yzx".
-const MEDIA_KEY = process.env.MEDIA_SUPABASE_SERVICE_KEY || process.env.PUBLIC_SUPABASE_SERVICE_KEY || "";
-const MEDIA_URL = normalizeSupabaseUrl(
-  process.env.MEDIA_SUPABASE_URL || process.env.PUBLIC_SUPABASE_URL || "",
-  MEDIA_KEY,
-);
-const BUCKET    = process.env.MEDIA_SUPABASE_BUCKET ?? "yzx";
-
-export const isMediaStorageAvailable = !!MEDIA_URL && !!MEDIA_KEY;
+export const isMediaStorageAvailable = isUnifiedSupabaseAvailable;
 
 if (!isMediaStorageAvailable) {
   logger.warn(
-    "MEDIA_SUPABASE_URL / MEDIA_SUPABASE_SERVICE_KEY (or PUBLIC fallback) not set — " +
+    "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set — " +
     "media asset uploads (avatars, QRIS, banners, bundle images) will fail.",
   );
-} else if (!process.env.MEDIA_SUPABASE_URL && process.env.PUBLIC_SUPABASE_URL) {
-  logger.info("MediaStorage: using PUBLIC Supabase project (consolidated mode — no MEDIA_SUPABASE_URL set)");
 }
-
-const client = buildSupabaseClient(MEDIA_URL, MEDIA_KEY);
 
 function checkAvailable() {
   if (!isMediaStorageAvailable) {
     throw new Error(
       "Media storage tidak dikonfigurasi " +
-      "(MEDIA_SUPABASE_URL / MEDIA_SUPABASE_SERVICE_KEY belum diset). " +
+      "(SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY belum diset). " +
       "Hubungi admin untuk mengaktifkan upload media.",
     );
   }
@@ -127,7 +115,7 @@ export function resolveMediaAssetType(raw: string | undefined): MediaAssetType {
 // ── Upload helper ─────────────────────────────────────────────────────────────
 
 /**
- * Upload any media asset to the MEDIA Supabase project.
+ * Upload any media asset to the unified Supabase project.
  *
  * @param assetType  One of the MediaAssetType values (or a frontend alias).
  *                   Determines the sub-folder inside the bucket.
@@ -150,7 +138,7 @@ export async function uploadToMediaStorage(
   );
 
   const { path: savedPath, url } = await supabaseUploadWithRetry(
-    client, MEDIA_URL, BUCKET, storagePath, file.buffer, file.mimetype,
+    client, SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
   );
 
   logger.info({ path: savedPath, assetType: type }, "MediaStorage: upload SUCCESS");
@@ -163,7 +151,7 @@ export async function uploadToMediaStorage(
  * Always routes to media/bundle-thumbnails/.
  */
 /**
- * Upload a raw thumbnail buffer (from AutoUP FFmpeg) to the MEDIA Supabase project.
+ * Upload a raw thumbnail buffer (from AutoUP FFmpeg) to the unified Supabase project.
  * Returns null when media storage is not configured (non-fatal — thumbnail stays null).
  */
 export async function uploadThumbnailBufferToMedia(
@@ -177,7 +165,7 @@ export async function uploadThumbnailBufferToMedia(
   const storagePath = generateStoragePath(folder, `thumbnail${ext}`);
 
   const { path, url } = await supabaseUploadWithRetry(
-    client, MEDIA_URL, BUCKET, storagePath, buffer, contentType,
+    client, SUPABASE_URL, BUCKET, storagePath, buffer, contentType,
   );
 
   logger.info({ path, size: buffer.length }, "MediaStorage: AutoUP thumbnail uploaded");

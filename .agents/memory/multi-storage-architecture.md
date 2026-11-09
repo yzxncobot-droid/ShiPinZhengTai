@@ -9,8 +9,8 @@ description: Three-provider storage system for Yzu视频 — Creator (Supabase 1
 
 | Badge | Provider | Env vars | Video folder | Thumb folder |
 |-------|----------|----------|-------------|-------------|
-| Creator | Supabase Project 1 | `CREATOR_SUPABASE_URL` + `CREATOR_SUPABASE_SERVICE_ROLE_KEY` | `yzx/creator/videos/` | `yzx/creator/thumbnails/` |
-| Verified Creator | Supabase Project 2 | `VERIFIED_CREATOR_SUPABASE_URL` + `VERIFIED_CREATOR_SUPABASE_SERVICE_ROLE_KEY` | `yzx/verified-creator/videos/` | `yzx/verified-creator/thumbnails/` |
+| Creator | Unified Supabase | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | `yzx/creator/videos/` | `yzx/creator/thumbnails/` |
+| Verified Creator | Unified Supabase | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | `yzx/verified-creator/videos/` | `yzx/verified-creator/thumbnails/` |
 | Owner | Bunny Stream | `BUNNY_STREAM_LIBRARY_ID` + `BUNNY_STREAM_API_KEY` + `BUNNY_CDN_HOSTNAME` (optional) | Bunny Stream CDN | `yzx/owner/thumbnails/` (legacy Supabase) |
 | (none) | Legacy Supabase | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | `yzx/videos/` | `yzx/thumnails/` (typo!) |
 

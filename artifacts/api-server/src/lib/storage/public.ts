@@ -1,11 +1,11 @@
 /**
- * PublicStorage — Supabase PUBLIC project
+ * PublicStorage — Unified Supabase project
  *
  * Used for ALL Creator and Verified Creator uploads.
  *
  * Environment variables:
- *   PUBLIC_SUPABASE_URL          (required)
- *   PUBLIC_SUPABASE_SERVICE_KEY  (required)
+ *   SUPABASE_URL               (required)
+ *   SUPABASE_SERVICE_ROLE_KEY  (required)
  *
  * Bucket: yzx
  * Folders:
@@ -22,40 +22,31 @@ import type {
   UploadProofResult,
 } from "./types";
 import {
-  buildSupabaseClient,
-  generateStoragePath,
   generateStoragePathForUser,
   makeSupabaseThumbnailResult,
   makeSupabaseVideoResult,
-  normalizeSupabaseUrl,
   supabaseDeleteFile,
   supabaseUploadWithRetry,
+  unifiedSupabaseClient as client,
+  UNIFIED_SUPABASE_URL as SUPABASE_URL,
+  UNIFIED_BUCKET as BUCKET,
+  isUnifiedSupabaseAvailable,
 } from "./supabase-helpers";
 
-const PUBLIC_SUPABASE_KEY = process.env.PUBLIC_SUPABASE_SERVICE_KEY ?? "";
-const PUBLIC_SUPABASE_URL = normalizeSupabaseUrl(
-  process.env.PUBLIC_SUPABASE_URL ?? "",
-  PUBLIC_SUPABASE_KEY,
-);
-const BUCKET = "yzx";
-
-export const isPublicStorageAvailable =
-  !!PUBLIC_SUPABASE_URL && !!PUBLIC_SUPABASE_KEY;
+export const isPublicStorageAvailable = isUnifiedSupabaseAvailable;
 
 if (!isPublicStorageAvailable) {
   logger.warn(
-    "PUBLIC_SUPABASE_URL / PUBLIC_SUPABASE_SERVICE_KEY not set — " +
+    "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set — " +
     "Creator and Verified Creator uploads will fail.",
   );
 }
 
-const client = buildSupabaseClient(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_KEY);
-
 function checkAvailable() {
   if (!isPublicStorageAvailable) {
     throw new Error(
-      "Public storage tidak dikonfigurasi " +
-      "(PUBLIC_SUPABASE_URL / PUBLIC_SUPABASE_SERVICE_KEY belum diset). " +
+      "Storage tidak dikonfigurasi " +
+      "(SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY belum diset). " +
       "Hubungi admin untuk mengaktifkan upload.",
     );
   }
@@ -78,7 +69,7 @@ export const creatorPublicStorage: StorageService = {
     const storagePath = generateStoragePathForUser(VIDEO_FOLDER, userId, file.originalname);
     logger.info({ bucket: BUCKET, path: storagePath, size: file.size, userId }, "PublicStorage[Creator]: upload video START");
     const { path: savedPath, url } = await supabaseUploadWithRetry(
-      client, PUBLIC_SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
+      client, SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
     );
     logger.info({ path: savedPath }, "PublicStorage[Creator]: upload video SUCCESS");
     return makeSupabaseVideoResult({
@@ -96,7 +87,7 @@ export const creatorPublicStorage: StorageService = {
     const storagePath = generateStoragePathForUser(THUMB_FOLDER, userId, file.originalname);
     logger.info({ bucket: BUCKET, path: storagePath, size: file.size, userId }, "PublicStorage[Creator]: upload thumbnail START");
     const { path: savedPath, url } = await supabaseUploadWithRetry(
-      client, PUBLIC_SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
+      client, SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
     );
     logger.info({ path: savedPath }, "PublicStorage[Creator]: upload thumbnail SUCCESS");
     return makeSupabaseThumbnailResult({
@@ -123,7 +114,7 @@ export const verifiedCreatorPublicStorage: StorageService = {
     const storagePath = generateStoragePathForUser(VIDEO_FOLDER, userId, file.originalname);
     logger.info({ bucket: BUCKET, path: storagePath, size: file.size, userId }, "PublicStorage[VerifiedCreator]: upload video START");
     const { path: savedPath, url } = await supabaseUploadWithRetry(
-      client, PUBLIC_SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
+      client, SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
     );
     logger.info({ path: savedPath }, "PublicStorage[VerifiedCreator]: upload video SUCCESS");
     return makeSupabaseVideoResult({
@@ -141,7 +132,7 @@ export const verifiedCreatorPublicStorage: StorageService = {
     const storagePath = generateStoragePathForUser(THUMB_FOLDER, userId, file.originalname);
     logger.info({ bucket: BUCKET, path: storagePath, size: file.size, userId }, "PublicStorage[VerifiedCreator]: upload thumbnail START");
     const { path: savedPath, url } = await supabaseUploadWithRetry(
-      client, PUBLIC_SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
+      client, SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
     );
     logger.info({ path: savedPath }, "PublicStorage[VerifiedCreator]: upload thumbnail SUCCESS");
     return makeSupabaseThumbnailResult({
@@ -158,11 +149,8 @@ export const verifiedCreatorPublicStorage: StorageService = {
 };
 
 /**
- * Upload any generic file (image, bundle video, bundle thumbnail) to the PUBLIC
- * Supabase project under the given folder.
- *
- * Drop-in replacement for the legacy uploadToLegacyBucket() that required the
- * now-unused SUPABASE_URL env var.
+ * Upload any generic file (image, bundle video, bundle thumbnail) to the
+ * unified Supabase project under the given folder.
  */
 export async function uploadToPublicBucket(
   folder: string,
@@ -173,13 +161,13 @@ export async function uploadToPublicBucket(
   const ext = path.extname(file.originalname).toLowerCase();
   const storagePath = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
   const { path: savedPath, url } = await supabaseUploadWithRetry(
-    client, PUBLIC_SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
+    client, SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
   );
   return { path: savedPath, url };
 }
 
 /**
- * Upload a payment proof — always goes to public/verified-creator/payments/{userId}/
+ * Upload a payment proof — goes to verified-creator/payments/{userId}/
  */
 export async function uploadPublicPaymentProof(
   file: Express.Multer.File,
@@ -191,7 +179,7 @@ export async function uploadPublicPaymentProof(
   const storagePath = `${VC_PAYMENTS_FOLDER}/${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
   logger.info({ bucket: BUCKET, path: storagePath, size: file.size, userId }, "PublicStorage: upload payment-proof START");
   const { path: savedPath, url } = await supabaseUploadWithRetry(
-    client, PUBLIC_SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
+    client, SUPABASE_URL, BUCKET, storagePath, file.buffer, file.mimetype,
   );
   logger.info({ path: savedPath }, "PublicStorage: upload payment-proof SUCCESS");
   return {
