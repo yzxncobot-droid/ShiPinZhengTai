@@ -68,7 +68,7 @@ export default function ShopPage() {
     queryKey: ["shop-videos", activeCategoryId ?? "all", sortKey],
     queryFn: () =>
       adminFetch<{ data: Video[]; total: number }>(
-      `/videos?sort=${sortOption.sort}&order=${sortOption.order}&limit=100${
+      `/videos?displayOn=Shop&sort=${sortOption.sort}&order=${sortOption.order}&limit=100${
         activeCategoryId ? `&categoryId=${encodeURIComponent(activeCategoryId)}` : ""
       }`,
       ),

@@ -24,6 +24,7 @@ import ProfilePage from "@/pages/profile";
 import NotificationsPage from "@/pages/notifications";
 import SearchPage from "@/pages/search";
 import ShopPage from "@/pages/shop";
+import InfoPage from "@/pages/info";
 import VideoDetailPage from "@/pages/videos/detail";
 import DebugUploadPage from "@/pages/debug-upload";
 import CreatorUploadPage from "@/pages/upload";
@@ -113,6 +114,7 @@ function AppRouter() {
 
       {/* Content */}
       <Route path="/shop" component={ShopPage} />
+      <Route path="/info" component={InfoPage} />
       <Route path="/videos/:id" component={VideoDetailPage} />
       <Route path="/debug-upload" component={DebugUploadPage} />
       <Route path="/upload" component={CreatorUploadPage} />

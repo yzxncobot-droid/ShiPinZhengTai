@@ -66,6 +66,7 @@ export default function AdminVideos() {
 
   const [search, setSearch] = useState("");
   const [visibilityFilter, setVisibilityFilter] = useState("all");
+  const [destinationFilter, setDestinationFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<number[]>([]);
@@ -74,10 +75,10 @@ export default function AdminVideos() {
   const [bulkAction, setBulkAction] = useState("");
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["admin-videos", search, visibilityFilter, statusFilter, page],
+    queryKey: ["admin-videos", search, visibilityFilter, destinationFilter, statusFilter, page],
     queryFn: () =>
       adminFetch(
-        `/videos?search=${search}&${visibilityFilter !== "all" ? `type=${visibilityFilter}` : ""}&page=${page}&limit=15&includeHidden=true${isOwner ? "" : `&creatorId=${user?.id}`}`,
+        `/videos?search=${search}&${visibilityFilter !== "all" ? `type=${visibilityFilter}` : ""}${destinationFilter !== "all" ? `&displayOn=${destinationFilter}` : ""}&page=${page}&limit=15&includeHidden=true${isOwner ? "" : `&creatorId=${user?.id}`}`,
       ),
     placeholderData: (prev) => prev,
   });
@@ -150,6 +151,14 @@ export default function AdminVideos() {
                 className="pl-9"
               />
             </div>
+            <Select value={destinationFilter} onValueChange={(v) => { setDestinationFilter(v); setPage(1); }}>
+              <SelectTrigger className="w-40"><SelectValue placeholder="Display On" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua Tujuan</SelectItem>
+                <SelectItem value="Home">Home (Gratis)</SelectItem>
+                <SelectItem value="Shop">Shop</SelectItem>
+              </SelectContent>
+            </Select>
             <Select value={visibilityFilter} onValueChange={(v) => { setVisibilityFilter(v); setPage(1); }}>
               <SelectTrigger className="w-40"><SelectValue placeholder="Visibilitas" /></SelectTrigger>
               <SelectContent>
@@ -204,6 +213,7 @@ export default function AdminVideos() {
                     </th>
                     <th className="p-3 text-left font-medium text-muted-foreground">Video</th>
                     <th className="p-3 text-left font-medium text-muted-foreground hidden md:table-cell">Kategori</th>
+                    <th className="p-3 text-left font-medium text-muted-foreground">Display On</th>
                     <th className="p-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Visibilitas</th>
                     <th className="p-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Status</th>
                     <th className="p-3 text-right font-medium text-muted-foreground hidden md:table-cell">Views</th>
@@ -250,10 +260,15 @@ export default function AdminVideos() {
                         <td className="p-3 hidden md:table-cell text-muted-foreground">
                           {v.category?.name ?? "—"}
                         </td>
+                        <td className="p-3">
+                          <Badge variant="outline" className={`font-extrabold text-[11px] ${v.displayOn === "Shop" ? "border-purple-300 bg-purple-50 text-purple-700" : "border-emerald-300 bg-emerald-50 text-emerald-700"}`}>
+                            {v.displayOn === "Shop" ? "🛍️ Shop" : "🏠 Home"}
+                          </Badge>
+                        </td>
                         <td className="p-3 hidden lg:table-cell">
                           <VisibilityBadge visibility={v.visibility} />
-                          {v.visibility !== "public" && v.price ? (
-                            <p className="text-xs text-muted-foreground mt-0.5">{fmtRp(v.price)}</p>
+                          {v.displayOn === "Shop" && v.price ? (
+                            <p className="text-xs text-purple-600 font-bold mt-0.5">{fmtRp(v.price)}</p>
                           ) : null}
                         </td>
                         <td className="p-3 hidden lg:table-cell">
@@ -338,16 +353,20 @@ export default function AdminVideos() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-medium">Visibilitas</label>
+                    <label className="text-sm font-medium">Display On (Tujuan)</label>
                     <Select
-                      value={editVideo.visibility ?? (editVideo.bundleExclusive ? "hidden_bundle" : editVideo.type === "premium" ? "premium" : "public")}
-                      onValueChange={(v) => setEditVideo((p: any) => ({ ...p, visibility: v }))}
+                      value={editVideo.displayOn ?? "Home"}
+                      onValueChange={(v) => setEditVideo((p: any) => ({
+                        ...p,
+                        displayOn: v,
+                        visibility: v === "Home" ? "public" : p.visibility,
+                        price: v === "Home" ? 0 : p.price,
+                      }))}
                     >
                       <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="public">Gratis (Public)</SelectItem>
-                        <SelectItem value="premium">Premium</SelectItem>
-                        <SelectItem value="hidden_bundle">Bundle Eksklusif</SelectItem>
+                        <SelectItem value="Home">Home (Video Gratis)</SelectItem>
+                        <SelectItem value="Shop">Shop</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -366,6 +385,22 @@ export default function AdminVideos() {
                     </Select>
                   </div>
                 </div>
+                {editVideo.displayOn === "Shop" && (
+                  <div>
+                    <label className="text-sm font-medium">Visibilitas</label>
+                    <Select
+                      value={editVideo.visibility ?? "premium"}
+                      onValueChange={(v) => setEditVideo((p: any) => ({ ...p, visibility: v }))}
+                    >
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="public">Gratis (Public)</SelectItem>
+                        <SelectItem value="premium">Premium</SelectItem>
+                        <SelectItem value="hidden_bundle">Bundle Eksklusif</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 {(editVideo.visibility === "premium" || editVideo.visibility === "hidden_bundle") && (
                   <div>
                     <label className="text-sm font-medium">Harga (Rp)</label>

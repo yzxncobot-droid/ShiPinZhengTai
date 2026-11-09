@@ -94,6 +94,12 @@ export const videosTable = pgTable(
      *  - null     → legacy upload (pre-migration rows)
      */
     storageType: text("storage_type"),
+    /**
+     * Where the video should appear on the website:
+     *  - "Home" → Video Gratis section on Home page
+     *  - "Shop" → Video Shop page with pricing/stock
+     */
+    displayOn: text("display_on").notNull().default("Home"),
     categoryId: uuid("category_id").references(() => categoriesTable.id, { onDelete: "set null" }),
     creatorId: uuid("creator_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
     deletedAt: timestamp("deleted_at"),
@@ -105,6 +111,7 @@ export const videosTable = pgTable(
     categoryIdx:  index("videos_category_id_idx").on(t.categoryId),
     visibilityIdx: index("videos_visibility_idx").on(t.visibility),
     statusIdx:    index("videos_status_idx").on(t.status),
+    displayOnIdx: index("videos_display_on_idx").on(t.displayOn),
     createdAtIdx: index("videos_created_at_idx").on(t.createdAt),
     deletedAtIdx: index("videos_deleted_at_idx").on(t.deletedAt),
   }),

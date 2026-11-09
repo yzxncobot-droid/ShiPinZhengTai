@@ -144,7 +144,7 @@ function normalizeVisibility(body: any): Record<string, any> {
 router.get("/videos", optionalAuth, async (req, res) => {
   try {
     const {
-      search, categoryId, visibility, type, isFeatured,
+      search, categoryId, visibility, type, isFeatured, displayOn,
       page = "1", limit = "20", sort = "createdAt", order = "desc",
     } = req.query as Record<string, string>;
 
@@ -173,6 +173,7 @@ router.get("/videos", optionalAuth, async (req, res) => {
 
     if (search) conditions.push(ilike(videosTable.title, `%${search}%`));
     if (categoryId) conditions.push(eq(videosTable.categoryId, categoryId));
+    if (displayOn && displayOn !== "all") conditions.push(eq(videosTable.displayOn, displayOn));
     if (visibility) conditions.push(eq(videosTable.visibility, visibility as any));
     if (type) conditions.push(eq(videosTable.type, type as any));
     if (isFeatured === "true") conditions.push(eq(videosTable.isFeatured, true));
@@ -316,6 +317,8 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
       videoStorageProvider, bunnyVideoId, bunnyPlaybackUrl, bunnyLibraryId,
       // Telegram video reference
       telegramVideoId,
+      // Display destination
+      displayOn,
     } = req.body;
 
     // ── Required field guards ─────────────────────────────────────────────────
@@ -455,6 +458,7 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
       visibility:      visUpdates.visibility ?? "public",
       type:            visUpdates.type ?? "free",
       bundleExclusive: visUpdates.bundleExclusive ?? false,
+      displayOn:       displayOn === "Shop" ? "Shop" : "Home",
       // Multi-storage metadata (optional — only set when uploaderType is provided)
       uploaderType:         uploaderType         || null,
       thumbnailPath:        thumbnailPath        || null,
@@ -548,6 +552,7 @@ router.patch("/videos/:id", authenticate, requireRole("admin", "owner"), async (
     const updates: any = { updatedAt: new Date() };
     const scalarFields = [
       "title","description","thumbnail","videoUrl","price","downloadable","isFeatured","tags","duration","status",
+      "displayOn",
       // Multi-storage metadata
       "thumbnailPath","storageFolder","bucketName",
       "videoStorageProvider","bunnyVideoId","bunnyPlaybackUrl","bunnyLibraryId",

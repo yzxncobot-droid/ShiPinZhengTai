@@ -164,6 +164,8 @@ export async function runBestEffortStartupMigration(): Promise<void> {
       ALTER TABLE videos ADD COLUMN IF NOT EXISTS bunny_playback_url text;
       ALTER TABLE videos ADD COLUMN IF NOT EXISTS bunny_library_id text;
       ALTER TABLE videos ADD COLUMN IF NOT EXISTS storage_type text;
+      ALTER TABLE videos ADD COLUMN IF NOT EXISTS display_on text NOT NULL DEFAULT 'Home';
+      CREATE INDEX IF NOT EXISTS videos_display_on_idx ON videos(display_on);
     `);
 
     // ── 2. videos storage_type back-fill ────────────────────────────────────

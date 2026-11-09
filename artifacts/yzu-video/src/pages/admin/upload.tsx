@@ -114,6 +114,7 @@ const uploadSchema = z.object({
   title:           z.string().min(3, "Judul minimal 3 karakter"),
   description:     z.string().optional(),
   categoryId:      z.string().optional(),
+  displayOn:       z.enum(["Home", "Shop"]).default("Home"),
   visibility:      z.enum(["public", "premium", "home_video"]).default("public"),
   bundleId:        z.string().optional(),
   price:           z.coerce.number().min(0).optional(),
@@ -235,6 +236,7 @@ export default function AdminUploadVideo() {
       title: "",
       description: "",
       categoryId: "",
+      displayOn: "Home",
       visibility: "public",
       bundleId: "",
       price: 0,
@@ -379,34 +381,19 @@ export default function AdminUploadVideo() {
 
   // ── Submit ───────────────────────────────────────────────────────────────────
   const onSubmit = async (values: UploadForm) => {
+    if (values.displayOn === "Home") {
+      values.price = 0;
+      values.visibility = "public";
+    }
     if (values.visibility === "public") values.price = 0;
     setIsSubmitting(true);
     try {
-      // Home feed video — different API, no price/bundle/category
-      if (values.visibility === "home_video") {
-        await adminFetch("/admin/home-feed", {
-          method: "POST",
-          body: JSON.stringify({
-            title: values.title,
-            description: values.description || null,
-            videoUrl: values.videoUrl,
-            thumbnail: values.thumbnail || null,
-            status: "published",
-            isActive: true,
-            rewardType: values.rewardEnabled ? values.rewardType : "NONE",
-            rewardTarget: values.rewardEnabled ? Number(values.rewardTarget) || 0 : 0,
-            rewardCode: values.rewardEnabled ? values.rewardCode : "",
-          }),
-        });
-        toast({ title: "🎉 Video Home berhasil dipublikasi!" });
-        setLocation("/admin/home-feed");
-        return;
-      }
       // 1. Create the video
       const created: any = await adminFetch("/videos", {
         method: "POST",
         body: JSON.stringify({
           ...values,
+          displayOn:       values.displayOn,
           categoryId:      values.categoryId || null,
           videoSourceType: values.videoSourceType,
           videoFilePath:   values.videoFilePath || null,
@@ -501,66 +488,81 @@ export default function AdminUploadVideo() {
               </SectionCard>
 
               {/* ══════════════════════════════════════════════
-                  1. CONTENT TYPE
+                  1. DISPLAY ON (UPLOAD DESTINATION)
               ══════════════════════════════════════════════ */}
               <SectionCard
-                icon={<Package className="h-4 w-4" />}
-                title="Tipe Konten"
-                gradient="bg-gradient-to-r from-purple-500 to-pink-500"
+                icon={<Globe className="h-4 w-4" />}
+                title="Display On (Halaman Tujuan)"
+                gradient="bg-gradient-to-r from-purple-600 to-violet-600"
               >
-                <FormField control={form.control} name="visibility" render={({ field }) => (
+                <FormField control={form.control} name="displayOn" render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-gray-700 font-semibold sr-only">Tipe Konten</FormLabel>
+                    <FormLabel className="text-gray-700 font-semibold sr-only">Display On</FormLabel>
+                    <FormDescription className="text-xs text-gray-500 mb-2">
+                      Pilih ke mana video akan ditampilkan. Video <b>Home</b> tampil gratis di Home Video Gratis. Video <b>Shop</b> tampil di halaman Shop dengan opsi harga & stok.
+                    </FormDescription>
                     <FormControl>
-                      <div className={`grid gap-3 ${(() => {
-                        const opts = CONTENT_TYPE_OPTIONS.filter((o) => o.value !== "home_video" || isOwner);
-                        return opts.length === 1 ? "grid-cols-1" : opts.length === 2 ? "grid-cols-2" : "grid-cols-3";
-                      })()}`}>
-                        {CONTENT_TYPE_OPTIONS.filter((opt) => opt.value !== "home_video" || isOwner).map((opt) => {
-                          const isSelected = field.value === opt.value;
-                          return (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              onClick={() => {
-                                field.onChange(opt.value);
-                                // Clear category when switching to home_video
-                                if (opt.value === "home_video") form.setValue("categoryId", "");
-                              }}
-                              className={`flex flex-col items-center text-center gap-1.5 py-4 px-2 rounded-xl border-2 transition-all font-medium text-sm
-                                ${isSelected ? opt.color + " shadow-sm scale-[1.02]" : "border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300"}`}
-                            >
-                              <span className="text-2xl">{opt.icon}</span>
-                              <span className="font-extrabold text-[12px] leading-tight">{opt.label}</span>
-                              <span className="text-[10px] leading-tight opacity-70">{opt.description}</span>
-                            </button>
-                          );
-                        })}
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            field.onChange("Home");
+                            form.setValue("visibility", "public");
+                            form.setValue("price", 0);
+                          }}
+                          className={`flex flex-col items-center text-center gap-1.5 py-4 px-3 rounded-2xl border-2 transition-all font-medium text-sm
+                            ${field.value === "Home"
+                              ? "border-purple-500 bg-purple-50 text-purple-700 shadow-sm scale-[1.02]"
+                              : "border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300"
+                            }`}
+                        >
+                          <span className="text-2xl">🏠</span>
+                          <span className="font-extrabold text-sm leading-tight">Home</span>
+                          <span className="text-[11px] leading-tight text-purple-600 font-semibold">Tampil di Video Gratis</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            field.onChange("Shop");
+                            form.setValue("visibility", "premium");
+                          }}
+                          className={`flex flex-col items-center text-center gap-1.5 py-4 px-3 rounded-2xl border-2 transition-all font-medium text-sm
+                            ${field.value === "Shop"
+                              ? "border-purple-500 bg-purple-50 text-purple-700 shadow-sm scale-[1.02]"
+                              : "border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300"
+                            }`}
+                        >
+                          <span className="text-2xl">🛍️</span>
+                          <span className="font-extrabold text-sm leading-tight">Shop</span>
+                          <span className="text-[11px] leading-tight text-purple-600 font-semibold">Tampil di Produk Shop</span>
+                        </button>
                       </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
 
-                {/* Price (premium only) */}
-                {visibility === "premium" && (
-                  <FormField control={form.control} name="price" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-gray-700 font-semibold">Harga Pembelian Satuan (Rp)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="Isi 0 jika hanya via bundle/langganan"
-                          className="bg-amber-50/20 border-amber-200 focus:border-amber-400"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Pengguna bisa membeli video ini tanpa langganan.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
+                {form.watch("displayOn") === "Shop" && (
+                  <div className="pt-2 border-t border-purple-50 space-y-3">
+                    <FormField control={form.control} name="price" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-gray-700 font-semibold">Harga Video (Rp)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            placeholder="cth: 25000"
+                            className="bg-purple-50/20 border-purple-200 focus:border-purple-400"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Harga pembelian satuan untuk video di Shop.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
                 )}
               </SectionCard>
 
