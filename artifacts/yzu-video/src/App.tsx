@@ -58,7 +58,6 @@ import AdminVerificationsPage from "@/pages/admin/verifications";
 import AdminDropsPage from "@/pages/admin/drops";
 import RedeemPage from "@/pages/redeem";
 import AdminRedeemPage from "@/pages/admin/redeem";
-import AdminBuatQris from "@/pages/admin/buatqris";
 import AdminHomeFeed from "@/pages/admin/home-feed";
 import StatisticsPage from "@/pages/statistics";
 import AchievementsPage from "@/pages/achievements";
@@ -149,7 +148,6 @@ function AppRouter() {
       <Route path="/admin/redeem" component={AdminRedeemPage} />
       <Route path="/redeem" component={RedeemPage} />
       <Route path="/admin/badge-roles" component={AdminBadgeRolesPage} />
-      <Route path="/admin/buatqris" component={AdminBuatQris} />
       <Route path="/admin/home-feed" component={AdminHomeFeed} />
       <Route path="/admin/gamification" component={AdminGamificationPage} />
       <Route path="/admin/telegram-sources" component={AdminTelegramSources} />

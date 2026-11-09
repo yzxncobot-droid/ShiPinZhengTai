@@ -1,113 +1,117 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  X, Loader2, ImageIcon, CheckCircle2, Clock, ShieldCheck, Upload, Camera,
+  X,
+  Loader2,
+  ImageIcon,
+  Clock,
+  Upload,
+  Camera,
+  CheckCircle2,
+  AlertCircle,
+  Download,
+  Info,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { getGetMeQueryKey, getListMyTopupsQueryKey } from "@workspace/api-client-react";
 import { getToken } from "@/lib/admin-api";
+import { Link } from "wouter";
 
-type ManualState = "creating" | "qr" | "uploading" | "submitting" | "awaiting_review" | "error";
+const MIN_TOPUP = 100;
+const MAX_TOPUP = 1_000_000;
 
-/**
- * Manual top-up modal — static QRIS + proof upload + admin approval.
- *
- * The user scans a static QRIS image (from settings), pays, uploads a proof
- * screenshot, and submits. The payment stays "pending" until an admin
- * confirms it via the dashboard. The wallet is only credited by
- * creditVerifiedTopup() on the backend — never by this modal.
- */
+const PRESETS = [1_000, 3_000, 5_000, 10_000, 20_000, 50_000];
+
 export function ManualTopupModal({
   open,
-  amount,
+  initialAmount,
   onClose,
 }: {
   open: boolean;
-  amount: number;
+  initialAmount?: number;
   onClose: () => void;
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [state, setState] = useState<ManualState>("creating");
-  const [topupId, setTopupId] = useState<string | null>(null);
-  const [qrisImage, setQrisImage] = useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [proofPreview, setProofPreview] = useState<string | null>(null);
+  const [amount, setAmount] = useState<number>(initialAmount || 10_000);
+  const [customAmountStr, setCustomAmountStr] = useState<string>(
+    initialAmount ? String(initialAmount) : "10000",
+  );
   const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofPreview, setProofPreview] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittedSuccess, setSubmittedSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fmtRp = (n: number) => `Rp ${n.toLocaleString("id-ID")}`;
 
-  const reset = useCallback(() => {
-    setState("creating");
-    setTopupId(null);
-    setQrisImage(null);
-    setErrorMsg(null);
-    setProofPreview(null);
-    setProofFile(null);
-  }, []);
+  const { data: qrisData, isLoading: loadingQris } = useQuery({
+    queryKey: ["settings-qris"],
+    queryFn: async () => {
+      const res = await fetch("/api/settings/qris");
+      if (!res.ok) throw new Error("Gagal mengambil info QRIS");
+      return res.json() as Promise<{ qrisImage: string | null; minTopup: number; maxTopup: number }>;
+    },
+    enabled: open,
+  });
+
+  const activeQrisImage = qrisData?.qrisImage ?? null;
+
+  useEffect(() => {
+    if (initialAmount) {
+      setAmount(initialAmount);
+      setCustomAmountStr(String(initialAmount));
+    }
+  }, [initialAmount]);
 
   const handleClose = () => {
-    reset();
+    setProofFile(null);
+    setProofPreview(null);
+    setIsSubmitting(false);
+    setSubmittedSuccess(false);
+    setErrorMessage(null);
     onClose();
   };
 
-  // ── Create manual topup + fetch static QRIS from settings ────────────────
-  useEffect(() => {
-    if (!open || !amount) return;
-    let cancelled = false;
-    setState("creating");
-    setErrorMsg(null);
+  const handlePresetSelect = (val: number) => {
+    setAmount(val);
+    setCustomAmountStr(String(val));
+    setErrorMessage(null);
+  };
 
-    (async () => {
-      try {
-        const token = getToken();
+  const handleCustomChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const valStr = e.target.value;
+    setCustomAmountStr(valStr);
+    const num = Number(valStr);
+    if (!Number.isNaN(num)) {
+      setAmount(num);
+    }
+    setErrorMessage(null);
+  };
 
-        // Create the manual topup record
-        const createRes = await fetch("/api/topup/manual", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({ amount }),
-        });
-        const createData = await createRes.json();
-        if (cancelled) return;
-        if (!createRes.ok) {
-          setErrorMsg(createData?.error ?? "Gagal membuat top up manual.");
-          setState("error");
-          return;
-        }
-        setTopupId(createData.id);
-        setQrisImage(createData.manualQrisImageUrl ?? null);
-        setState("qr");
-      } catch (err: any) {
-        if (cancelled) return;
-        setErrorMsg(err?.message ?? "Terjadi kesalahan sistem.");
-        setState("error");
-      }
-    })();
-
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, amount]);
-
-  // ── Handle proof file selection ──────────────────────────────────────────
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate image type
-    if (!file.type.startsWith("image/")) {
-      toast({ title: "File harus berupa gambar", variant: "destructive" });
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/jpg"];
+    if (!allowedTypes.includes(file.type)) {
+      toast({
+        title: "Format Tidak Didukung",
+        description: "Gunakan format JPG, JPEG, PNG, atau WEBP.",
+        variant: "destructive",
+      });
       return;
     }
-    // Validate size (max 10MB)
+
     if (file.size > 10 * 1024 * 1024) {
-      toast({ title: "Ukuran file maksimal 10MB", variant: "destructive" });
+      toast({
+        title: "File Terlalu Besar",
+        description: "Ukuran bukti transfer maksimal 10MB.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -115,63 +119,70 @@ export function ManualTopupModal({
     const reader = new FileReader();
     reader.onload = (ev) => setProofPreview(ev.target?.result as string);
     reader.readAsDataURL(file);
+    setErrorMessage(null);
   };
 
-  // ── Upload proof + submit ─────────────────────────────────────────────────
-  const handleSubmitProof = useCallback(async () => {
-    if (!topupId || !proofFile || state === "submitting") return;
-    setState("submitting");
+  const handleSubmit = async () => {
+    if (!amount || amount < MIN_TOPUP || amount > MAX_TOPUP) {
+      setErrorMessage(`Nominal harus antara ${fmtRp(MIN_TOPUP)} dan ${fmtRp(MAX_TOPUP)}.`);
+      return;
+    }
+
+    if (!proofFile) {
+      setErrorMessage("Bukti transfer wajib diunggah sebelum mengirim pembayaran.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrorMessage(null);
+
     try {
       const token = getToken();
 
-      // Step 1: upload the proof image via the payment-proof endpoint
-      setState("uploading");
       const formData = new FormData();
       formData.append("file", proofFile);
+
       const uploadRes = await fetch("/api/upload/payment-proof", {
         method: "POST",
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
       });
+
       const uploadData = await uploadRes.json();
       if (!uploadRes.ok || !uploadData.url) {
-        setErrorMsg(uploadData?.message ?? "Gagal mengupload bukti pembayaran.");
-        setState("error");
-        return;
+        throw new Error(uploadData.message || "Gagal mengunggah foto bukti pembayaran.");
       }
 
-      // Step 2: attach the proof URL to the topup
-      setState("submitting");
-      const linkRes = await fetch(`/api/topup/${topupId}/upload-proof`, {
+      const submitRes = await fetch("/api/topup/manual", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ proofImageUrl: uploadData.url }),
+        body: JSON.stringify({
+          amount,
+          proofImageUrl: uploadData.url,
+        }),
       });
-      const linkData = await linkRes.json();
-      if (!linkRes.ok) {
-        setErrorMsg(linkData?.error ?? "Gagal mengirim bukti pembayaran.");
-        setState("error");
-        return;
+
+      const submitData = await submitRes.json();
+      if (!submitRes.ok) {
+        throw new Error(submitData.error || submitData.message || "Gagal membuat permintaan top up.");
       }
 
-      setState("awaiting_review");
+      setSubmittedSuccess(true);
       queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
       queryClient.invalidateQueries({ queryKey: getListMyTopupsQueryKey() });
       toast({
-        title: "Bukti Pembayaran Terkirim",
-        description: "Pembayaran sedang diperiksa oleh admin.",
+        title: "Top Up Berhasil Diajukan 🎉",
+        description: "Menunggu verifikasi manual oleh Admin/Owner.",
       });
     } catch (err: any) {
-      setErrorMsg(err?.message ?? "Terjadi kesalahan sistem.");
-      setState("error");
+      setErrorMessage(err.message || "Terjadi kesalahan saat memproses transaksi.");
+    } finally {
+      setIsSubmitting(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topupId, proofFile, state, queryClient, toast]);
+  };
 
   return (
     <AnimatePresence>
@@ -189,12 +200,12 @@ export function ManualTopupModal({
             exit={{ opacity: 0, scale: 0.97, y: 16 }}
             transition={{ type: "spring", stiffness: 320, damping: 28 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl"
+            className="w-full max-w-lg overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl"
           >
-            {/* ── Header (emerald for manual) ──────────────────────────────── */}
+            {/* ── Modal Header ── */}
             <div
-              className="relative px-5 py-5 text-white"
-              style={{ background: "linear-gradient(135deg, #10B981 0%, #059669 100%)" }}
+              className="relative px-6 py-5 text-white"
+              style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #8b5cf6 100%)" }}
             >
               <button
                 onClick={handleClose}
@@ -205,187 +216,240 @@ export function ManualTopupModal({
               </button>
               <div className="flex items-center gap-3">
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/20">
-                  <span className="text-2xl">🧾</span>
+                  <span className="text-2xl">📱</span>
                 </div>
                 <div>
-                  <h2 className="text-lg font-extrabold leading-tight">Top Up Manual</h2>
-                  <p className="text-xs font-medium text-white/80">QRIS · verifikasi admin</p>
+                  <h2 className="text-lg font-extrabold leading-tight">Top Up Saldo via QRIS</h2>
+                  <p className="text-xs font-medium text-white/80">Scan QRIS · Upload Bukti · Verifikasi Manual</p>
                 </div>
               </div>
             </div>
 
-            {/* ── Body ────────────────────────────────────────────────────── */}
-            {state === "creating" && (
-              <div className="flex min-h-[300px] flex-col items-center justify-center px-6 py-8">
-                <Loader2 className="h-10 w-10 animate-spin text-emerald-500" />
-                <p className="mt-4 text-sm font-bold text-slate-500">Menyiapkan top up…</p>
-              </div>
-            )}
+            {/* ── Modal Content ── */}
+            <div className="max-h-[80vh] overflow-y-auto px-6 py-6 space-y-6">
+              {submittedSuccess ? (
+                <div className="py-6 text-center space-y-4">
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: "spring", stiffness: 260, damping: 20 }}
+                    className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"
+                  >
+                    <CheckCircle2 className="h-12 w-12" />
+                  </motion.div>
+                  <h3 className="text-xl font-extrabold text-slate-800">
+                    Permintaan Top Up Terkirim!
+                  </h3>
+                  <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4 text-left space-y-1.5 text-xs text-amber-800">
+                    <p className="font-bold flex items-center gap-1.5 text-sm">
+                      <Clock className="h-4 w-4" /> Status: Menunggu Verifikasi Admin
+                    </p>
+                    <p className="leading-relaxed">
+                      Bukti pembayaran sebesar <strong>{fmtRp(amount)}</strong> telah diterima.
+                      Admin/Owner akan memeriksa mutasi pembayaran Anda. Saldo akan otomatis bertambah setelah disetujui.
+                    </p>
+                  </div>
 
-            {state === "error" && (
-              <div className="flex min-h-[300px] flex-col items-center justify-center px-6 py-8 text-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-50">
-                  <X className="h-8 w-8 text-red-500" />
-                </div>
-                <h3 className="mt-4 text-lg font-extrabold text-slate-700">Gagal</h3>
-                <p className="mt-2 max-w-xs text-sm font-medium text-slate-400">
-                  {errorMsg ?? "Terjadi kesalahan. Hubungi admin."}
-                </p>
-                <button
-                  onClick={handleClose}
-                  className="mt-6 h-12 w-full rounded-2xl text-sm font-extrabold text-white transition hover:opacity-90"
-                  style={{ background: "linear-gradient(135deg, #10B981 0%, #059669 100%)" }}
-                >
-                  Tutup
-                </button>
-              </div>
-            )}
-
-            {state === "awaiting_review" && (
-              <div className="px-6 py-10 text-center">
-                <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ type: "spring", stiffness: 260, damping: 20 }}
-                  className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-blue-50"
-                >
-                  <Clock className="h-10 w-10 text-blue-500" />
-                </motion.div>
-                <h3 className="text-xl font-extrabold" style={{ color: "#1E40AF" }}>
-                  Pembayaran Sedang Diperiksa
-                </h3>
-                <p className="mx-auto mt-2 max-w-xs text-sm font-medium text-slate-500">
-                  Bukti pembayaran Anda telah terkirim. Saldo sebesar{" "}
-                  {fmtRp(amount)} akan ditambahkan setelah admin memverifikasi
-                  pembayaran Anda.
-                </p>
-                <button
-                  onClick={handleClose}
-                  className="mt-7 h-12 w-full rounded-2xl text-sm font-extrabold text-white transition hover:opacity-90"
-                  style={{ background: "linear-gradient(135deg, #10B981 0%, #059669 100%)" }}
-                >
-                  Selesai
-                </button>
-              </div>
-            )}
-
-            {(state === "qr" || state === "uploading" || state === "submitting") && (
-              <div className="max-h-[80vh] overflow-y-auto px-6 py-6">
-                {/* Total */}
-                <p className="text-center text-xs font-bold uppercase tracking-wider text-slate-400">
-                  TOTAL BAYAR
-                </p>
-                <p className="mt-1 text-center text-3xl font-extrabold" style={{ color: "#059669" }}>
-                  {fmtRp(amount)}
-                </p>
-
-                {/* QR code (static from settings) */}
-                <div className="mt-5 flex justify-center">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-                    {qrisImage ? (
-                      <img
-                        src={qrisImage}
-                        alt="QRIS"
-                        className="h-48 w-48 object-contain"
-                      />
-                    ) : (
-                      <div className="flex h-48 w-48 flex-col items-center justify-center gap-2 text-center">
-                        <ImageIcon className="h-10 w-10 text-slate-300" />
-                        <p className="px-4 text-xs font-medium text-slate-400">
-                          QRIS manual belum tersedia.
-                        </p>
-                      </div>
-                    )}
+                  <div className="flex flex-col gap-2.5 pt-2">
+                    <Link href="/history">
+                      <button
+                        onClick={handleClose}
+                        className="h-12 w-full rounded-2xl text-sm font-extrabold text-white transition hover:opacity-90"
+                        style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
+                      >
+                        Lihat Riwayat Top Up
+                      </button>
+                    </Link>
+                    <button
+                      onClick={handleClose}
+                      className="h-11 w-full rounded-2xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition"
+                    >
+                      Selesai
+                    </button>
                   </div>
                 </div>
-
-                {/* Instructions */}
-                <div className="mt-4 flex items-start gap-2.5 rounded-2xl bg-emerald-50 px-4 py-3">
-                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-                  <p className="text-xs font-medium leading-snug text-emerald-700">
-                    <span className="font-bold">Pembayaran manual.</span>{" "}
-                    <span className="text-emerald-600">
-                      Scan QRIS di atas, bayar sesuai nominal, lalu upload bukti
-                      pembayaran. Saldo akan ditambahkan setelah admin
-                      memverifikasi pembayaran Anda.
-                    </span>
-                  </p>
-                </div>
-
-                {/* ── Upload proof ─────────────────────────────────────────── */}
-                <div className="mt-5">
-                  <p className="text-sm font-extrabold" style={{ color: "#263238" }}>
-                    Upload Bukti Pembayaran
-                  </p>
-
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                  />
-
-                  {proofPreview ? (
-                    <div className="mt-3 relative">
-                      <img
-                        src={proofPreview}
-                        alt="Bukti pembayaran"
-                        className="w-full max-h-48 object-contain rounded-2xl border border-slate-200"
-                      />
-                      <button
-                        onClick={() => { setProofFile(null); setProofPreview(null); }}
-                        className="absolute top-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
+              ) : (
+                <>
+                  {/* 1. Nominal Section */}
+                  <div>
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                      1. Pilih atau Masukkan Nominal
+                    </label>
+                    <div className="mt-2.5 grid grid-cols-3 gap-2">
+                      {PRESETS.map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => handlePresetSelect(p)}
+                          className={`rounded-xl border-2 py-2 px-1 text-xs font-extrabold transition ${
+                            amount === p
+                              ? "border-violet-600 bg-violet-50 text-violet-700 shadow-sm"
+                              : "border-slate-100 bg-white text-slate-700 hover:border-slate-200"
+                          }`}
+                        >
+                          {fmtRp(p)}
+                        </button>
+                      ))}
                     </div>
-                  ) : (
+
+                    <div className="mt-3 flex items-center gap-2 rounded-xl border-2 border-slate-100 bg-slate-50/50 p-2 pl-3 focus-within:border-violet-500 focus-within:bg-white transition">
+                      <span className="text-xs font-bold text-slate-400">Rp</span>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        value={customAmountStr}
+                        onChange={handleCustomChange}
+                        placeholder="Masukkan nominal lain"
+                        className="h-8 w-full bg-transparent text-sm font-extrabold outline-none text-slate-800 placeholder:font-normal placeholder:text-slate-400"
+                      />
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-slate-400">
+                      Minimal {fmtRp(MIN_TOPUP)} — Maksimal {fmtRp(MAX_TOPUP)}
+                    </p>
+                  </div>
+
+                  {/* 2. QRIS Code Section */}
+                  <div>
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                      2. Scan & Bayar via QRIS
+                    </label>
+                    <div className="mt-2.5 rounded-2xl border border-slate-100 bg-slate-50/60 p-4 flex flex-col items-center text-center">
+                      <div className="rounded-xl border bg-white p-3 shadow-sm">
+                        {loadingQris ? (
+                          <div className="flex h-44 w-44 items-center justify-center">
+                            <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
+                          </div>
+                        ) : activeQrisImage ? (
+                          <img
+                            src={activeQrisImage}
+                            alt="QRIS Pembayaran"
+                            className="h-44 w-44 object-contain"
+                          />
+                        ) : (
+                          <div className="flex h-44 w-44 flex-col items-center justify-center p-3 text-slate-400">
+                            <ImageIcon className="h-10 w-10 mb-2 opacity-50" />
+                            <p className="text-xs font-medium">QRIS belum diupload oleh Owner</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-3 text-xs text-slate-500 max-w-xs leading-relaxed">
+                        Pindai QRIS di atas dengan aplikasi bank (BCA, Mandiri, BRI, BNI) atau e-wallet (GoPay, OVO, Dana, ShopeePay, LinkAja).
+                      </div>
+
+                      {activeQrisImage && (
+                        <button
+                          type="button"
+                          onClick={() => window.open(activeQrisImage, "_blank")}
+                          className="mt-2.5 inline-flex items-center gap-1.5 text-xs font-bold text-violet-600 hover:text-violet-700"
+                        >
+                          <Download className="h-3.5 w-3.5" /> Buka / Unduh QRIS
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 3. Upload Bukti Pembayaran */}
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                        3. Upload Bukti Transfer <span className="text-rose-500">*</span>
+                      </label>
+                      <span className="text-[10px] text-slate-400">JPG, PNG, WEBP (maks. 10MB)</span>
+                    </div>
+
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/jpg"
+                      onChange={handleFileSelect}
+                      className="hidden"
+                    />
+
+                    {proofPreview ? (
+                      <div className="mt-2.5 relative rounded-2xl border border-slate-200 overflow-hidden bg-slate-900/5 p-2">
+                        <img
+                          src={proofPreview}
+                          alt="Preview bukti transfer"
+                          className="h-44 w-full object-contain rounded-xl"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProofFile(null);
+                            setProofPreview(null);
+                          }}
+                          className="absolute top-3 right-3 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 transition"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                        <p className="mt-1.5 text-center text-[11px] font-medium text-slate-600 truncate px-2">
+                          {proofFile?.name}
+                        </p>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="mt-2.5 flex h-28 w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 hover:border-violet-400 hover:bg-violet-50/20 transition"
+                      >
+                        <Camera className="h-7 w-7 text-slate-400" />
+                        <span className="text-xs font-bold text-slate-600">
+                          Pilih Foto Bukti Pembayaran
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          Klik untuk memilih dari galeri / kamera
+                        </span>
+                      </button>
+                    )}
+                  </div>
+
+                  {errorMessage && (
+                    <div className="flex items-center gap-2 rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700">
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                      <span>{errorMessage}</span>
+                    </div>
+                  )}
+
+                  <div className="flex items-start gap-2 rounded-xl bg-blue-50 border border-blue-200/60 p-3 text-xs text-blue-800">
+                    <Info className="h-4 w-4 shrink-0 text-blue-600 mt-0.5" />
+                    <span>
+                      Saldo tidak langsung bertambah setelah submit. Admin atau Owner akan memverifikasi bukti Anda secara manual.
+                    </span>
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
                     <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="mt-3 flex h-32 w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 transition hover:border-emerald-300 hover:bg-emerald-50/50"
+                      type="button"
+                      onClick={handleClose}
+                      disabled={isSubmitting}
+                      className="h-12 flex-1 rounded-2xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition disabled:opacity-50"
                     >
-                      <Camera className="h-8 w-8 text-slate-400" />
-                      <p className="text-xs font-medium text-slate-500">
-                        Pilih foto bukti pembayaran
-                      </p>
-                      <p className="text-[10px] text-slate-400">JPG, PNG, WEBP · maks 10MB</p>
+                      Batal
                     </button>
-                  )}
-                </div>
-
-                {/* Submit button */}
-                <button
-                  onClick={handleSubmitProof}
-                  disabled={!proofFile || state === "submitting" || state === "uploading"}
-                  className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-extrabold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                  style={{ background: "linear-gradient(135deg, #10B981 0%, #059669 100%)" }}
-                >
-                  {state === "uploading" ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Mengupload Bukti...
-                    </>
-                  ) : state === "submitting" ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Mengirim Pembayaran...
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="h-4 w-4" />
-                      Kirim Pembayaran
-                    </>
-                  )}
-                </button>
-
-                {/* Status indicator */}
-                <div className="mt-4 flex items-center justify-center gap-2 text-xs font-medium text-slate-400">
-                  <Clock className="h-3.5 w-3.5" />
-                  Saldo masuk setelah pembayaran diverifikasi admin
-                </div>
-              </div>
-            )}
+                    <button
+                      type="button"
+                      onClick={handleSubmit}
+                      disabled={isSubmitting || !proofFile || amount < MIN_TOPUP}
+                      className="h-12 flex-[2] rounded-2xl text-sm font-extrabold text-white flex items-center justify-center gap-2 shadow-md transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                      style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>Mengirim Permintaan...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="h-4 w-4" />
+                          <span>Kirim Bukti Pembayaran</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </motion.div>
         </motion.div>
       )}

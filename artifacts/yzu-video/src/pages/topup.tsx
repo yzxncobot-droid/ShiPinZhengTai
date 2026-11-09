@@ -4,8 +4,8 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { useAuth } from "@/lib/auth";
 import { useListMyTopups } from "@workspace/api-client-react";
-import { Sparkles, Pencil, Star, ChevronRight, Wallet, Download } from "lucide-react";
-import { AutomaticTopupModal } from "@/components/topup/AutomaticTopupModal";
+import { Sparkles, Pencil, Star, ChevronRight, Wallet, QrCode } from "lucide-react";
+import { ManualTopupModal } from "@/components/topup/ManualTopupModal";
 
 const MIN_TOPUP = 100;
 
@@ -26,28 +26,28 @@ export default function TopupPage() {
 
   const [selected, setSelected] = useState<number | null>(null);
   const [custom, setCustom] = useState<string>("");
-  const [qrisModalOpen, setQrisModalOpen] = useState(false);
-  const [topupAmount, setTopupAmount] = useState<number>(0);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [topupAmount, setTopupAmount] = useState<number>(10_000);
 
   const balance = user?.walletBalance ?? 0;
   const recentCount = topupsData?.total ?? 0;
 
-  const openQris = (amount: number) => {
+  const openModal = (amount: number) => {
     setTopupAmount(amount);
-    setQrisModalOpen(true);
+    setModalOpen(true);
   };
 
   const handlePreset = (amount: number) => {
     setSelected(amount);
     setCustom("");
-    openQris(amount);
+    openModal(amount);
   };
 
   const handleCustomTopup = () => {
     const amount = Number(custom);
     if (!Number.isInteger(amount) || amount < MIN_TOPUP) return;
     setSelected(null);
-    openQris(amount);
+    openModal(amount);
   };
 
   return (
@@ -70,7 +70,7 @@ export default function TopupPage() {
               Top Up Saldo
             </h1>
             <p className="mt-2 text-sm font-medium leading-relaxed text-slate-500">
-              Isi saldo via QRIS — diterima oleh semua bank & e-wallet di Indonesia.
+              Isi saldo via QRIS manual — scan QRIS, kirim bukti bayar, dan saldo akan ditambahkan setelah verifikasi admin.
             </p>
 
             {/* Balance card */}
@@ -160,24 +160,19 @@ export default function TopupPage() {
             <div className="mt-7 overflow-hidden rounded-2xl border border-indigo-100 bg-white shadow-sm">
               <div className="flex items-center gap-3 p-4">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl" style={{ background: "linear-gradient(135deg, #4f46e5, #8b5cf6)" }}>
-                  <svg viewBox="0 0 24 24" className="h-6 w-6 text-white" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="3" width="7" height="7" rx="1" />
-                    <rect x="14" y="3" width="7" height="7" rx="1" />
-                    <rect x="3" y="14" width="7" height="7" rx="1" />
-                    <path d="M14 14h3v3M21 14v.01M17 21h4M21 17v4" />
-                  </svg>
+                  <QrCode className="h-6 w-6 text-white" />
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-extrabold" style={{ color: "#1e293b" }}>
-                    QRIS (BuatQris)
+                    Pembayaran QRIS Manual
                   </p>
                   <p className="text-xs font-medium text-slate-500">
-                    Scan QRIS untuk pembayaran mudah, cepat & aman
+                    Scan QRIS yang disediakan, upload bukti transfer, diverifikasi admin
                   </p>
                   <div className="mt-2 flex gap-1.5">
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-600">Mudah</span>
-                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-600">Aman</span>
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-600">Cepat</span>
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-600">Aman</span>
+                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-600">Tanpa Biaya</span>
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-600">Semua Bank</span>
                   </div>
                 </div>
               </div>
@@ -203,17 +198,17 @@ export default function TopupPage() {
             <div className="mt-4 flex items-center gap-2 rounded-xl bg-blue-50 px-4 py-3">
               <span className="text-sm">💡</span>
               <p className="text-xs font-medium text-blue-600">
-                Saldo akan otomatis masuk ke wallet setelah pembayaran berhasil
+                Saldo akan diverifikasi dan ditambahkan ke wallet Anda oleh admin
               </p>
             </div>
           </div>
         </div>
 
-        {/* ── Automatic QRIS payment modal ──────────────────────────────── */}
-        <AutomaticTopupModal
-          open={qrisModalOpen}
-          amount={topupAmount}
-          onClose={() => setQrisModalOpen(false)}
+        {/* ── Manual QRIS payment modal ──────────────────────────────── */}
+        <ManualTopupModal
+          open={modalOpen}
+          initialAmount={topupAmount}
+          onClose={() => setModalOpen(false)}
         />
       </AppLayout>
     </ProtectedRoute>

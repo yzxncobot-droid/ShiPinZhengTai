@@ -96,7 +96,6 @@ const useNavGroups = (pendingPayments: number = 0, unreadNotifs: number = 0): Na
     ownerOnly: true,
     items: [
       { label: "Pengaturan", href: "/admin/settings", icon: Settings },
-      { label: "BuatQris", href: "/admin/buatqris", icon: QrCode },
       { label: "Telegram Storage", href: "/admin/telegram-sources", icon: Send },
       { label: "Telegram Import", href: "/admin/telegram-import", icon: Send },
       { label: "AutoUP", href: "/admin/autoup", icon: Zap },
@@ -130,7 +129,6 @@ const PATH_LABELS: Record<string, string> = {
   "/admin/redeem": "Code Redeem",
   "/admin/verifications": "Verifikasi Creator",
   "/admin/settings": "Pengaturan",
-  "/admin/buatqris": "BuatQris",
   "/admin/autoup": "AutoUP",
   "/admin/maintenance": "Maintenance Mode",
   "/admin/audit-logs": "Audit Log",

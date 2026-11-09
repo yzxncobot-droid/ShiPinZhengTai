@@ -3,18 +3,16 @@
  *
  * SECURITY MODEL:
  * `creditVerifiedTopup()` is the SINGLE function that may add wallet balance
- * for a top-up. No other code path — webhook, route, or background job — may
+ * for a top-up. No other code path — route or background job — may
  * directly increment wallet balance.
  *
- * The ONLY ways a wallet is credited:
- * 1. AUTOMATIC: A valid BuatQris webhook (signature-verified) → processBuatQrisWebhook()
- *    → creditVerifiedTopup()
- * 2. MANUAL: Admin clicks "Konfirmasi" → PATCH /topups/:id/confirm
+ * Manual Top-Up Flow:
+ * - Admin or Owner clicks "Konfirmasi" (Accept) → PATCH /topups/:id/confirm
  *    → creditVerifiedTopup()
  *
  * Anti-double-credit is guaranteed by creditVerifiedTopup() via a Postgres
- * advisory lock + duplicate-reference check, so concurrent webhook
- * deliveries and repeated admin clicks are all safe.
+ * advisory lock + duplicate-reference check, so repeated admin clicks
+ * or concurrent calls cannot double-credit.
  */
 import { db } from "@workspace/db";
 import {
@@ -27,34 +25,31 @@ import {
 } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
 import { logger } from "./logger";
-import { invalidateUserCache, invalidateCache, keys } from "./redis";
-import { checkQrisStatus } from "./buatqris";
 
 /** Statuses that mean the wallet has already been credited. */
-function isPaidStatus(status: string): boolean {
+export function isPaidStatus(status: string): boolean {
   return status === "paid" || status === "confirmed";
 }
 
 /**
  * Credit a verified top-up exactly once. The topup row and user row are locked
- * inside one DB transaction so repeated webhook deliveries / admin clicks
- * cannot double-credit. A Postgres advisory lock on the gateway reference
- * serializes concurrent calls even when they point at different local rows.
+ * inside one DB transaction so repeated admin clicks cannot double-credit.
+ * A Postgres advisory lock on the gateway reference serializes concurrent calls
+ * even when they point at different local rows.
  *
  * This is the SINGLE wallet-credit function for top-ups. No other code path
  * may add wallet balance for a top-up.
  *
  * @param topupId           - local topup UUID
- * @param gatewayReference  - unique provider reference (BuatQris transaction_id
- *                            or `admin-<id>` for manual approval). Used for the
- *                            duplicate-reference guard.
+ * @param gatewayReference  - unique provider reference (`admin-<id>` for manual approval).
+ *                            Used for the duplicate-reference guard.
  */
 export async function creditVerifiedTopup(
   topupId: string,
   gatewayReference: string,
 ): Promise<{ status: string; newBalance?: number }> {
   return db.transaction(async (tx: any) => {
-    // Serialize all callbacks for the same gateway reference.
+    // Serialize all calls for the same gateway reference.
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${gatewayReference}))`);
 
     const lockedResult = await tx.execute(sql`
@@ -82,8 +77,7 @@ export async function creditVerifiedTopup(
       return { status };
     }
 
-    // Duplicate-reference guard — prevents double-credit if the same gateway
-    // reference is processed twice (e.g. webhook redelivery).
+    // Duplicate-reference guard — prevents double-credit if the same reference is processed twice.
     const duplicate = await tx.select({ id: walletTransactionsTable.id })
       .from(walletTransactionsTable)
       .where(and(
@@ -160,287 +154,4 @@ export async function creditVerifiedTopup(
     );
     return { status: "paid", newBalance: after };
   });
-}
-
-// ── BuatQris status sync (confirm-paid + polling fallback) ───────────────────
-
-/**
- * Check the BuatQris provider for the current transaction status and reconcile
- * the local topup row. Used by:
- *   - POST /topup/:id/confirm-paid  (user presses "Sudah Bayar")
- *   - GET  /topup/:id/status       (polling fallback)
- *
- * If the provider reports "success", validates transaction_id + amount, then
- * credits via creditVerifiedTopup() — the SAME single credit path used by the
- * webhook. Never credits from "pending". Marks "expired"/"failed" in the DB.
- *
- * @returns the effective status: "paid" | "awaiting_payment" | "expired" | "failed" | "pending"
- */
-export async function syncBuatQrisStatus(topup: any): Promise<string> {
-  // Only automatic (buatqris) payments can be synced from the provider.
-  if (topup.paymentMethod !== "automatic") {
-    return String(topup.status);
-  }
-
-  // Already paid — no need to check the provider.
-  if (isPaidStatus(String(topup.status))) {
-    return "paid";
-  }
-
-  // Terminal states — no need to check the provider.
-  const status = String(topup.status);
-  if (["expired", "failed", "cancelled", "rejected", "denied"].includes(status)) {
-    return status;
-  }
-
-  const providerTxId = topup.providerTransactionId;
-  if (!providerTxId) {
-    logger.warn({ topupId: topup.id }, "syncBuatQrisStatus: no providerTransactionId — skipping provider check");
-    return "pending";
-  }
-
-  let providerResult;
-  try {
-    providerResult = await checkQrisStatus(providerTxId);
-  } catch (err: any) {
-    logger.error(
-      { topupId: topup.id, providerTxId, error: err?.message },
-      "syncBuatQrisStatus: provider check failed — returning DB status",
-    );
-    return "pending";
-  }
-
-  if (providerResult.status === "success") {
-    // Validate transaction_id matches.
-    if (providerResult.transactionId && providerResult.transactionId !== providerTxId) {
-      logger.error(
-        { topupId: topup.id, localTxId: providerTxId, providerTxId: providerResult.transactionId },
-        "syncBuatQrisStatus: transaction_id mismatch — NOT crediting",
-      );
-      return "pending";
-    }
-
-    // Validate amount matches (if provider returned an amount).
-    if (providerResult.amount != null && Number.isFinite(providerResult.amount) && providerResult.amount !== Number(topup.amount)) {
-      logger.error(
-        { topupId: topup.id, localAmount: topup.amount, providerAmount: providerResult.amount },
-        "syncBuatQrisStatus: amount mismatch — NOT crediting",
-      );
-      return "pending";
-    }
-
-    // Credit via the single credit path.
-    logger.info({ topupId: topup.id, providerTxId }, "syncBuatQrisStatus: provider reports success — crediting");
-    const result = await creditVerifiedTopup(topup.id, providerTxId);
-
-    if (result.status === "paid" || result.status === "already_processed") {
-      await invalidateUserCache(topup.userId).catch(() => {});
-      await invalidateCache(keys.analytics("overview")).catch(() => {});
-      return "paid";
-    }
-
-    logger.warn({ topupId: topup.id, creditStatus: result.status }, "syncBuatQrisStatus: credit did not result in paid");
-    return "pending";
-  }
-
-  if (providerResult.status === "expired") {
-    if (String(topup.status) === "pending") {
-      await db.update(topupsTable).set({
-        status: "expired",
-        callbackReceivedAt: new Date(),
-        updatedAt: new Date(),
-      }).where(eq(topupsTable.id, topup.id));
-      logger.info({ topupId: topup.id }, "syncBuatQrisStatus: marked expired");
-    }
-    return "expired";
-  }
-
-  if (providerResult.status === "failed") {
-    if (String(topup.status) === "pending") {
-      await db.update(topupsTable).set({
-        status: "failed",
-        callbackReceivedAt: new Date(),
-        updatedAt: new Date(),
-      }).where(eq(topupsTable.id, topup.id));
-      logger.info({ topupId: topup.id }, "syncBuatQrisStatus: marked failed");
-    }
-    return "failed";
-  }
-
-  // Still pending.
-  return "awaiting_payment";
-}
-
-// ── BuatQris webhook processing ─────────────────────────────────────────────
-
-export interface WebhookProcessResult {
-  httpStatus: number;
-  body: Record<string, unknown>;
-}
-
-/**
- * Process a BuatQris webhook payload (signature already verified by the
- * route handler). Handles payment.success, payment.expired, payment.failed.
- *
- * Idempotency: if the payment is already paid, returns 200 without
- * re-crediting. The advisory lock + duplicate-reference guard in
- * creditVerifiedTopup() handles concurrent deliveries.
- */
-export async function processBuatQrisWebhook(payload: any): Promise<WebhookProcessResult> {
-  const data = payload?.data ?? payload?.result ?? payload;
-  const event = String(payload?.event ?? payload?.type ?? data?.event ?? data?.type ?? "").toLowerCase();
-  const transactionId = String(
-    data?.transaction_id ?? data?.transactionId ?? data?.trx_id ?? "",
-  ).trim();
-  const orderId = String(
-    data?.order_id ?? data?.orderId ?? data?.merchant_order_id ?? data?.description ?? "",
-  ).trim();
-  const amount = Number(data?.amount ?? data?.nominal ?? NaN);
-
-  logger.info(
-    { event, transactionId, orderId, amount },
-    "BuatQris webhook received",
-  );
-
-  if (!event) {
-    return { httpStatus: 400, body: { error: "Missing event" } };
-  }
-
-  // ── payment.success → credit ──────────────────────────────────────────
-  if (event === "payment.success") {
-    if (!transactionId) {
-      logger.warn({ event }, "BuatQris webhook: payment.success missing transaction_id");
-      return { httpStatus: 400, body: { error: "Missing transaction_id" } };
-    }
-
-    // Find the payment by provider_transaction_id first, then by order_id.
-    let topup: any = null;
-    if (transactionId) {
-      [topup] = await db.select().from(topupsTable)
-        .where(eq(topupsTable.providerTransactionId, transactionId)).limit(1);
-    }
-    if (!topup && orderId) {
-      [topup] = await db.select().from(topupsTable)
-        .where(eq(topupsTable.orderId, orderId)).limit(1);
-    }
-
-    if (!topup) {
-      logger.warn({ transactionId, orderId }, "BuatQris webhook: payment not found — not crediting");
-      return { httpStatus: 200, body: { received: true, ignored: true, reason: "payment_not_found" } };
-    }
-
-    // Validate payment_method is automatic.
-    if (topup.paymentMethod !== "automatic") {
-      logger.warn(
-        { topupId: topup.id, paymentMethod: topup.paymentMethod },
-        "BuatQris webhook: payment_method is not automatic — not crediting",
-      );
-      return { httpStatus: 200, body: { received: true, ignored: true, reason: "wrong_payment_method" } };
-    }
-
-    // Already paid — idempotent success.
-    if (isPaidStatus(String(topup.status))) {
-      logger.info({ topupId: topup.id }, "BuatQris webhook: already paid — idempotent");
-      return { httpStatus: 200, body: { received: true, status: "already_paid" } };
-    }
-
-    // Validate amount.
-    if (Number.isFinite(amount) && amount !== Number(topup.amount)) {
-      logger.error(
-        { topupId: topup.id, localAmount: topup.amount, webhookAmount: amount },
-        "BuatQris webhook: amount mismatch — NOT crediting, marking failed",
-      );
-      await db.update(topupsTable).set({
-        status: "failed",
-        callbackReceivedAt: new Date(),
-        providerPayload: payload,
-        updatedAt: new Date(),
-      }).where(eq(topupsTable.id, topup.id));
-      return { httpStatus: 200, body: { received: true, status: "amount_mismatch" } };
-    }
-
-    // Validate transaction_id matches.
-    if (topup.providerTransactionId && topup.providerTransactionId !== transactionId) {
-      logger.error(
-        { topupId: topup.id, localTxId: topup.providerTransactionId, webhookTxId: transactionId },
-        "BuatQris webhook: transaction_id mismatch — NOT crediting",
-      );
-      return { httpStatus: 200, body: { received: true, status: "transaction_mismatch" } };
-    }
-
-    // Credit via the single credit path.
-    logger.info({ topupId: topup.id, transactionId }, "BuatQris webhook: crediting");
-    const result = await creditVerifiedTopup(topup.id, transactionId);
-
-    // Record callback receipt + raw payload for audit (outside the credit tx).
-    await db.update(topupsTable).set({
-      callbackReceivedAt: new Date(),
-      providerPayload: payload,
-      updatedAt: new Date(),
-    }).where(eq(topupsTable.id, topup.id));
-
-    if (result.status === "paid" || result.status === "already_processed") {
-      await invalidateUserCache(topup.userId).catch(() => {});
-      await invalidateCache(keys.analytics("overview")).catch(() => {});
-    }
-
-    logger.info({ topupId: topup.id, creditStatus: result.status }, "BuatQris webhook: processed");
-    return { httpStatus: 200, body: { received: true, status: result.status } };
-  }
-
-  // ── payment.expired → mark expired ────────────────────────────────────
-  if (event === "payment.expired") {
-    if (!transactionId && !orderId) {
-      return { httpStatus: 200, body: { received: true, ignored: true } };
-    }
-    let topup: any = null;
-    if (transactionId) {
-      [topup] = await db.select().from(topupsTable)
-        .where(eq(topupsTable.providerTransactionId, transactionId)).limit(1);
-    }
-    if (!topup && orderId) {
-      [topup] = await db.select().from(topupsTable)
-        .where(eq(topupsTable.orderId, orderId)).limit(1);
-    }
-    if (topup && !isPaidStatus(String(topup.status)) && topup.status === "pending") {
-      await db.update(topupsTable).set({
-        status: "expired",
-        callbackReceivedAt: new Date(),
-        providerPayload: payload,
-        updatedAt: new Date(),
-      }).where(eq(topupsTable.id, topup.id));
-      logger.info({ topupId: topup.id }, "BuatQris webhook: marked expired");
-    }
-    return { httpStatus: 200, body: { received: true, status: "expired" } };
-  }
-
-  // ── payment.failed → mark failed ──────────────────────────────────────
-  if (event === "payment.failed") {
-    if (!transactionId && !orderId) {
-      return { httpStatus: 200, body: { received: true, ignored: true } };
-    }
-    let topup: any = null;
-    if (transactionId) {
-      [topup] = await db.select().from(topupsTable)
-        .where(eq(topupsTable.providerTransactionId, transactionId)).limit(1);
-    }
-    if (!topup && orderId) {
-      [topup] = await db.select().from(topupsTable)
-        .where(eq(topupsTable.orderId, orderId)).limit(1);
-    }
-    if (topup && !isPaidStatus(String(topup.status)) && topup.status === "pending") {
-      await db.update(topupsTable).set({
-        status: "failed",
-        callbackReceivedAt: new Date(),
-        providerPayload: payload,
-        updatedAt: new Date(),
-      }).where(eq(topupsTable.id, topup.id));
-      logger.info({ topupId: topup.id }, "BuatQris webhook: marked failed");
-    }
-    return { httpStatus: 200, body: { received: true, status: "failed" } };
-  }
-
-  // Unknown event — acknowledge but ignore.
-  logger.info({ event }, "BuatQris webhook: unknown event — ignoring");
-  return { httpStatus: 200, body: { received: true, ignored: true } };
 }
