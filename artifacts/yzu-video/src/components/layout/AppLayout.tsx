@@ -12,32 +12,29 @@ import {
   DropdownMenuSeparator, 
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
-import { Search, User, Wallet, Bell, History, LayoutDashboard, LogOut, MessageCircle, Send, Globe2, UploadCloud, Film, Gift, Trophy, Banknote } from "lucide-react";
+import { Search, User, Wallet, Bell, History, LayoutDashboard, LogOut, MessageCircle, Send, Globe2, UploadCloud, Film, Gift, Trophy, Play } from "lucide-react";
 import { SiInstagram, SiTiktok, SiFacebook, SiYoutube, SiDiscord } from "react-icons/si";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { BottomNav } from "./BottomNav";
 
 export function FunLogo({ className = "" }: { className?: string }) {
-  const letters = [
-    { ch: "K", color: "#3b82f6" },
-    { ch: "I", color: "#22c55e" },
-    { ch: "D", color: "#facc15" },
-    { ch: "Z", color: "#ef4444" },
-    { ch: "O", color: "#22c55e" },
-    { ch: "O", color: "#3b82f6" },
-  ];
+  return <YzuLogo className={className} />;
+}
+
+export function YzuLogo({ className = "" }: { className?: string }) {
   return (
-    <div className={`flex flex-col items-center justify-center ${className}`}>
-      <div className="flex items-center">
-        <span className="text-3xl font-extrabold tracking-tighter drop-shadow-sm" style={{ fontFamily: "Nunito, sans-serif" }}>
-          {letters.map((l, i) => (
-            <span key={i} style={{ color: l.color }}>{l.ch}</span>
-          ))}
-        </span>
+    <div className={`flex items-center gap-2 select-none ${className}`}>
+      <div className="h-9 w-9 rounded-2xl bg-gradient-to-tr from-purple-600 to-violet-400 flex items-center justify-center shadow-md shadow-purple-500/25">
+        <Play className="h-4.5 w-4.5 text-white fill-white ml-0.5" />
       </div>
-      <div className="bg-purple-100 rounded-full px-2 py-0.5 -mt-1">
-        <span className="text-[8px] font-extrabold text-purple-700 tracking-widest uppercase">Play • Learn • Grow</span>
+      <div className="flex flex-col">
+        <span className="text-xl font-black tracking-tight text-slate-800 leading-none" style={{ fontFamily: "'Nunito', sans-serif" }}>
+          Yzu<span className="text-purple-600 font-extrabold ml-0.5">视频</span>
+        </span>
+        <span className="text-[9px] font-bold text-purple-500 tracking-wider uppercase leading-tight mt-0.5">
+          Video Platform
+        </span>
       </div>
     </div>
   );
@@ -47,7 +44,6 @@ export function Navbar() {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
 
-  // Fetch user's active custom roles to check permissions
   const { data: customRoles } = useQuery<any[]>({
     queryKey: ["my-custom-roles"],
     queryFn: () => adminFetch("/users/me/custom-roles"),
@@ -57,10 +53,8 @@ export function Navbar() {
 
   const isOwner = user?.role === "owner";
   const isAdmin = user?.role === "admin";
-  // Base roles (user/meril) can upload & manage their videos by default.
   const isBaseUser = user?.role === "user" || user?.role === "meril";
 
-  // Permission comes from the base role OR active custom roles (never badge flags)
   const hasCustomUpload  = customRoles?.some((r: any) => r.permUploadVideo) ?? false;
   const hasCustomMyVideo = customRoles?.some((r: any) => r.permMyVideo)    ?? false;
 
@@ -73,11 +67,11 @@ export function Navbar() {
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-indigo-100/60 backdrop-blur supports-[backdrop-filter]:bg-white/70" style={{ background: "linear-gradient(135deg, rgba(238,242,255,0.92) 0%, rgba(219,234,254,0.92) 100%)" }}>
-      <div className="container mx-auto flex h-16 items-center px-4 md:px-6">
+    <header className="sticky top-0 z-40 w-full border-b border-purple-100/60 bg-white/80 backdrop-blur-md">
+      <div className="container mx-auto flex h-16 items-center justify-between px-4 md:px-6">
         <div className="flex items-center gap-6 md:gap-10">
           <Link href="/" className="flex items-center">
-            <FunLogo />
+            <YzuLogo />
           </Link>
           
           <nav className="hidden md:flex gap-6">
@@ -90,11 +84,14 @@ export function Navbar() {
             <Link href="/topup" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location === '/topup' ? 'text-purple-600' : 'text-slate-500'}`}>
               Top Up
             </Link>
+            <Link href="/info" className={`text-sm font-extrabold transition-colors hover:text-purple-600 ${location === '/info' ? 'text-purple-600' : 'text-slate-500'}`}>
+              Info
+            </Link>
           </nav>
         </div>
 
-        <div className="flex flex-1 items-center justify-end gap-2 md:gap-4">
-          <Button variant="ghost" size="icon" onClick={() => setLocation('/search')} className="text-slate-500 hover:text-purple-600 hover:bg-purple-50">
+        <div className="flex items-center gap-2.5">
+          <Button variant="ghost" size="icon" onClick={() => setLocation('/search')} className="rounded-full text-slate-500 hover:text-purple-600 hover:bg-purple-50">
             <Search className="h-5 w-5" />
             <span className="sr-only">Search</span>
           </Button>
@@ -102,9 +99,9 @@ export function Navbar() {
           {user ? (
             <>
               <Link href="/notifications">
-                <Button variant="ghost" size="icon" className="relative text-slate-500 hover:text-purple-600 hover:bg-purple-50">
+                <Button variant="ghost" size="icon" className="relative rounded-full text-slate-500 hover:text-purple-600 hover:bg-purple-50">
                   <Bell className="h-5 w-5" />
-                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-orange-500" />
+                  <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-red-500" />
                   <span className="sr-only">Notifications</span>
                 </Button>
               </Link>
@@ -118,10 +115,12 @@ export function Navbar() {
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="relative h-10 w-10 rounded-full border-2 border-purple-200 p-0 hover:border-purple-400 transition-colors">
-                    <Avatar className="h-9 w-9">
+                  <Button variant="ghost" className="relative h-9 w-9 rounded-full border-2 border-purple-200 p-0 hover:border-purple-400 transition-colors">
+                    <Avatar className="h-full w-full">
                       <AvatarImage src={user.avatar || ""} alt={user.username} />
-                      <AvatarFallback className="bg-purple-100 text-purple-700 font-bold">{user.username.charAt(0).toUpperCase()}</AvatarFallback>
+                      <AvatarFallback className="bg-purple-600 text-white font-bold text-xs">
+                        {user.username?.charAt(0).toUpperCase() ?? "Y"}
+                      </AvatarFallback>
                     </Avatar>
                   </Button>
                 </DropdownMenuTrigger>
@@ -135,32 +134,14 @@ export function Navbar() {
                         {user.email}
                       </p>
                     </div>
-                    {customRoles && customRoles.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {customRoles.slice(0, 2).map((r: any) => (
-                          <Badge
-                            key={r.id}
-                            variant="secondary"
-                            className="border-none font-bold text-[10px]"
-                            style={{
-                              backgroundColor: `${r.color}20`,
-                              color: r.color,
-                            }}
-                          >
-                            {r.emoji && <span className="mr-1">{r.emoji}</span>}
-                            {r.name}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator className="my-1" />
                   
                   {(user.role === 'admin' || user.role === 'owner') && (
                     <>
                       <DropdownMenuItem onClick={() => setLocation(user.role === 'owner' ? '/owner' : '/admin')} className="cursor-pointer rounded-xl font-medium">
-                        <LayoutDashboard className="mr-2 h-4 w-4 text-blue-500" />
-                        <span>Dashboard</span>
+                        <LayoutDashboard className="mr-2 h-4 w-4 text-purple-600" />
+                        <span>Owner Dashboard</span>
                       </DropdownMenuItem>
                       <DropdownMenuSeparator className="my-1" />
                     </>
@@ -173,31 +154,27 @@ export function Navbar() {
 
                   {canUpload && (
                     <DropdownMenuItem onClick={() => setLocation('/upload')} className="cursor-pointer rounded-xl font-medium">
-                      <UploadCloud className="mr-2 h-4 w-4 text-pink-500" />
+                      <UploadCloud className="mr-2 h-4 w-4 text-purple-500" />
                       <span>Upload Video</span>
                     </DropdownMenuItem>
                   )}
                   {canMyVideo && (
                     <DropdownMenuItem onClick={() => setLocation('/my-video')} className="cursor-pointer rounded-xl font-medium">
-                      <Film className="mr-2 h-4 w-4 text-violet-500" />
+                      <Film className="mr-2 h-4 w-4 text-purple-500" />
                       <span>My Video</span>
                     </DropdownMenuItem>
                   )}
 
                   <DropdownMenuItem onClick={() => setLocation('/leaderboard')} className="cursor-pointer rounded-xl font-medium">
-                    <Trophy className="mr-2 h-4 w-4 text-yellow-500" />
+                    <Trophy className="mr-2 h-4 w-4 text-amber-500" />
                     <span>Leaderboard</span>
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setLocation('/redeem')} className="cursor-pointer rounded-xl font-medium">
-                    <Gift className="mr-2 h-4 w-4 text-purple-500" />
-                    <span>Code Redeem</span>
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setLocation('/topup')} className="cursor-pointer rounded-xl font-medium">
-                    <Wallet className="mr-2 h-4 w-4 text-orange-500" />
+                    <Wallet className="mr-2 h-4 w-4 text-purple-600" />
                     <span>Top-up Wallet</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setLocation('/history')} className="cursor-pointer rounded-xl font-medium">
-                    <History className="mr-2 h-4 w-4 text-sky-500" />
+                    <History className="mr-2 h-4 w-4 text-purple-500" />
                     <span>History</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator className="my-1" />
@@ -210,15 +187,14 @@ export function Navbar() {
             </>
           ) : (
             <div className="flex items-center gap-2">
-              <Button variant="ghost" onClick={() => setLocation('/login')} className="hidden sm:inline-flex font-bold text-slate-600 rounded-full">
+              <Button variant="ghost" onClick={() => setLocation('/login')} className="hidden sm:inline-flex font-bold text-slate-600 rounded-full hover:text-purple-600">
                 Log in
               </Button>
-              <Button onClick={() => setLocation('/register')} className="rounded-full bg-purple-600 hover:bg-purple-700 text-white font-bold">
+              <Button onClick={() => setLocation('/register')} className="rounded-full bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white font-bold shadow-md shadow-purple-500/20">
                 Sign up
               </Button>
             </div>
           )}
-
         </div>
       </div>
     </header>
@@ -235,56 +211,57 @@ const SOCIAL_LINKS = [
 
 export function Footer() {
   const { data: settings } = useGetSettings();
-  const siteName = settings?.siteName || "KIDZOO";
+  const siteName = settings?.siteName || "Yzu视频";
   const socials = SOCIAL_LINKS.filter((s) => !!(settings as any)?.[s.key]);
   const hasContact = !!settings?.whatsappLink || !!settings?.telegramLink;
 
   return (
-    <footer className="border-t border-slate-100 bg-white py-12 md:py-16">
+    <footer className="border-t border-purple-100 bg-white/90 py-10">
       <div className="container mx-auto px-4 md:px-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           <div className="space-y-4 md:col-span-1">
-            <FunLogo className="items-start" />
-            <p className="text-slate-500 text-sm max-w-sm font-medium mt-4">
-              {settings?.footerText || "The best video platform for kids. Discover, watch, and learn in a safe, fun, and colorful environment."}
+            <YzuLogo />
+            <p className="text-slate-500 text-sm max-w-sm font-medium mt-3">
+              {settings?.footerText || "Platform streaming video kartun dan edukasi menyenangkan untuk semua usia. Tonton gratis dan nikmati koleksi terbaik."}
             </p>
           </div>
 
-          <div className="space-y-4">
-            <h4 className="font-heading font-extrabold text-slate-800">Links</h4>
+          <div className="space-y-3">
+            <h4 className="font-heading font-extrabold text-slate-800">Menu Utama</h4>
             <ul className="space-y-2 text-sm font-medium text-slate-500">
               <li><Link href="/" className="hover:text-purple-600 transition-colors">Home</Link></li>
               <li><Link href="/shop" className="hover:text-purple-600 transition-colors">Shop</Link></li>
-              <li><Link href="/leaderboard" className="hover:text-purple-600 transition-colors">Leaderboard</Link></li>
-              <li><Link href="/search" className="hover:text-purple-600 transition-colors">Search</Link></li>
+              <li><Link href="/topup" className="hover:text-purple-600 transition-colors">Top Up</Link></li>
+              <li><Link href="/info" className="hover:text-purple-600 transition-colors">Info</Link></li>
+              <li><Link href="/profile" className="hover:text-purple-600 transition-colors">Profil</Link></li>
             </ul>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             <h4 className="font-heading font-extrabold text-slate-800">Hubungi Kami</h4>
             {hasContact ? (
               <ul className="space-y-2 text-sm font-medium text-slate-500">
                 {settings?.whatsappLink && (
                   <li>
-                    <a href={settings.whatsappLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:text-green-600 transition-colors">
+                    <a href={settings.whatsappLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:text-purple-600 transition-colors">
                       <MessageCircle className="h-4 w-4" /> WhatsApp
                     </a>
                   </li>
                 )}
                 {settings?.telegramLink && (
                   <li>
-                    <a href={settings.telegramLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:text-sky-500 transition-colors">
+                    <a href={settings.telegramLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:text-purple-600 transition-colors">
                       <Send className="h-4 w-4" /> Telegram
                     </a>
                   </li>
                 )}
               </ul>
             ) : (
-              <p className="text-sm font-medium text-slate-400">Belum ada kontak dikonfigurasi</p>
+              <p className="text-sm font-medium text-slate-400">Hubungi kami melalui akun resmi.</p>
             )}
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             <h4 className="font-heading font-extrabold text-slate-800">Media Sosial</h4>
             {socials.length > 0 ? (
               <div className="flex flex-wrap gap-2">
@@ -296,25 +273,23 @@ export function Footer() {
                     rel="noopener noreferrer"
                     aria-label={label}
                     title={label}
-                    className={`flex h-10 w-10 items-center justify-center rounded-full border bg-slate-50 text-slate-500 transition-all duration-300 shadow-sm ${hover}`}
+                    className={`flex h-9 w-9 items-center justify-center rounded-full border bg-slate-50 text-slate-500 transition-all duration-300 shadow-sm ${hover}`}
                   >
                     <Icon className="h-4 w-4" />
                   </a>
                 ))}
               </div>
             ) : (
-              <p className="text-sm font-medium text-slate-400">Belum ada media sosial</p>
+              <p className="text-sm font-medium text-slate-400">Ikuti info terbaru di media sosial kami.</p>
             )}
           </div>
         </div>
 
-        <div className="mt-12 pt-8 border-t border-slate-100 text-center text-sm font-medium text-slate-400 flex flex-col md:flex-row justify-between items-center">
+        <div className="mt-8 pt-6 border-t border-purple-100 text-center text-xs font-medium text-slate-400 flex flex-col md:flex-row justify-between items-center gap-2">
           <p>© {new Date().getFullYear()} {siteName}. All rights reserved.</p>
-          <div className="mt-4 md:mt-0 flex gap-4">
-            <span className="text-purple-600 font-extrabold tracking-wider text-[10px] uppercase flex items-center gap-1.5 bg-purple-50 px-3 py-1.5 rounded-full">
-              <Globe2 className="h-3.5 w-3.5" /> Kids Video Platform
-            </span>
-          </div>
+          <span className="text-purple-600 font-extrabold tracking-wider text-[10px] uppercase flex items-center gap-1 bg-purple-50 px-3 py-1 rounded-full">
+            <Globe2 className="h-3 w-3" /> Yzu视频 Video Platform
+          </span>
         </div>
       </div>
     </footer>
@@ -326,7 +301,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const isVideoDetail = location.startsWith("/videos/");
 
   return (
-    <div className="relative flex min-h-[100dvh] flex-col text-foreground pb-[68px] md:pb-0" style={{ background: "linear-gradient(135deg, #eef2ff 0%, #e0e7ff 40%, #dbeafe 100%)" }}>
+    <div className="relative flex min-h-[100dvh] flex-col text-foreground pb-[76px] md:pb-0 bg-[#fbf9ff]">
       {!isVideoDetail && <Navbar />}
       <main className="flex-1 w-full max-w-full overflow-x-hidden">{children}</main>
       {!isVideoDetail && <Footer />}

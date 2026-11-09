@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { Loader2 } from "lucide-react";
 import { TOKEN_KEY, useAuth } from "@/lib/auth";
 
-const PUBLIC_PATHS = ["/login", "/register", "/maintenance"];
+const PUBLIC_PATHS = ["/", "/login", "/register", "/shop", "/info", "/maintenance"];
 
 export function RequireAuth({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
