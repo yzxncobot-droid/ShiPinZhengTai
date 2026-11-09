@@ -182,7 +182,7 @@ export default function AdminHomeFeedPage() {
             <div>
               <h1 className="text-2xl font-heading font-bold text-gray-800">Home Feed Videos</h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Video feed TikTok-style di Home. Disimpan di Media Supabase, terpisah dari produk Shop.
+                Video feed TikTok-style di Home. Disimpan di Unified Supabase Storage, terpisah dari produk Shop.
               </p>
             </div>
             <Button onClick={openCreate} className="bg-gradient-to-r from-purple-500 to-violet-600 text-white font-bold">

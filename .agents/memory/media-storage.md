@@ -6,8 +6,7 @@ description: Dedicated Supabase project for all non-video media assets — avata
 ## The rule
 All generic image uploads (`POST /upload/image`) and bundle thumbnail uploads (`POST /upload/bundle-thumbnail`) go to the MEDIA Supabase project.
 
-- `MEDIA_SUPABASE_URL` + `MEDIA_SUPABASE_SERVICE_KEY` (required)
-- `MEDIA_SUPABASE_BUCKET` (optional, default `yzx`)
+- `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (required)
 
 ## Folder layout inside MEDIA bucket
 | assetType | folder |

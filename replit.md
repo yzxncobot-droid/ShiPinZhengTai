@@ -45,34 +45,12 @@ Both services start automatically via their configured workflows:
 | `SESSION_SECRET` | ✅ Set (Secret) | JWT signing secret |
 | `DATABASE_URL` | Fallback only | Replit-managed PostgreSQL — NOT used; `NEON_DATABASE_URL` takes priority |
 
-### Public Storage — Creator / Verified Creator videos (Supabase Project 1)
+### Unified Supabase Project
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `PUBLIC_SUPABASE_URL` | ✅ Set (Secret) | Supabase PUBLIC project URL |
-| `PUBLIC_SUPABASE_SERVICE_KEY` | ✅ Set (Secret) | Supabase PUBLIC service key |
-
-### Owner Storage — Owner / Admin videos (Supabase Project 2)
-
-| Variable | Required | Purpose |
-|----------|----------|---------|
-| `OWNER_SUPABASE_URL` | ✅ Set (Secret) | Supabase OWNER project URL |
-| `OWNER_SUPABASE_SERVICE_KEY` | ✅ Set (Secret) | Supabase OWNER service key |
-
-### Media Storage — Avatars, QRIS, Banners, Bundle images (Supabase Project 3)
-
-| Variable | Required | Purpose |
-|----------|----------|---------|
-| `MEDIA_SUPABASE_URL` | ✅ Set (Secret) | Supabase MEDIA project URL |
-| `MEDIA_SUPABASE_SERVICE_KEY` | ✅ Set (Secret) | Supabase MEDIA service key |
-| `MEDIA_SUPABASE_BUCKET` | Optional | Bucket name in MEDIA project (default: `yzx`) |
-
-### Legacy Supabase (read-only backward-compat — pre-migration files)
-
-| Variable | Required | Purpose |
-|----------|----------|---------|
-| `SUPABASE_URL` | ⚠️ Optional | Legacy project URL — only needed to serve old pre-migration files |
-| `SUPABASE_SERVICE_ROLE_KEY` | ⚠️ Optional | Legacy service key |
+| `SUPABASE_URL` | ✅ Required | Unified Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ Required | Unified Supabase service_role key |
 
 ### Redis (caching/sessions)
 
@@ -112,28 +90,22 @@ pnpm --filter @workspace/db run push
 
 ## Video Storage Architecture
 
-Two separate Supabase projects handle all file storage:
+A single unified Supabase project handles all file storage:
 
-### Supabase PUBLIC project (`PUBLIC_SUPABASE_URL`)
-Used for all **Creator** and **Verified Creator** uploads.
+### Unified Supabase Project (`SUPABASE_URL`)
+Used for all Creator, Verified Creator, Owner, Admin, and media uploads.
 
 | Uploader Type    | Videos folder                        | Thumbnails folder                        |
 |------------------|--------------------------------------|------------------------------------------|
-| Creator          | `yzx/public/creator/videos/`         | `yzx/public/creator/thumbnails/`         |
-| Verified Creator | `yzx/public/verified-creator/videos/`| `yzx/public/verified-creator/thumbnails/`|
+| Creator          | `yzx/videos/creator/` or `yzx/videos/{userId}/` | `yzx/thumbnails/` or `yzx/thumbnails/{userId}/` |
+| Verified Creator | `yzx/videos/verified-creator/`       | `yzx/thumbnails/`                        |
+| Owner / Admin    | `yzx/videos/owner/` or `yzx/owner/videos/` | `yzx/thumbnails/` or `yzx/owner/thumbnails/` |
 
-Payment proofs: `yzx/public/verified-creator/payments/{userId}/`
-
-### Supabase OWNER project (`OWNER_SUPABASE_URL`)
-Used exclusively for **Owner** and **Admin** uploads.
-
-| Uploader Type | Videos folder       | Thumbnails folder       |
-|---------------|---------------------|-------------------------|
-| Owner         | `yzx/owner/videos/` | `yzx/owner/thumbnails/` |
+Payment proofs: `yzx/payments/` or `yzx/verified-creator/payments/{userId}/`
 
 ### Routing logic
-- `creator` / `verified_creator` → PUBLIC Supabase → `storage_type = 'PUBLIC'`
-- `owner` → OWNER Supabase → `storage_type = 'OWNER'`
+- All uploads use the centralized `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+- Role-based permissions determine upload rights and target storage paths.
 - Legacy rows (pre-migration) with no `storage_type` are back-filled on startup.
 
 **Backward compatibility:** existing files in legacy folders continue to work — nothing was deleted or moved. The startup migration in `artifacts/api-server/src/lib/startup-migration.ts` back-fills `storage_type` from `uploader_type` on every boot.

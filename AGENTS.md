@@ -331,13 +331,11 @@ delivered via `/run/base44/app.env` (last `env_file` entry, always wins over
 - Supabase — see above. Without them, uploads/payments-cache are
   disabled but the UI renders.
 
-## Supabase Storage (consolidated)
+## Supabase Storage (Unified Single Project)
 
-OWNER and PUBLIC Supabase projects are **consolidated into 1 project**. The
-OWNER storage service (`lib/storage/owner.ts`) falls back to
-`PUBLIC_SUPABASE_URL` / `PUBLIC_SUPABASE_SERVICE_KEY` when
-`OWNER_SUPABASE_URL` / `OWNER_SUPABASE_SERVICE_KEY` are not set. This allows
-using a single Supabase project for both owner and creator uploads.
+All storage operations use **exactly 1 unified Supabase project** configured
+via `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. No multi-project credentials
+are required.
 
 - **Bucket**: `yzx` (public=true, shared by all storage types)
 - **Folder structure** (auto-created as `.keep` placeholders at startup via

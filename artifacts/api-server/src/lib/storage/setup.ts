@@ -1,17 +1,26 @@
 /**
  * Storage bucket initialisation — runs once at server startup (best-effort).
  *
- * For each configured Supabase project (PUBLIC, OWNER, MEDIA):
+ * For the unified Supabase project:
  *   1. Validates that the env var is a service_role JWT (not anon).
  *      An anon key bypasses nothing — all uploads will fail with RLS errors.
  *   2. Ensures the `yzx` bucket exists and is set to public=true.
+ *   3. Populates folder structures for all role-based folders and media assets.
  *
  * All steps are best-effort: a failure logs a clear warning but never
  * prevents the server from starting.
  */
 
 import { logger } from "../logger";
-import { buildSupabaseClient, ensureBucket, ensureFolderStructure, getJwtRole } from "./supabase-helpers";
+import {
+  ensureBucket,
+  ensureFolderStructure,
+  getJwtRole,
+  unifiedSupabaseClient as client,
+  UNIFIED_SUPABASE_URL,
+  UNIFIED_SUPABASE_KEY,
+  UNIFIED_BUCKET,
+} from "./supabase-helpers";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -35,69 +44,30 @@ function validateKey(key: string, label: string): boolean {
   return true;
 }
 
-// ── Per-project bucket setup ──────────────────────────────────────────────────
+// ── Unified bucket setup ──────────────────────────────────────────────────────
 
-async function setupPublicStorage(): Promise<void> {
-  const url = process.env.PUBLIC_SUPABASE_URL ?? "";
-  const key = process.env.PUBLIC_SUPABASE_SERVICE_KEY ?? "";
+async function setupUnifiedStorage(): Promise<void> {
+  const url = UNIFIED_SUPABASE_URL;
+  const key = UNIFIED_SUPABASE_KEY;
   if (!url || !key) {
-    logger.warn("Storage setup: PUBLIC_SUPABASE_URL / PUBLIC_SUPABASE_SERVICE_KEY not set — skipping");
+    logger.warn("Storage setup: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set — skipping");
     return;
   }
-  validateKey(key, "PUBLIC_SUPABASE_SERVICE_KEY");
-  const client = buildSupabaseClient(url, key);
-  await ensureBucket(client, "yzx", "PUBLIC project");
-  await ensureFolderStructure(client, "yzx", "PUBLIC project");
-}
-
-async function setupOwnerStorage(): Promise<void> {
-  // Consolidated: OWNER falls back to PUBLIC Supabase project.
-  const url = process.env.OWNER_SUPABASE_URL || process.env.PUBLIC_SUPABASE_URL || "";
-  const key = process.env.OWNER_SUPABASE_SERVICE_KEY || process.env.PUBLIC_SUPABASE_SERVICE_KEY || "";
-  if (!url || !key) {
-    logger.warn("Storage setup: OWNER_SUPABASE_URL / OWNER_SUPABASE_SERVICE_KEY (or PUBLIC fallback) not set — skipping");
-    return;
-  }
-  const label = process.env.OWNER_SUPABASE_URL ? "OWNER project" : "OWNER project (via PUBLIC — consolidated)";
-  validateKey(key, process.env.OWNER_SUPABASE_URL ? "OWNER_SUPABASE_SERVICE_KEY" : "PUBLIC_SUPABASE_SERVICE_KEY");
-  const client = buildSupabaseClient(url, key);
-  await ensureBucket(client, "yzx", label);
-  await ensureFolderStructure(client, "yzx", label);
-}
-
-async function setupMediaStorage(): Promise<void> {
-  // Consolidated: MEDIA falls back to PUBLIC Supabase project.
-  const url    = process.env.MEDIA_SUPABASE_URL || process.env.PUBLIC_SUPABASE_URL || "";
-  const key    = process.env.MEDIA_SUPABASE_SERVICE_KEY || process.env.PUBLIC_SUPABASE_SERVICE_KEY || "";
-  const bucket = process.env.MEDIA_SUPABASE_BUCKET ?? "yzx";
-  if (!url || !key) {
-    logger.warn("Storage setup: MEDIA_SUPABASE_URL / MEDIA_SUPABASE_SERVICE_KEY (or PUBLIC fallback) not set — skipping");
-    return;
-  }
-  const label = process.env.MEDIA_SUPABASE_URL ? "MEDIA project" : "MEDIA project (via PUBLIC — consolidated)";
-  validateKey(key, process.env.MEDIA_SUPABASE_URL ? "MEDIA_SUPABASE_SERVICE_KEY" : "PUBLIC_SUPABASE_SERVICE_KEY");
-  const client = buildSupabaseClient(url, key);
-  await ensureBucket(client, bucket, label);
-  await ensureFolderStructure(client, bucket, label);
+  validateKey(key, "SUPABASE_SERVICE_ROLE_KEY");
+  await ensureBucket(client, UNIFIED_BUCKET, "Unified Supabase project");
+  await ensureFolderStructure(client, UNIFIED_BUCKET, "Unified Supabase project");
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
 /**
- * Best-effort: run all three bucket setup steps concurrently.
- * Never throws — each failure is logged as a warning.
+ * Best-effort: run unified bucket setup.
+ * Never throws — failures are logged as warnings.
  */
 export async function ensureStorageBuckets(): Promise<void> {
-  const steps = [
-    setupPublicStorage().catch((e: any) =>
-      logger.warn({ err: e?.message }, "Storage setup: PUBLIC bucket setup failed (non-fatal)"),
-    ),
-    setupOwnerStorage().catch((e: any) =>
-      logger.warn({ err: e?.message }, "Storage setup: OWNER bucket setup failed (non-fatal)"),
-    ),
-    setupMediaStorage().catch((e: any) =>
-      logger.warn({ err: e?.message }, "Storage setup: MEDIA bucket setup failed (non-fatal)"),
-    ),
-  ];
-  await Promise.all(steps);
+  try {
+    await setupUnifiedStorage();
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, "Storage setup: unified bucket setup failed (non-fatal)");
+  }
 }

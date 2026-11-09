@@ -9,7 +9,7 @@ import { usersTable } from "./users";
  *
  * The Home feed has its own video table so it never mixes with the Shop
  * `videosTable` (products, purchases, wallet, etc.). Video files & thumbnails
- * are stored in the MEDIA Supabase project (Media_Supabase); only metadata
+ * are stored in the unified Supabase project (yzx/media/home-feed); only metadata
  * lives here.
  *
  * Reward progress is per-VIDEO (never per-user): it is computed from the total
@@ -28,9 +28,9 @@ export const homeFeedVideosTable = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     title: text("title").notNull(),
     description: text("description"),
-    /** Public CDN URL of the video file (stored in Media_Supabase). */
+    /** Public CDN URL of the video file (stored in unified Supabase). */
     videoUrl: text("video_url").notNull(),
-    /** Public CDN URL of the thumbnail image (stored in Media_Supabase). */
+    /** Public CDN URL of the thumbnail image (stored in unified Supabase). */
     thumbnail: text("thumbnail"),
     /** CMS status: "published" (visible) or "draft" (hidden). */
     status: text("status").notNull().default("published"),

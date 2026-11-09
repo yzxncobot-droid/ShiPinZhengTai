@@ -1,6 +1,6 @@
 /**
  * Shared Supabase storage helpers used by all storage services.
- * Each storage service gets its own Supabase client instance (different project credentials).
+ * Unified Supabase project architecture.
  */
 
 // Node 20 lacks native WebSocket; supabase-js v2 requires it for realtime init.
@@ -81,6 +81,21 @@ export function buildSupabaseClient(url: string, serviceKey: string): SupabaseCl
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
 }
+
+/** Centralized Supabase credentials and client */
+export const UNIFIED_SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+export const UNIFIED_SUPABASE_URL = normalizeSupabaseUrl(
+  process.env.SUPABASE_URL ?? "",
+  UNIFIED_SUPABASE_KEY,
+);
+export const UNIFIED_BUCKET = "yzx";
+
+export const isUnifiedSupabaseAvailable = !!UNIFIED_SUPABASE_URL && !!UNIFIED_SUPABASE_KEY;
+
+export const unifiedSupabaseClient = buildSupabaseClient(
+  UNIFIED_SUPABASE_URL,
+  UNIFIED_SUPABASE_KEY,
+);
 
 function extOf(filename: string): string {
   return path.extname(filename).toLowerCase();
@@ -251,10 +266,20 @@ export async function ensureFolderStructure(
   label: string,
 ): Promise<void> {
   const folders = [
+    // Standard role-based folders
+    "videos/creator",
+    "videos/verified-creator",
+    "videos/admin",
+    "videos/owner",
+    "thumbnails",
+    "profiles",
+    "payments",
+    "banners",
+    "bundles",
+    // Existing paths preserved for backward compatibility
     "owner/videos",
     "owner/thumbnails",
     "videos",
-    "thumbnails",
     "verified-creator/payments",
     "media/autoup-thumbnails",
     "media/avatars",

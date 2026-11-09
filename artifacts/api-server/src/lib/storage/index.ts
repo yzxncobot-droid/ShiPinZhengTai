@@ -2,10 +2,10 @@
  * StorageService factory — resolves the correct storage provider
  * based on the uploader type.
  *
- * NEW architecture (2 Supabase projects):
- *   creator          → PublicStorage  (PUBLIC_SUPABASE_URL)
- *   verified_creator → PublicStorage  (PUBLIC_SUPABASE_URL)
- *   owner            → OwnerStorage   (OWNER_SUPABASE_URL)
+ * UNIFIED architecture (1 Supabase project):
+ *   creator          → PublicStorage  (SUPABASE_URL)
+ *   verified_creator → PublicStorage  (SUPABASE_URL)
+ *   owner            → OwnerStorage   (SUPABASE_URL)
  *
  * Usage:
  *   import { getStorageService } from "../lib/storage";
@@ -61,10 +61,7 @@ export function normalizeUploaderType(raw: string | undefined): NormalizedUpload
 
 /**
  * Returns the StorageService for the given uploader type.
- *
- *   creator          → PUBLIC Supabase
- *   verified_creator → PUBLIC Supabase
- *   owner            → OWNER Supabase
+ * All route through the unified Supabase project with respective folder paths.
  */
 export function getStorageService(type: NormalizedUploaderType): StorageService {
   switch (type) {
