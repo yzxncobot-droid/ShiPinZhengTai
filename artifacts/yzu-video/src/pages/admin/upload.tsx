@@ -118,6 +118,9 @@ const uploadSchema = z.object({
   visibility:      z.enum(["public", "premium", "home_video"]).default("public"),
   bundleId:        z.string().optional(),
   price:           z.coerce.number().min(0).optional(),
+  originalPrice:   z.coerce.number().min(0).optional(),
+  isLimitedStock:  z.boolean().default(false),
+  stock:           z.coerce.number().min(1).max(100).optional(),
   downloadable:    z.boolean().default(false),
   videoSourceType: z.enum(["upload", "external_link", "telegram"]).default("upload"),
   videoUrl:        z.string().min(1, "Video wajib diisi"),
@@ -240,6 +243,9 @@ export default function AdminUploadVideo() {
       visibility: "public",
       bundleId: "",
       price: 0,
+      originalPrice: 0,
+      isLimitedStock: false,
+      stock: 10,
       downloadable: false,
       videoSourceType: "upload",
       videoUrl: "",
@@ -544,24 +550,90 @@ export default function AdminUploadVideo() {
                 )} />
 
                 {form.watch("displayOn") === "Shop" && (
-                  <div className="pt-2 border-t border-purple-50 space-y-3">
-                    <FormField control={form.control} name="price" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-gray-700 font-semibold">Harga Video (Rp)</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            placeholder="cth: 25000"
-                            className="bg-purple-50/20 border-purple-200 focus:border-purple-400"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          Harga pembelian satuan untuk video di Shop.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
+                  <div className="pt-2 border-t border-purple-50 space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <FormField control={form.control} name="originalPrice" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-gray-700 font-semibold">Harga Asli (Rp)</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              placeholder="cth: 50000"
+                              className="bg-purple-50/20 border-purple-200 focus:border-purple-400"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription className="text-xs">
+                            Harga awal sebelum diskon.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+
+                      <FormField control={form.control} name="price" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-gray-700 font-semibold">Harga Jual (Rp) *</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              placeholder="cth: 25000"
+                              className="bg-purple-50/20 border-purple-200 focus:border-purple-400"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription className="text-xs">
+                            Harga akhir yang dibayar pengguna.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                    </div>
+
+                    {/* Auto Discount Preview */}
+                    {Number(form.watch("originalPrice") || 0) > Number(form.watch("price") || 0) && Number(form.watch("originalPrice") || 0) > 0 && (
+                      <div className="p-3 bg-purple-50 rounded-xl border border-purple-200 text-xs flex items-center justify-between">
+                        <span className="font-semibold text-purple-700">Diskon Otomatis:</span>
+                        <span className="font-extrabold text-purple-800 bg-white px-2.5 py-0.5 rounded-full border border-purple-200">
+                          {Math.round(((Number(form.watch("originalPrice")) - Number(form.watch("price"))) / Number(form.watch("originalPrice"))) * 100)}% OFF
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Limited Stock Toggle & Quantity */}
+                    <div className="p-4 rounded-xl border border-purple-100 bg-purple-50/40 space-y-3">
+                      <FormField control={form.control} name="isLimitedStock" render={({ field }) => (
+                        <FormItem className="flex items-center justify-between">
+                          <div className="space-y-0.5">
+                            <FormLabel className="text-sm text-gray-700 font-semibold">Limited Stock</FormLabel>
+                            <FormDescription className="text-xs">
+                              Batasi jumlah stok video yang dapat dibeli (1 - 100).
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Switch checked={field.value} onCheckedChange={field.onChange} />
+                          </FormControl>
+                        </FormItem>
+                      )} />
+
+                      {form.watch("isLimitedStock") && (
+                        <FormField control={form.control} name="stock" render={({ field }) => (
+                          <FormItem className="pt-2 border-t border-purple-100">
+                            <FormLabel className="text-xs font-bold text-gray-700">Jumlah Stok (1 - 100)</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={100}
+                                placeholder="cth: 10"
+                                className="bg-white border-purple-200 focus:border-purple-400"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      )}
+                    </div>
                   </div>
                 )}
               </SectionCard>

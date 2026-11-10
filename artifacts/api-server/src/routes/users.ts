@@ -125,10 +125,10 @@ router.patch("/users/:id", authenticate, async (req, res) => {
     res.status(403).json({ error: "Forbidden" }); return;
   }
 
-  const { username, avatar, email, currentPassword, newPassword } = req.body;
+  const { username, displayName, bio, avatar, email, currentPassword, newPassword } = req.body;
   const updates: Partial<typeof usersTable.$inferInsert> = { updatedAt: new Date() };
 
-  if (username !== undefined) {
+  if (username !== undefined && username !== null) {
     if (username.trim().length < 3) { res.status(400).json({ error: "Username minimal 3 karakter" }); return; }
     if (!/^[a-zA-Z0-9_]+$/.test(username.trim())) {
       res.status(400).json({ error: "Username hanya boleh mengandung huruf, angka, dan underscore" }); return;
@@ -138,6 +138,8 @@ router.patch("/users/:id", authenticate, async (req, res) => {
     if (conflict) { res.status(409).json({ error: "Username sudah digunakan" }); return; }
     updates.username = username.trim();
   }
+  if (displayName !== undefined) updates.displayName = displayName ? displayName.trim() : null;
+  if (bio !== undefined) updates.bio = bio ? bio.trim() : null;
   if (avatar !== undefined) updates.avatar = avatar;
   if (email !== undefined) updates.email = email ? email.toLowerCase().trim() : null;
 
@@ -172,6 +174,26 @@ router.delete("/users/:id", authenticate, requireRole("owner"), async (req, res)
   await db.update(usersTable).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(usersTable.id, id));
   await invalidateUserCache(id);
   res.json({ message: "Deleted" });
+});
+
+// ── PATCH /users/:id/creator-badge (admin/owner) ─────────────────────────────
+router.patch("/users/:id/creator-badge", authenticate, requireRole("admin", "owner"), async (req, res) => {
+  const id = req.params.id as string;
+  const { creatorBadge } = req.body;
+  if (typeof creatorBadge !== "boolean") {
+    res.status(400).json({ error: "creatorBadge must be a boolean" });
+    return;
+  }
+
+  const [updated] = await db.update(usersTable)
+    .set({ creatorBadge, updatedAt: new Date() })
+    .where(eq(usersTable.id, id))
+    .returning();
+
+  if (!updated) { res.status(404).json({ error: "Not found" }); return; }
+  await invalidateUserCache(id);
+  logger.info({ targetUserId: id, creatorBadge, byUserId: req.user!.userId }, "User creator badge updated");
+  res.json(formatUser(updated));
 });
 
 // ── PATCH /users/:id/role (owner only) ───────────────────────────────────────

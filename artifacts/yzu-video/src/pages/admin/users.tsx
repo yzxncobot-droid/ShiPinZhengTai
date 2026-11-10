@@ -88,6 +88,19 @@ export default function AdminUsers() {
     placeholderData: (prev) => prev,
   });
 
+  const creatorBadgeMut = useMutation({
+    mutationFn: ({ id, creatorBadge }: { id: string; creatorBadge: boolean }) =>
+      adminFetch(`/users/${id}/creator-badge`, {
+        method: "PATCH",
+        body: JSON.stringify({ creatorBadge }),
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["admin-users"] });
+      toast({ title: vars.creatorBadge ? "Status Kreator Diberikan ★" : "Status Kreator Dicabut" });
+    },
+    onError: (e: any) => toast({ title: "Gagal mengubah status", description: e.message, variant: "destructive" }),
+  });
+
   const banMut = useMutation({
     mutationFn: ({ id, banned }: { id: string; banned: boolean }) =>
       adminFetch(`/users/${id}/ban`, { method: "POST", body: JSON.stringify({ banned }) }),
@@ -192,6 +205,7 @@ export default function AdminUsers() {
                     <th className="p-3 text-left font-medium text-muted-foreground">Pengguna</th>
                     <th className="p-3 text-left font-medium text-muted-foreground hidden md:table-cell">Email</th>
                     <th className="p-3 text-left font-medium text-muted-foreground">Role</th>
+                    <th className="p-3 text-left font-medium text-muted-foreground">Badges</th>
                     <th className="p-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Wallet</th>
                     <th className="p-3 text-left font-medium text-muted-foreground hidden xl:table-cell">Langganan</th>
                     <th className="p-3 text-left font-medium text-muted-foreground hidden xl:table-cell">Kode Ref</th>
@@ -231,6 +245,37 @@ export default function AdminUsers() {
                         </td>
                         <td className="p-3">
                           <CustomRoleBadge customRole={u.customRole} systemRole={u.role} />
+                        </td>
+                        <td className="p-3">
+                          <div className="flex flex-col gap-1 items-start">
+                            {u.creatorBadge ? (
+                              <button
+                                onClick={() => creatorBadgeMut.mutate({ id: u.id, creatorBadge: false })}
+                                title="Klik untuk mencabut status Kreator"
+                                className="cursor-pointer"
+                              >
+                                <Badge className="bg-purple-100 text-purple-700 border-purple-200 text-[10px] font-extrabold hover:bg-purple-200">
+                                  ★ Kreator (Aktif)
+                                </Badge>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => creatorBadgeMut.mutate({ id: u.id, creatorBadge: true })}
+                                title="Klik untuk memberikan status Kreator"
+                                className="cursor-pointer"
+                              >
+                                <Badge variant="outline" className="text-slate-400 text-[10px] font-bold hover:bg-purple-50 hover:text-purple-600">
+                                  + Beri Kreator
+                                </Badge>
+                              </button>
+                            )}
+
+                            {u.verifiedCreator && (
+                              <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px] font-extrabold">
+                                ✓ Terverifikasi
+                              </Badge>
+                            )}
+                          </div>
                         </td>
                         <td className="p-3 hidden lg:table-cell text-sm font-medium">{fmtRp(u.walletBalance)}</td>
                         <td className="p-3 hidden xl:table-cell">

@@ -214,7 +214,8 @@ export default function AdminVideos() {
                     <th className="p-3 text-left font-medium text-muted-foreground">Video</th>
                     <th className="p-3 text-left font-medium text-muted-foreground hidden md:table-cell">Kategori</th>
                     <th className="p-3 text-left font-medium text-muted-foreground">Display On</th>
-                    <th className="p-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Visibilitas</th>
+                    <th className="p-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Visibilitas & Harga</th>
+                    <th className="p-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Stok & Terjual</th>
                     <th className="p-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Status</th>
                     <th className="p-3 text-right font-medium text-muted-foreground hidden md:table-cell">Views</th>
                     <th className="p-3 text-left font-medium text-muted-foreground hidden xl:table-cell">Tanggal</th>
@@ -268,8 +269,34 @@ export default function AdminVideos() {
                         <td className="p-3 hidden lg:table-cell">
                           <VisibilityBadge visibility={v.visibility} />
                           {v.displayOn === "Shop" && v.price ? (
-                            <p className="text-xs text-purple-600 font-bold mt-0.5">{fmtRp(v.price)}</p>
+                            <div className="mt-0.5">
+                              <span className="text-xs text-purple-600 font-bold">{fmtRp(v.price)}</span>
+                              {v.originalPrice && v.originalPrice > v.price && (
+                                <span className="text-[10px] text-muted-foreground line-through ml-1">{fmtRp(v.originalPrice)}</span>
+                              )}
+                              {v.discountPercent && v.discountPercent > 0 && (
+                                <span className="text-[9px] bg-red-100 text-red-600 font-extrabold px-1.5 py-0.2 rounded-full ml-1">
+                                  -{v.discountPercent}%
+                                </span>
+                              )}
+                            </div>
                           ) : null}
+                        </td>
+                        <td className="p-3 hidden lg:table-cell text-xs">
+                          {v.displayOn === "Shop" ? (
+                            <div className="space-y-0.5">
+                              <p className="text-muted-foreground">Terjual: <span className="font-bold text-slate-700">{v.soldCount ?? 0}</span></p>
+                              {v.isLimitedStock ? (
+                                <Badge variant="outline" className={`text-[10px] ${v.stock <= 0 ? "bg-red-50 text-red-600 border-red-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
+                                  {v.stock <= 0 ? "Habis (0)" : `Sisa ${v.stock}`}
+                                </Badge>
+                              ) : (
+                                <span className="text-[10px] text-slate-400">Unlimited</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </td>
                         <td className="p-3 hidden lg:table-cell">
                           <Badge className={`border text-xs ${STATUS_COLORS[v.status] ?? STATUS_COLORS.draft}`}>
@@ -401,15 +428,53 @@ export default function AdminVideos() {
                     </Select>
                   </div>
                 )}
-                {(editVideo.visibility === "premium" || editVideo.visibility === "hidden_bundle") && (
-                  <div>
-                    <label className="text-sm font-medium">Harga (Rp)</label>
-                    <Input
-                      type="number"
-                      className="mt-1"
-                      defaultValue={editVideo.price ?? ""}
-                      onChange={(e) => setEditVideo((p: any) => ({ ...p, price: parseFloat(e.target.value) || null }))}
-                    />
+                {editVideo.displayOn === "Shop" && (
+                  <div className="space-y-3 p-3 bg-muted/30 rounded-xl border">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-medium">Harga Asli (Rp)</label>
+                        <Input
+                          type="number"
+                          className="mt-1"
+                          defaultValue={editVideo.originalPrice ?? ""}
+                          onChange={(e) => setEditVideo((p: any) => ({ ...p, originalPrice: parseFloat(e.target.value) || null }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium">Harga Jual (Rp)</label>
+                        <Input
+                          type="number"
+                          className="mt-1"
+                          defaultValue={editVideo.price ?? ""}
+                          onChange={(e) => setEditVideo((p: any) => ({ ...p, price: parseFloat(e.target.value) || null }))}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="editIsLimited"
+                          checked={!!editVideo.isLimitedStock}
+                          onChange={(e) => setEditVideo((p: any) => ({ ...p, isLimitedStock: e.target.checked }))}
+                        />
+                        <label htmlFor="editIsLimited" className="text-xs font-medium">Limited Stock (1 - 100)</label>
+                      </div>
+                      {editVideo.isLimitedStock && (
+                        <div className="w-24">
+                          <Input
+                            type="number"
+                            min={0}
+                            max={100}
+                            className="h-8 text-xs"
+                            placeholder="Stok"
+                            defaultValue={editVideo.stock ?? 10}
+                            onChange={(e) => setEditVideo((p: any) => ({ ...p, stock: parseInt(e.target.value, 10) || 0 }))}
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
                 <div>

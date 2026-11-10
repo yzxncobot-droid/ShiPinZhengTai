@@ -100,6 +100,30 @@ export default function AdminVerificationsPage() {
     enabled: showHistory,
   });
 
+  // Fetch creator verification applications
+  const { data: applications = [], refetch: refetchApps } = useQuery({
+    queryKey: ["admin-creator-applications"],
+    queryFn: () => adminFetch<any[]>("/admin/creator-verifications"),
+    refetchInterval: 15000,
+  });
+
+  const [reviewApp, setReviewApp] = useState<any | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+
+  const reviewMutation = useMutation({
+    mutationFn: ({ id, status, rejectionReason }: { id: string; status: string; rejectionReason?: string }) =>
+      adminFetch(`/admin/creator-verifications/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status, rejectionReason }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-creator-applications"] });
+      qc.invalidateQueries({ queryKey: ["verifications"] });
+      setReviewApp(null);
+      setRejectReason("");
+    },
+  });
+
   const assignMutation = useMutation({
     mutationFn: ({ userId, badgeType, reason }: { userId: string; badgeType: string; reason: string }) =>
       adminFetch("/verifications", { method: "POST", body: JSON.stringify({ userId, badgeType, reason }) }),
@@ -155,6 +179,102 @@ export default function AdminVerificationsPage() {
               Assign Badge
             </Button>
           </div>
+        </div>
+
+        {/* Verified Creator Applications */}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
+            <h2 className="font-extrabold text-slate-800 flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-blue-600" />
+              Pengajuan Verified Creator ({applications.length})
+            </h2>
+            <Button variant="ghost" size="sm" onClick={() => refetchApps()}>
+              Refresh
+            </Button>
+          </div>
+
+          {applications.length === 0 ? (
+            <div className="py-10 text-center text-slate-400 text-sm">
+              Belum ada pengajuan verifikasi creator
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {applications.map((app: any) => (
+                <div key={app.id} className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
+                  <div className="flex items-start gap-3">
+                    <Avatar username={app.username} avatar={app.avatar} />
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-800 text-sm">{app.channelName}</span>
+                        <span className="text-xs text-slate-400">(@{app.username})</span>
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] ${
+                            app.status === "approved"
+                              ? "bg-green-50 text-green-700 border-green-200"
+                              : app.status === "rejected"
+                              ? "bg-red-50 text-red-700 border-red-200"
+                              : "bg-amber-50 text-amber-700 border-amber-200"
+                          }`}
+                        >
+                          {app.status === "approved" ? "Disetujui" : app.status === "rejected" ? "Ditolak" : "Pending"}
+                        </Badge>
+                      </div>
+
+                      {app.category && (
+                        <p className="text-xs text-purple-600 font-semibold">Kategori: {app.category}</p>
+                      )}
+
+                      {app.socialLinks && (
+                        <p className="text-xs text-slate-600 font-mono">
+                          Sosial: <a href={app.socialLinks} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{app.socialLinks}</a>
+                        </p>
+                      )}
+
+                      {app.portfolioUrl && (
+                        <p className="text-xs text-slate-600 font-mono">
+                          Portofolio: <a href={app.portfolioUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{app.portfolioUrl}</a>
+                        </p>
+                      )}
+
+                      {app.description && (
+                        <p className="text-xs text-slate-500 italic max-w-lg mt-1">"{app.description}"</p>
+                      )}
+
+                      {app.rejectionReason && (
+                        <p className="text-xs text-red-500 font-medium">Alasan penolakan: {app.rejectionReason}</p>
+                      )}
+
+                      <p className="text-[10px] text-slate-400">
+                        Diajukan: {format(new Date(app.createdAt), "d MMM yyyy HH:mm")}
+                      </p>
+                    </div>
+                  </div>
+
+                  {app.status === "pending" && (
+                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                      <Button
+                        size="sm"
+                        onClick={() => reviewMutation.mutate({ id: app.id, status: "approved" })}
+                        disabled={reviewMutation.isPending}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8"
+                      >
+                        Setujui
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setReviewApp(app)}
+                        className="text-red-600 border-red-200 hover:bg-red-50 text-xs h-8"
+                      >
+                        Tolak
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Active Verifications */}
@@ -360,6 +480,40 @@ export default function AdminVerificationsPage() {
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               {assignMutation.isPending ? "Menyimpan..." : "Assign Badge"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject Application Dialog */}
+      <Dialog open={!!reviewApp} onOpenChange={() => setReviewApp(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Tolak Pengajuan Verifikasi?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-xs text-slate-500">
+              Pengajuan dari <strong>{reviewApp?.channelName}</strong> (@{reviewApp?.username}) akan ditolak.
+            </p>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">Alasan Penolakan (opsional)</label>
+              <Textarea
+                placeholder="Contoh: Belum memenuhi syarat jumlah video atau portofolio kurang jelas..."
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                rows={3}
+                className="text-xs"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReviewApp(null)}>Batal</Button>
+            <Button
+              variant="destructive"
+              disabled={reviewMutation.isPending}
+              onClick={() => reviewApp && reviewMutation.mutate({ id: reviewApp.id, status: "rejected", rejectionReason: rejectReason })}
+            >
+              {reviewMutation.isPending ? "Menolak..." : "Tolak Pengajuan"}
             </Button>
           </DialogFooter>
         </DialogContent>

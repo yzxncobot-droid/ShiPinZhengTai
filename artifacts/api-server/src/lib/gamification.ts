@@ -26,6 +26,7 @@ const DAILY_LIMITS: Record<string, number> = {
   comment: 20,
   send_message: 10,
   upload_video: 30,
+  purchase_video: 100,
   login: 10,   // once per day anyway
   join_group: 25,
 };
@@ -40,6 +41,7 @@ const EXP_AMOUNTS: Record<string, number> = {
   send_message: 1,
   join_group: 5,
   upload_video: 10,
+  purchase_video: 25,
 };
 
 // ─── Level formula ────────────────────────────────────────────────────────────
@@ -361,6 +363,8 @@ export async function checkAchievements(userId: string, source: string): Promise
     // Get all active achievements that could be triggered by this source
     const sourceToReqType: Record<string, string[]> = {
       watch_video: ["first_watch", "watch_count"],
+      explore_video: ["explore_count"],
+      purchase_video: ["purchase_count", "first_purchase"],
       like_video: ["first_like", "like_count"],
       comment: ["comment_count"],
       send_message: ["message_count"],
@@ -398,6 +402,7 @@ export async function checkAchievements(userId: string, source: string): Promise
 
     const statValues: Record<string, number> = {
       watch_count: stats?.videosWatched ?? 0,
+      explore_count: stats?.videosWatched ?? 0,
       like_count: stats?.videosLiked ?? 0,
       comment_count: stats?.commentsPosted ?? 0,
       message_count: stats?.messagesSent ?? 0,
@@ -406,9 +411,21 @@ export async function checkAchievements(userId: string, source: string): Promise
       first_watch: stats?.videosWatched ?? 0,
       first_like: stats?.videosLiked ?? 0,
       first_upload: stats?.videosUploaded ?? 0,
+      purchase_count: 0,
+      first_purchase: 0,
       level: ul?.currentLevel ?? 1,
       streak: ul?.streakDays ?? 0,
     };
+
+    if (reqTypes.includes("purchase_count") || reqTypes.includes("first_purchase")) {
+      const { rows } = await pool.query(
+        `SELECT COUNT(*) AS total_purchases FROM video_purchases WHERE user_id = $1`,
+        [userId],
+      );
+      const purchaseCount = parseInt(rows[0]?.total_purchases ?? "0", 10);
+      statValues.purchase_count = purchaseCount;
+      statValues.first_purchase = purchaseCount;
+    }
 
     // ── Creator-specific stat values (require DB queries) ───────────────────
     if (reqTypes.includes("creator_likes")) {
@@ -786,6 +803,7 @@ export async function seedDefaultGamification(): Promise<void> {
     "First Watch", "First Like", "Chatter", "7 Day Streak", "Creator", "Video Master",
     "Legend", "Early Member", "Social Butterfly", "Comment Pro",
     "First Upload", "Rising Creator", "Premium Creator", "Top Creator",
+    "Loyal Viewer", "Great Buyer", "Active User", "Explorer", "First Purchase", "Video Collector",
   ];
   const existingAch = await db.select({ name: achievementsTable.name }).from(achievementsTable);
   const existingNames = new Set(existingAch.map((a: any) => a.name));
@@ -807,6 +825,13 @@ export async function seedDefaultGamification(): Promise<void> {
       { name: "Rising Creator", description: "Mendapatkan 100 total Like", icon: "⭐", rarity: "EPIC", requirementType: "creator_likes", requirementValue: 100, expReward: 200, badgeReward: "creative" },
       { name: "Premium Creator", description: "Mendapatkan penjualan premium pertama", icon: "💎", rarity: "EPIC", requirementType: "premium_sale", requirementValue: 1, expReward: 150 },
       { name: "Top Creator", description: "Mencapai Rp100.000 pendapatan creator", icon: "💰", rarity: "LEGENDARY", requirementType: "creator_revenue", requirementValue: 100000, expReward: 500, badgeReward: "top_creator" },
+      // Required prompt achievements:
+      { name: "Loyal Viewer", description: "Watch 100 videos.", icon: "👀", rarity: "RARE", requirementType: "watch_count", requirementValue: 100, expReward: 150 },
+      { name: "Great Buyer", description: "Purchase 10 videos.", icon: "🛍️", rarity: "RARE", requirementType: "purchase_count", requirementValue: 10, expReward: 200 },
+      { name: "Active User", description: "Log in for 30 consecutive days.", icon: "📅", rarity: "EPIC", requirementType: "streak", requirementValue: 30, expReward: 300 },
+      { name: "Explorer", description: "Explore 50 different videos.", icon: "🧭", rarity: "COMMON", requirementType: "explore_count", requirementValue: 50, expReward: 100 },
+      { name: "First Purchase", description: "Complete the first purchase.", icon: "🛒", rarity: "COMMON", requirementType: "first_purchase", requirementValue: 1, expReward: 50 },
+      { name: "Video Collector", description: "Purchase 50 videos.", icon: "🏆", rarity: "LEGENDARY", requirementType: "purchase_count", requirementValue: 50, expReward: 500 },
     ];
     await db.insert(achievementsTable).values(
       allAchievements.filter(a => toInsert.includes(a.name)),

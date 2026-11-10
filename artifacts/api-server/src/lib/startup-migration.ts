@@ -500,6 +500,38 @@ export async function runBestEffortStartupMigration(): Promise<void> {
         ADD COLUMN IF NOT EXISTS default_price double precision;
     `);
 
+    // ── 8c. Shop & Limited Stock columns on videos table ─────────────────────
+    await runStep(client, "videos: shop pricing & limited stock columns", `
+      ALTER TABLE videos
+        ADD COLUMN IF NOT EXISTS original_price double precision,
+        ADD COLUMN IF NOT EXISTS discount_percent double precision,
+        ADD COLUMN IF NOT EXISTS is_limited_stock boolean NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS stock integer DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS sold_count integer NOT NULL DEFAULT 0;
+    `);
+
+    // ── 8d. Creator verification applications table ─────────────────────────
+    await runStep(client, "verifications: creator_verification_applications table", `
+      CREATE TABLE IF NOT EXISTS creator_verification_applications (
+        id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id          uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        channel_name     text NOT NULL,
+        category         text,
+        social_links     text,
+        portfolio_url    text,
+        description      text,
+        status           text NOT NULL DEFAULT 'pending',
+        rejection_reason text,
+        reviewed_by      uuid REFERENCES users(id) ON DELETE SET NULL,
+        reviewed_at      timestamp,
+        created_at       timestamp NOT NULL DEFAULT NOW(),
+        updated_at       timestamp NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS cva_user_idx ON creator_verification_applications(user_id);
+      CREATE INDEX IF NOT EXISTS cva_status_idx ON creator_verification_applications(status);
+      CREATE INDEX IF NOT EXISTS cva_created_idx ON creator_verification_applications(created_at);
+    `);
+
     // ── 9. Home Feed tables (TikTok-style vertical video feed) ───────────────
     // These tables are created by drizzle-kit push, but also here so the API
     // can boot safely on a production DB where the standalone migration has
