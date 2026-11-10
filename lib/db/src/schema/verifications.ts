@@ -56,5 +56,31 @@ export const verificationHistoryTable = pgTable(
   }),
 );
 
+export const creatorVerificationApplicationsTable = pgTable(
+  "creator_verification_applications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    channelName: text("channel_name").notNull(),
+    category: text("category"),
+    socialLinks: text("social_links"), // URL or comma-separated/JSON links
+    portfolioUrl: text("portfolio_url"),
+    description: text("description"),
+    /** "pending" | "approved" | "rejected" */
+    status: text("status").notNull().default("pending"),
+    rejectionReason: text("rejection_reason"),
+    reviewedBy: uuid("reviewed_by").references(() => usersTable.id, { onDelete: "set null" }),
+    reviewedAt: timestamp("reviewed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    userIdx:   index("cva_user_idx").on(t.userId),
+    statusIdx: index("cva_status_idx").on(t.status),
+    createdIdx: index("cva_created_idx").on(t.createdAt),
+  }),
+);
+
 export type CreatorVerification = typeof creatorVerificationsTable.$inferSelect;
 export type VerificationHistory  = typeof verificationHistoryTable.$inferSelect;
+export type CreatorVerificationApplication = typeof creatorVerificationApplicationsTable.$inferSelect;

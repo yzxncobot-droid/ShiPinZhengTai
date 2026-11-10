@@ -1,296 +1,193 @@
-import { useGetFeaturedVideos, useListCategories } from "@workspace/api-client-react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { VideoCard, VideoCardSkeleton } from "@/components/video/VideoCard";
+import { ShopProductCard, ShopVideo } from "@/components/video/ShopProductCard";
 import { Button } from "@/components/ui/button";
-import { Play, Rocket, Star, Music, Gamepad2, Heart, Smile, Cloud, Sparkles, ChevronDown, SlidersHorizontal, Crown } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import {
+  Rocket, Star, Music, Gamepad2, Heart, Smile, Cloud, Sparkles,
+  ChevronDown, Search, Plus, Wallet, Flame, Sparkle, Tag
+} from "lucide-react";
 import { Link } from "wouter";
-import { useState, Component, type ReactNode } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { adminFetch } from "@/lib/admin-api";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Video } from "@workspace/api-client-react";
+import { useAuth } from "@/lib/auth";
+import { useGetMe } from "@workspace/api-client-react";
 
-/** Lightweight section-level error boundary — renders a quiet fallback instead of crashing the page. */
-class SectionBoundary extends Component<{ label: string; children: ReactNode }, { err: boolean }> {
-  state = { err: false };
-  static getDerivedStateFromError() { return { err: true }; }
-  componentDidCatch(e: Error) { console.error(`[SectionBoundary:${this.props.label}]`, e); }
-  render() {
-    if (this.state.err) {
-      return (
-        <div className="py-10 text-center text-sm text-slate-400 font-medium">
-          Konten ini tidak dapat ditampilkan saat ini.
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
+const INITIAL_LIMIT = 8;
+const LOAD_MORE_STEP = 6;
 
-const CATEGORY_ICONS = [Star, Rocket, Sparkles, Music, Gamepad2, Heart, Smile, Cloud];
-
-const INITIAL_LIMIT = 6;
-const LOAD_MORE_STEP = 4;
-
-// ─── Sort options ────────────────────────────────────────────────────────────
-type SortKey = "popular" | "price_low" | "price_high" | "newest" | "views";
-
-const SORT_OPTIONS: { key: SortKey; label: string; sort: string; order: "asc" | "desc" }[] = [
-  { key: "popular",   label: "Terpopuler",         sort: "popular",   order: "desc" },
-  { key: "newest",    label: "Baru Diupload",      sort: "newest",    order: "desc" },
-  { key: "price_low", label: "Harga Terendah",    sort: "price",     order: "asc"  },
-  { key: "price_high",label: "Harga Tertinggi",    sort: "price",     order: "desc" },
-  { key: "views",     label: "Paling Banyak Ditonton", sort: "views", order: "desc" },
-];
-
-const formatRupiah = (value: number) => `Rp ${value.toLocaleString("id-ID")}`;
-
-// ─── Module-level state (persists across SPA navigation) ─────────────────────
-let persistedVisibleCount = INITIAL_LIMIT;
-let persistedCategoryId: string | null = null;
-let persistedSort: SortKey = "popular";
+type FilterTab = "all" | "popular" | "newest" | "promo";
 
 export default function ShopPage() {
-  const [activeCategoryId, setActiveCategoryId] = useState<string | null>(persistedCategoryId);
-  const [visibleCount, setVisibleCount] = useState(persistedVisibleCount);
-  const [sortKey, setSortKey] = useState<SortKey>(persistedSort);
+  const { user: authUser } = useAuth();
+  const { data: freshUser, refetch: refetchUser } = useGetMe();
+  const currentUser = freshUser || authUser;
 
-  const { data: featuredVideos } = useGetFeaturedVideos();
-  const { data: categories } = useListCategories();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<FilterTab>("all");
+  const [visibleCount, setVisibleCount] = useState(INITIAL_LIMIT);
 
-  const sortOption = SORT_OPTIONS.find((s) => s.key === sortKey) ?? SORT_OPTIONS[0];
+  // Main video grid query
+  const { data: videosData, isLoading: isLoadingVideos, refetch: refetchVideos } = useQuery<{ data: ShopVideo[]; total: number }>({
+    queryKey: ["shop-videos", activeTab, searchQuery],
+    queryFn: async () => {
+      let sort = "createdAt";
+      let order = "desc";
 
-  // Main video grid — sorted + filtered by category (custom fetch to support price/order)
-  const { data: videosData, isLoading: isLoadingVideos } = useQuery<{ data: Video[]; total: number }>({
-    queryKey: ["shop-videos", activeCategoryId ?? "all", sortKey],
-    queryFn: () =>
-      adminFetch<{ data: Video[]; total: number }>(
-      `/videos?displayOn=Shop&sort=${sortOption.sort}&order=${sortOption.order}&limit=100${
-        activeCategoryId ? `&categoryId=${encodeURIComponent(activeCategoryId)}` : ""
-      }`,
-      ),
-    staleTime: 30_000,
+      if (activeTab === "popular") {
+        sort = "views";
+        order = "desc";
+      } else if (activeTab === "newest") {
+        sort = "createdAt";
+        order = "desc";
+      }
+
+      let url = `/videos?displayOn=Shop&sort=${sort}&order=${order}&limit=100`;
+      if (searchQuery.trim()) {
+        url += `&search=${encodeURIComponent(searchQuery.trim())}`;
+      }
+
+      const res = await adminFetch<{ data: ShopVideo[]; total: number }>(url);
+      let list = Array.isArray(res?.data) ? res.data : [];
+
+      if (activeTab === "promo") {
+        list = list.filter((v) => (v.discountPercent && v.discountPercent > 0) || (v.originalPrice && v.price && v.price < v.originalPrice));
+      }
+
+      return { data: list, total: list.length };
+    },
+    staleTime: 10_000,
   });
 
-  const heroVideo = featuredVideos?.[0];
-  const allVideos = Array.isArray(videosData?.data) ? videosData.data : [];
+  const allVideos = videosData?.data || [];
   const visibleVideos = allVideos.slice(0, visibleCount);
   const hasMore = visibleCount < allVideos.length;
 
-  const handleSeeMore = () => {
-    const next = visibleCount + LOAD_MORE_STEP;
-    setVisibleCount(next);
-    persistedVisibleCount = next;
-  };
-
-  const handleCategoryChange = (id: string | null) => {
-    setActiveCategoryId(id);
-    persistedCategoryId = id;
-    setVisibleCount(INITIAL_LIMIT);
-    persistedVisibleCount = INITIAL_LIMIT;
-  };
-
-  const handleSortChange = (key: SortKey) => {
-    setSortKey(key);
-    persistedSort = key;
-    setVisibleCount(INITIAL_LIMIT);
-    persistedVisibleCount = INITIAL_LIMIT;
+  const handlePurchased = () => {
+    refetchUser();
+    refetchVideos();
   };
 
   return (
     <AppLayout>
-      {/* ─── Featured Hero Banner (compact, matches design proportions) ─── */}
-      <section className="px-4 pt-4">
-        <div className="relative w-full overflow-hidden rounded-3xl bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 shadow-xl">
-          {/* Decorative clouds & stars */}
-          <Star className="absolute top-5 right-[18%] h-6 w-6 text-yellow-300 fill-yellow-300 drop-shadow-md rotate-12" />
-          <Star className="absolute top-12 left-[40%] h-3.5 w-3.5 text-white/70 fill-white/70" />
-          <Cloud className="absolute bottom-6 left-[8%] h-8 w-8 text-white/30 fill-white/30" />
-          <Cloud className="absolute top-8 left-[6%] h-6 w-6 text-white/20 fill-white/20" />
-          <div className="absolute -top-6 -right-6 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
-          <div className="absolute -bottom-10 left-1/3 w-40 h-40 bg-pink-500/20 rounded-full blur-3xl" />
-
-          {heroVideo ? (
-            <div className="relative z-10 flex items-stretch gap-2 p-4 sm:p-6">
-              {/* Left: text content */}
-              <div className="flex-1 flex flex-col justify-center min-w-0 space-y-2.5">
-                <span className="inline-flex w-max items-center gap-1 bg-gradient-to-r from-amber-400 to-orange-500 text-white text-[10px] font-extrabold px-2.5 py-1 rounded-full shadow-md">
-                  <Crown className="h-3 w-3" /> POPULAR
-                </span>
-                <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight text-white leading-tight drop-shadow-md line-clamp-2">
-                  {heroVideo.title}
-                </h1>
-                <p className="text-xs sm:text-sm text-white/90 line-clamp-2 font-medium max-w-xs">
-                  {heroVideo.description || "Serunya belajar sambil bermain!"}
-                </p>
-                <div className="flex items-center gap-2 pt-0.5">
-                  <Link href={`/videos/${heroVideo.id}`}>
-                    <Button size="sm" className="h-9 px-4 font-extrabold rounded-full bg-white text-purple-700 hover:bg-slate-100 shadow-lg shadow-black/10">
-                      <Play className="mr-1.5 h-4 w-4 fill-purple-700" /> Tonton
-                    </Button>
-                  </Link>
-                  {heroVideo.price ? (
-                    <span className="text-base font-extrabold text-white drop-shadow">
-                      {formatRupiah(heroVideo.price)}
-                    </span>
-                  ) : (
-                    <span className="text-sm font-extrabold text-white drop-shadow">Gratis</span>
-                  )}
-                </div>
-              </div>
-
-              {/* Right: thumbnail */}
-              <Link href={`/videos/${heroVideo.id}`} className="relative shrink-0 w-28 sm:w-40 md:w-48 aspect-video rounded-2xl overflow-hidden shadow-2xl ring-2 ring-white/30 self-center">
-                {heroVideo.thumbnail ? (
-                  <img src={heroVideo.thumbnail} alt={heroVideo.title} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-white/20">
-                    <Play className="h-8 w-8 text-white" />
-                  </div>
-                )}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-                  <Play className="h-4 w-4 text-purple-600 fill-purple-600 ml-0.5" />
-                </div>
-              </Link>
+      <div className="container mx-auto px-4 py-4 max-w-4xl space-y-4">
+        {/* Top Header: Balance Pill & Top Up Action */}
+        <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-indigo-500/10 p-3.5 sm:p-4 rounded-3xl border border-purple-100 shadow-sm">
+          <div className="flex items-center gap-2.5">
+            <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-purple-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-purple-500/20">
+              <Wallet className="h-5 w-5" />
             </div>
-          ) : (
-            <div className="relative z-10 h-32 flex items-center justify-center">
-              <div className="w-10 h-10 rounded-full border-4 border-white border-t-transparent animate-spin" />
+            <div>
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Saldo Saya</p>
+              <p className="text-base sm:text-lg font-black text-slate-800 leading-tight">
+                Rp {(currentUser?.walletBalance ?? 0).toLocaleString("id-ID")}
+              </p>
             </div>
-          )}
-
-          {/* Carousel dots */}
-          <div className="relative z-10 flex items-center gap-1.5 px-5 pb-3">
-            {[0, 1, 2, 3, 4].map((i) => (
-              <span
-                key={i}
-                className={`h-1.5 rounded-full transition-all ${i === 0 ? "w-5 bg-white" : "w-1.5 bg-white/40"}`}
-              />
-            ))}
           </div>
+
+          <Link href="/topup">
+            <Button
+              size="sm"
+              className="h-9 px-4 rounded-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-extrabold text-xs shadow-md shadow-purple-500/20 gap-1.5 transition-transform active:scale-95"
+            >
+              <Plus className="h-3.5 w-3.5" /> Top Up
+            </Button>
+          </Link>
         </div>
-      </section>
 
-      {/* ─── Main Content ─── */}
-      <div className="container mx-auto px-4 py-6 space-y-5">
+        {/* Search Bar matching reference */}
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-purple-400" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setVisibleCount(INITIAL_LIMIT);
+            }}
+            placeholder="Cari video favoritmu..."
+            className="w-full h-12 pl-11 pr-4 rounded-2xl bg-white border border-purple-100/80 shadow-sm focus-visible:ring-purple-400 text-xs sm:text-sm placeholder:text-slate-400"
+          />
+        </div>
 
-        {/* Filter section heading + sort dropdown */}
-        <SectionBoundary label="video-grid">
-          <section>
-            <div className="flex items-center justify-between mb-3 px-1">
-              <h2 className="flex items-center gap-2 text-lg font-extrabold text-slate-800">
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-purple-100">
-                  <Play className="h-4 w-4 text-purple-600 fill-purple-600" />
-                </span>
-                Produk Video
-              </h2>
+        {/* Quick Filter Tabs matching Reference 1 (Semua, Populer, Baru, Promo) */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+          {[
+            { id: "all", label: "Semua", icon: Sparkles },
+            { id: "popular", label: "Populer", icon: Flame },
+            { id: "newest", label: "Baru", icon: Sparkle },
+            { id: "promo", label: "Promo", icon: Tag },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id as FilterTab);
+                  setVisibleCount(INITIAL_LIMIT);
+                }}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-extrabold transition-all shrink-0 ${
+                  isActive
+                    ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-500/25"
+                    : "bg-white text-slate-600 border border-purple-100 hover:bg-purple-50/60"
+                }`}
+              >
+                <Icon className={`h-3.5 w-3.5 ${isActive ? "text-white" : "text-purple-500"}`} />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-600 shadow-sm hover:border-purple-200 hover:text-purple-600 transition-colors">
-                    <SlidersHorizontal className="h-3.5 w-3.5" />
-                    {sortOption.label}
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  {SORT_OPTIONS.map((opt) => (
-                    <DropdownMenuItem
-                      key={opt.key}
-                      onClick={() => handleSortChange(opt.key)}
-                      className={`cursor-pointer justify-between rounded-lg text-xs font-bold ${
-                        sortKey === opt.key ? "text-purple-600 bg-purple-50" : "text-slate-600"
-                      }`}
-                    >
-                      {opt.label}
-                      {sortKey === opt.key && <span className="h-2 w-2 rounded-full bg-purple-500" />}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+        {/* Product Grid (2 columns on mobile, 3-4 on tablet/desktop) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4 pt-1">
+          {isLoadingVideos
+            ? Array(6)
+                .fill(0)
+                .map((_, i) => (
+                  <div key={i} className="flex flex-col p-3 bg-white rounded-3xl border border-slate-100 animate-pulse space-y-3">
+                    <div className="w-full aspect-video rounded-2xl bg-slate-200" />
+                    <div className="space-y-2">
+                      <div className="h-4 bg-slate-200 rounded w-4/5" />
+                      <div className="h-3 bg-slate-200 rounded w-1/2" />
+                      <div className="h-4 bg-slate-200 rounded w-2/3" />
+                    </div>
+                  </div>
+                ))
+            : visibleVideos.map((video) => (
+                <ShopProductCard
+                  key={video.id}
+                  video={video}
+                  onPurchased={handlePurchased}
+                />
+              ))}
+        </div>
+
+        {/* Empty state */}
+        {!isLoadingVideos && allVideos.length === 0 && (
+          <div className="py-16 text-center flex flex-col items-center bg-white rounded-3xl border border-purple-100/60 mx-1 shadow-sm">
+            <div className="h-16 w-16 bg-purple-50 text-purple-500 rounded-full flex items-center justify-center mb-3">
+              <Rocket className="h-8 w-8" />
             </div>
+            <h3 className="text-base font-extrabold text-slate-800">Tidak ada produk ditemukan</h3>
+            <p className="text-xs font-medium text-slate-500 mt-1 max-w-xs">
+              Coba kata kunci lain atau pilih kategori tab yang berbeda yuk!
+            </p>
+          </div>
+        )}
 
-            {/* Horizontal category chips */}
-            <ScrollArea className="w-full whitespace-nowrap pb-3">
-              <div className="flex w-max space-x-2 px-1 mb-4">
-                <Button
-                  variant={activeCategoryId === null ? "default" : "outline"}
-                  className={`rounded-full h-9 px-5 text-xs font-extrabold transition-all ${
-                    activeCategoryId === null
-                      ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white border-none shadow-md shadow-purple-500/30'
-                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-purple-600'
-                  }`}
-                  onClick={() => handleCategoryChange(null)}
-                >
-                  Semua
-                </Button>
-                {Array.isArray(categories) && categories.map((cat, i) => {
-                  const Icon = CATEGORY_ICONS[i % CATEGORY_ICONS.length];
-                  return (
-                    <Button
-                      key={cat.id}
-                      variant={activeCategoryId === cat.id ? "default" : "outline"}
-                      className={`rounded-full h-9 px-4 text-xs font-extrabold transition-all ${
-                        activeCategoryId === cat.id
-                          ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white border-none shadow-md shadow-purple-500/30'
-                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-purple-600'
-                      }`}
-                      onClick={() => handleCategoryChange(cat.id)}
-                    >
-                      <Icon className="mr-1.5 h-3.5 w-3.5" /> {cat.name}
-                    </Button>
-                  );
-                })}
-              </div>
-              <ScrollBar orientation="horizontal" className="hidden" />
-            </ScrollArea>
-
-            {/* Video Grid — 2 cols on mobile, responsive on desktop */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4 md:gap-6 px-1">
-              {isLoadingVideos
-                ? Array(INITIAL_LIMIT).fill(0).map((_, i) => <VideoCardSkeleton key={i} />)
-                : visibleVideos.map((video) => (
-                    <VideoCard key={video.id} video={video} />
-                  ))}
-            </div>
-
-            {/* Empty state */}
-            {!isLoadingVideos && allVideos.length === 0 && (
-              <div className="py-16 text-center flex flex-col items-center bg-white rounded-3xl border border-slate-100 mx-2 mt-4 shadow-sm">
-                <div className="h-16 w-16 bg-purple-100 rounded-full flex items-center justify-center mb-3">
-                  <Rocket className="h-8 w-8 text-purple-500" />
-                </div>
-                <h3 className="text-lg font-extrabold text-slate-800">Belum ada video nih</h3>
-                <p className="text-sm font-medium text-slate-500 mt-1">Coba kategori atau sort lain yuk!</p>
-              </div>
-            )}
-
-            {/* See More button */}
-            {!isLoadingVideos && hasMore && (
-              <div className="flex justify-center mt-7">
-                <Button
-                  onClick={handleSeeMore}
-                  className="h-11 px-7 rounded-full font-extrabold bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-500/30 gap-2"
-                >
-                  <ChevronDown className="h-4 w-4" />
-                  Lihat Produk Lainnya
-                </Button>
-              </div>
-            )}
-
-            {/* All loaded indicator */}
-            {!isLoadingVideos && !hasMore && allVideos.length > INITIAL_LIMIT && (
-              <div className="flex justify-center mt-7">
-                <p className="text-sm font-medium text-slate-400">Semua video sudah ditampilkan</p>
-              </div>
-            )}
-          </section>
-        </SectionBoundary>
-
+        {/* Load More Button */}
+        {!isLoadingVideos && hasMore && (
+          <div className="flex justify-center pt-2 pb-6">
+            <Button
+              onClick={() => setVisibleCount((prev) => prev + LOAD_MORE_STEP)}
+              className="h-10 px-6 rounded-full font-extrabold text-xs bg-white text-purple-600 border border-purple-200 hover:bg-purple-50 shadow-sm gap-2"
+            >
+              <ChevronDown className="h-4 w-4" />
+              Lihat Lebih Banyak
+            </Button>
+          </div>
+        )}
       </div>
     </AppLayout>
   );

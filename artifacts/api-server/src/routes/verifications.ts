@@ -4,6 +4,7 @@ import {
   usersTable,
   creatorVerificationsTable,
   verificationHistoryTable,
+  creatorVerificationApplicationsTable,
 } from "@workspace/db";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { authenticate, requireRole } from "../middlewares/auth";
@@ -218,6 +219,228 @@ router.get("/verifications/search-users", authenticate, requireRole("admin"), as
       .where(eq(usersTable.username, q))
       .limit(10);
     res.json(users);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── User: submit verified creator application ─────────────────────────────
+
+router.post("/creator-verifications/apply", authenticate, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    const { channelName, category, socialLinks, portfolioUrl, description } = req.body;
+
+    if (!channelName || !channelName.trim()) {
+      res.status(400).json({ error: "Nama channel/kreator wajib diisi" });
+      return;
+    }
+
+    // Check if there is already a pending application
+    const [pending] = await db
+      .select({ id: creatorVerificationApplicationsTable.id })
+      .from(creatorVerificationApplicationsTable)
+      .where(and(
+        eq(creatorVerificationApplicationsTable.userId, userId),
+        eq(creatorVerificationApplicationsTable.status, "pending"),
+      ))
+      .limit(1);
+
+    if (pending) {
+      res.status(409).json({ error: "Anda sudah memiliki pengajuan verifikasi yang sedang diproses" });
+      return;
+    }
+
+    const [app] = await db
+      .insert(creatorVerificationApplicationsTable)
+      .values({
+        userId,
+        channelName: channelName.trim(),
+        category: category?.trim() || null,
+        socialLinks: socialLinks?.trim() || null,
+        portfolioUrl: portfolioUrl?.trim() || null,
+        description: description?.trim() || null,
+        status: "pending",
+      })
+      .returning();
+
+    res.status(201).json(app);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── User: get my latest application status ──────────────────────────────────
+
+router.get("/creator-verifications/my-application", authenticate, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    const [app] = await db
+      .select()
+      .from(creatorVerificationApplicationsTable)
+      .where(eq(creatorVerificationApplicationsTable.userId, userId))
+      .orderBy(desc(creatorVerificationApplicationsTable.createdAt))
+      .limit(1);
+
+    res.json(app || null);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Admin: list all applications ────────────────────────────────────────────
+
+router.get("/admin/creator-verifications", authenticate, requireRole("admin"), async (req, res) => {
+  try {
+    const rows = await db
+      .select({
+        id: creatorVerificationApplicationsTable.id,
+        userId: creatorVerificationApplicationsTable.userId,
+        channelName: creatorVerificationApplicationsTable.channelName,
+        category: creatorVerificationApplicationsTable.category,
+        socialLinks: creatorVerificationApplicationsTable.socialLinks,
+        portfolioUrl: creatorVerificationApplicationsTable.portfolioUrl,
+        description: creatorVerificationApplicationsTable.description,
+        status: creatorVerificationApplicationsTable.status,
+        rejectionReason: creatorVerificationApplicationsTable.rejectionReason,
+        reviewedAt: creatorVerificationApplicationsTable.reviewedAt,
+        createdAt: creatorVerificationApplicationsTable.createdAt,
+        username: usersTable.username,
+        avatar: usersTable.avatar,
+        verifiedCreator: usersTable.verifiedCreator,
+      })
+      .from(creatorVerificationApplicationsTable)
+      .innerJoin(usersTable, eq(creatorVerificationApplicationsTable.userId, usersTable.id))
+      .orderBy(desc(creatorVerificationApplicationsTable.createdAt));
+
+    res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Admin: review application (approve or reject) ───────────────────────────
+
+router.patch("/admin/creator-verifications/:id", authenticate, requireRole("admin"), async (req, res) => {
+  try {
+    const adminId = req.user!.userId;
+    const { id } = req.params as { id: string };
+    const { status, rejectionReason } = req.body;
+
+    if (!["approved", "rejected"].includes(status)) {
+      res.status(400).json({ error: "Status harus 'approved' atau 'rejected'" });
+      return;
+    }
+
+    const [app] = await db
+      .select()
+      .from(creatorVerificationApplicationsTable)
+      .where(eq(creatorVerificationApplicationsTable.id, id))
+      .limit(1);
+
+    if (!app) {
+      res.status(404).json({ error: "Pengajuan tidak ditemukan" });
+      return;
+    }
+
+    const [updated] = await db
+      .update(creatorVerificationApplicationsTable)
+      .set({
+        status,
+        rejectionReason: status === "rejected" ? (rejectionReason || null) : null,
+        reviewedBy: adminId,
+        reviewedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(creatorVerificationApplicationsTable.id, id))
+      .returning();
+
+    if (status === "approved") {
+      // Grant Verified Creator status & Blue badge
+      await db.update(usersTable)
+        .set({
+          verifiedCreator: true,
+          verificationBadge: "blue",
+          updatedAt: new Date(),
+        })
+        .where(eq(usersTable.id, app.userId));
+
+      // Also ensure creator_verifications record exists
+      const [existingBadge] = await db
+        .select({ id: creatorVerificationsTable.id })
+        .from(creatorVerificationsTable)
+        .where(and(
+          eq(creatorVerificationsTable.userId, app.userId),
+          eq(creatorVerificationsTable.badgeType, "blue"),
+          eq(creatorVerificationsTable.status, "active"),
+        ));
+
+      if (!existingBadge) {
+        const [ver] = await db.insert(creatorVerificationsTable)
+          .values({
+            userId: app.userId,
+            badgeType: "blue",
+            verifiedBy: adminId,
+            reason: "Verified Creator Application Approved",
+          })
+          .returning();
+
+        await db.insert(verificationHistoryTable).values({
+          verificationId: ver.id,
+          userId: app.userId,
+          action: "granted",
+          performedBy: adminId,
+          badgeType: "blue",
+          note: "Verified Creator Application Approved",
+        });
+      }
+    } else if (status === "rejected") {
+      // If rejected, does not grant badge
+    }
+
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Admin: revoke verified creator status ────────────────────────────────────
+
+router.post("/admin/creator-verifications/revoke/:userId", authenticate, requireRole("admin"), async (req, res) => {
+  try {
+    const adminId = req.user!.userId;
+    const { userId } = req.params as { userId: string };
+    const { reason } = req.body;
+
+    await db.update(usersTable)
+      .set({
+        verifiedCreator: false,
+        verificationBadge: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(usersTable.id, userId));
+
+    await db.update(creatorVerificationsTable)
+      .set({
+        status: "revoked",
+        revokedAt: new Date(),
+        revokedBy: adminId,
+        reason: reason || "Revoked by admin",
+      })
+      .where(and(
+        eq(creatorVerificationsTable.userId, userId),
+        eq(creatorVerificationsTable.status, "active"),
+      ));
+
+    await db.insert(verificationHistoryTable).values({
+      userId,
+      action: "revoked",
+      performedBy: adminId,
+      badgeType: "blue",
+      note: reason || "Verified Creator status revoked",
+    });
+
+    res.json({ success: true, message: "Status Verified Creator berhasil dicabut" });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

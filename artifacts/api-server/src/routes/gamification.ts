@@ -76,12 +76,27 @@ router.get("/gamification/achievements", authenticate, async (req, res) => {
 
     const statValues: Record<string, number> = {
       first_watch: stats.videosWatched, watch_count: stats.videosWatched,
+      explore_count: stats.videosWatched,
       first_like: stats.videosLiked, like_count: stats.videosLiked,
       comment_count: stats.commentsPosted, message_count: stats.messagesSent,
       group_count: stats.groupsJoined, upload_count: stats.videosUploaded,
       first_upload: stats.videosUploaded,
+      purchase_count: 0,
+      first_purchase: 0,
       level, streak: gamification.streakDays,
     };
+
+    // Calculate purchase stats
+    {
+      const { pool } = await import("@workspace/db");
+      const { rows } = await pool.query(
+        `SELECT COUNT(*) AS total_purchases FROM video_purchases WHERE user_id = $1`,
+        [req.user!.userId],
+      );
+      const purchaseCount = parseInt(rows[0]?.total_purchases ?? "0", 10);
+      statValues.purchase_count = purchaseCount;
+      statValues.first_purchase = purchaseCount;
+    }
 
     // ── Creator-specific stat values (require DB queries) ───────────────────
     const creatorAchTypes = all.filter(a =>

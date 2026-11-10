@@ -30,6 +30,11 @@ export const videosTable = pgTable(
     /** @deprecated use visibility instead; kept for API compat */
     type: videoTypeEnum("type").notNull().default("free"),
     price: doublePrecision("price"),
+    originalPrice: doublePrecision("original_price"),
+    discountPercent: doublePrecision("discount_percent"),
+    isLimitedStock: boolean("is_limited_stock").notNull().default(false),
+    stock: integer("stock").default(0),
+    soldCount: integer("sold_count").notNull().default(0),
     views: integer("views").notNull().default(0),
     likes: integer("likes").notNull().default(0),
     downloadable: boolean("downloadable").notNull().default(false),

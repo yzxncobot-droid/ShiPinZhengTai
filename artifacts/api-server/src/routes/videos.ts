@@ -280,6 +280,23 @@ router.post("/videos/:id/view", optionalAuth, async (req, res) => {
     .from(videosTable).where(and(eq(videosTable.id, id), isNull(videosTable.deletedAt))).limit(1);
   if (!video) { res.status(404).json({ error: "Not found" }); return; }
 
+  // Deduplicate view increment within short window for logged-in user or IP to avoid react double-render increments
+  if (userId) {
+    const recentView = await db.select({ id: viewsTable.id })
+      .from(viewsTable)
+      .where(and(
+        eq(viewsTable.videoId, id),
+        eq(viewsTable.userId, userId),
+        gte(viewsTable.createdAt, new Date(Date.now() - 60_000)), // within 1 minute
+      ))
+      .limit(1);
+
+    if (recentView.length > 0) {
+      res.json({ message: "View deduplicated" });
+      return;
+    }
+  }
+
   // Increment Redis counter for real-time view tracking
   const bufferedCount = await incrementVideoViews(id);
 
@@ -297,9 +314,10 @@ router.post("/videos/:id/view", optionalAuth, async (req, res) => {
 
   // ── Gamification: award watch EXP (idempotent per video, daily-limited) ─────
   if (userId) {
-    import("../lib/gamification").then(({ awardExp }) =>
-      awardExp(userId, "watch_video", `watch_${id}`, undefined, { videoId: id }).catch(() => {}),
-    );
+    import("../lib/gamification").then(({ awardExp }) => {
+      awardExp(userId, "watch_video", `watch_${id}`, undefined, { videoId: id }).catch(() => {});
+      awardExp(userId, "explore_video", `explore_${id}`, undefined, { videoId: id }).catch(() => {});
+    });
   }
 
   res.json({ message: "View recorded", bufferedViews: bufferedCount });
@@ -311,7 +329,8 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
   try {
     const {
       title, description, thumbnail, videoUrl, videoSourceType, videoFilePath,
-      price, downloadable, isFeatured, categoryId, tags, duration, scheduledAt, status = "published",
+      price, originalPrice, isLimitedStock, stock,
+      downloadable, isFeatured, categoryId, tags, duration, scheduledAt, status = "published",
       uploaderType, thumbnailPath, storageFolder, bucketName,
       // Multi-storage provider tracking
       videoStorageProvider, bunnyVideoId, bunnyPlaybackUrl, bunnyLibraryId,
@@ -412,6 +431,32 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
       res.status(400).json({ error: "Harga tidak valid" }); return;
     }
 
+    const safeOriginalPrice: number | null = originalPrice !== undefined && originalPrice !== null && originalPrice !== ""
+      ? Number(originalPrice)
+      : null;
+    if (safeOriginalPrice !== null && (!Number.isFinite(safeOriginalPrice) || safeOriginalPrice < 0)) {
+      res.status(400).json({ error: "Harga asli tidak valid" }); return;
+    }
+
+    // Calculate discount percent and validate
+    let calculatedDiscountPercent: number | null = null;
+    if (safeOriginalPrice !== null && safePrice !== null && safeOriginalPrice > 0) {
+      if (safePrice > safeOriginalPrice) {
+        res.status(400).json({ error: "Harga jual tidak boleh lebih tinggi dari harga asli saat diskon dikonfigurasi" }); return;
+      }
+      calculatedDiscountPercent = Math.round(((safeOriginalPrice - safePrice) / safeOriginalPrice) * 100);
+    }
+
+    const safeIsLimitedStock = isLimitedStock === true || isLimitedStock === "true";
+    let safeStock: number = 0;
+    if (safeIsLimitedStock) {
+      const parsedStock = parseInt(String(stock), 10);
+      if (isNaN(parsedStock) || parsedStock < 1 || parsedStock > 100) {
+        res.status(400).json({ error: "Jumlah stok terbatas harus antara 1 dan 100" }); return;
+      }
+      safeStock = parsedStock;
+    }
+
     // boolean fields: coerce from string "true"/"false" that forms may send
     const safeDownloadable = downloadable === true || downloadable === "true";
     const safeIsFeatured   = isFeatured   === true || isFeatured   === "true";
@@ -444,6 +489,11 @@ router.post("/videos", authenticate, requireRole("admin", "owner"), async (req, 
       thumbnail:       thumbnail || null,
       videoUrl:        resolvedVideoUrl,
       price:           safePrice,
+      originalPrice:   safeOriginalPrice,
+      discountPercent: calculatedDiscountPercent,
+      isLimitedStock:  safeIsLimitedStock,
+      stock:           safeStock,
+      soldCount:       0,
       downloadable:    safeDownloadable,
       isFeatured:      safeIsFeatured,
       categoryId:      safeCategoryId,
@@ -551,7 +601,7 @@ router.patch("/videos/:id", authenticate, requireRole("admin", "owner"), async (
 
     const updates: any = { updatedAt: new Date() };
     const scalarFields = [
-      "title","description","thumbnail","videoUrl","price","downloadable","isFeatured","tags","duration","status",
+      "title","description","thumbnail","videoUrl","price","originalPrice","isLimitedStock","stock","downloadable","isFeatured","tags","duration","status",
       "displayOn",
       // Multi-storage metadata
       "thumbnailPath","storageFolder","bucketName",
@@ -559,6 +609,44 @@ router.patch("/videos/:id", authenticate, requireRole("admin", "owner"), async (
     ] as const;
     for (const f of scalarFields) {
       if (req.body[f] !== undefined) updates[f] = req.body[f];
+    }
+
+    const currentPrice = req.body.price !== undefined ? (req.body.price ? Number(req.body.price) : null) : existing.price;
+    const currentOrigPrice = req.body.originalPrice !== undefined ? (req.body.originalPrice ? Number(req.body.originalPrice) : null) : existing.originalPrice;
+
+    if (currentPrice !== null && (!Number.isFinite(currentPrice) || currentPrice < 0)) {
+      res.status(400).json({ error: "Harga tidak valid" }); return;
+    }
+    if (currentOrigPrice !== null && (!Number.isFinite(currentOrigPrice) || currentOrigPrice < 0)) {
+      res.status(400).json({ error: "Harga asli tidak valid" }); return;
+    }
+
+    if (currentOrigPrice !== null && currentPrice !== null && currentOrigPrice > 0) {
+      if (currentPrice > currentOrigPrice) {
+        res.status(400).json({ error: "Harga jual tidak boleh lebih tinggi dari harga asli saat diskon dikonfigurasi" }); return;
+      }
+      updates.discountPercent = Math.round(((currentOrigPrice - currentPrice) / currentOrigPrice) * 100);
+    } else if (req.body.originalPrice === null || req.body.originalPrice === "" || req.body.price === null) {
+      updates.discountPercent = null;
+    }
+
+    if (req.body.isLimitedStock !== undefined) {
+      const isLim = req.body.isLimitedStock === true || req.body.isLimitedStock === "true";
+      updates.isLimitedStock = isLim;
+      if (isLim) {
+        const rawStock = req.body.stock !== undefined ? req.body.stock : existing.stock;
+        const parsedStock = parseInt(String(rawStock), 10);
+        if (isNaN(parsedStock) || parsedStock < 1 || parsedStock > 100) {
+          res.status(400).json({ error: "Jumlah stok terbatas harus antara 1 dan 100" }); return;
+        }
+        updates.stock = parsedStock;
+      }
+    } else if (req.body.stock !== undefined && (existing.isLimitedStock || updates.isLimitedStock)) {
+      const parsedStock = parseInt(String(req.body.stock), 10);
+      if (isNaN(parsedStock) || parsedStock < 0 || parsedStock > 100) {
+        res.status(400).json({ error: "Jumlah stok harus antara 0 dan 100" }); return;
+      }
+      updates.stock = parsedStock;
     }
     // uploaderType + storageType: derive storage_type server-side when uploaderType changes
     if (req.body.uploaderType !== undefined) {
@@ -661,17 +749,22 @@ router.post("/videos/:id/purchase", authenticate, async (req, res) => {
 
   const [video] = await db.select().from(videosTable)
     .where(and(eq(videosTable.id, id), eq(videosTable.status, "published"), isNull(videosTable.deletedAt))).limit(1);
-  if (!video) { res.status(404).json({ error: "Not found" }); return; }
-  if (!video.price) { res.status(400).json({ error: "Video is not for individual purchase" }); return; }
+  if (!video) { res.status(404).json({ error: "Video tidak ditemukan" }); return; }
+  if (video.price === null || video.price === undefined) { res.status(400).json({ error: "Video ini tidak dijual secara individual" }); return; }
+
+  // Check Limited Stock availability
+  if (video.isLimitedStock && (video.stock === null || video.stock <= 0)) {
+    res.status(400).json({ error: "Stok video habis (Sold Out)" }); return;
+  }
 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
-  if (user.walletBalance < video.price) { res.status(400).json({ error: "Insufficient wallet balance" }); return; }
+  if (user.walletBalance < video.price) { res.status(400).json({ error: "Saldo tidak mencukupi untuk melakukan pembelian" }); return; }
 
   const [existingPurchase] = await db.select({ id: videoPurchasesTable.id })
     .from(videoPurchasesTable)
     .where(and(eq(videoPurchasesTable.userId, userId), eq(videoPurchasesTable.videoId, id))).limit(1);
-  if (existingPurchase) { res.status(400).json({ error: "Already purchased" }); return; }
+  if (existingPurchase) { res.status(400).json({ error: "Video sudah pernah dibeli" }); return; }
 
   // Fetch creator info to calculate tax-based earnings
   const [creator] = video.creatorId
@@ -727,11 +820,15 @@ router.post("/videos/:id/purchase", authenticate, async (req, res) => {
   try {
     const result = await db.transaction(async (tx: any) => {
       // Deduct from buyer
-      await tx.update(usersTable).set({
+      const [buyerUpdate] = await tx.update(usersTable).set({
         walletBalance: newBalance,
         totalSpent: sql`${usersTable.totalSpent} + ${video.price}`,
         updatedAt: new Date(),
-      }).where(eq(usersTable.id, userId));
+      }).where(and(eq(usersTable.id, userId), gte(usersTable.walletBalance, video.price!))).returning();
+
+      if (!buyerUpdate) {
+        throw new Error("Saldo tidak mencukupi atau transaksi gagal diproses");
+      }
 
       await tx.update(walletsTable).set({
         balance: newBalance,
@@ -739,6 +836,24 @@ router.post("/videos/:id/purchase", authenticate, async (req, res) => {
         updatedAt: new Date(),
         lastTransactionAt: new Date(),
       }).where(eq(walletsTable.userId, userId));
+
+      // Update video stock and sold count atomically
+      if (video.isLimitedStock) {
+        const [updatedVideo] = await tx.update(videosTable).set({
+          stock: sql`${videosTable.stock} - 1`,
+          soldCount: sql`${videosTable.soldCount} + 1`,
+          updatedAt: new Date(),
+        }).where(and(eq(videosTable.id, id), sql`${videosTable.stock} > 0`)).returning();
+
+        if (!updatedVideo) {
+          throw new Error("Stok video habis saat transaksi diproses");
+        }
+      } else {
+        await tx.update(videosTable).set({
+          soldCount: sql`${videosTable.soldCount} + 1`,
+          updatedAt: new Date(),
+        }).where(eq(videosTable.id, id));
+      }
 
       const [purchase] = await tx.insert(videoPurchasesTable).values({
         userId, videoId: id, price: video.price!,
@@ -835,12 +950,14 @@ router.post("/videos/:id/purchase", authenticate, async (req, res) => {
       return purchase;
     });
 
-    // ── Gamification: check creator achievements (premium sale, revenue) ────
-    if (isCreatorUpload && video.creatorId) {
-      import("../lib/gamification").then(({ checkAchievements }) =>
-        checkAchievements(video.creatorId!, "video_purchased").catch(() => {}),
-      );
-    }
+    // ── Gamification: award purchase EXP and check buyer & creator achievements ──
+    import("../lib/gamification").then(({ awardExp, checkAchievements }) => {
+      awardExp(userId, "purchase_video", `purchase_${result.id}`, undefined, { videoId: id, purchaseId: result.id }).catch(() => {});
+      checkAchievements(userId, "purchase_video").catch(() => {});
+      if (isCreatorUpload && video.creatorId) {
+        checkAchievements(video.creatorId!, "video_purchased").catch(() => {});
+      }
+    });
 
     res.json({ purchase: result, hasAccess: true, newBalance });
   } catch (err: any) {
