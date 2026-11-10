@@ -73,6 +73,8 @@ catalog:
   zod: ^3.25.76
 
 autoInstallPeers: false
+ignoreWorkspaceRootCheck: true
+pmOnFail: ignore
 
 onlyBuiltDependencies:
   - '@swc/core'
