@@ -156,6 +156,10 @@ overrides:
 importers:
 
   .:
+    dependencies:
+      pnpm:
+        specifier: 10.30.3
+        version: 10.30.3
     devDependencies:
       prettier:
         specifier: ^3.8.4
@@ -2629,6 +2633,11 @@ packages:
 
   pino@9.14.0:
     resolution: {integrity: sha512-8OEwKp5juEvb/MjpIc4hjqfgCNysrS94RIOMXYvpYCdm/jglrKEiAYmiumbmGhCvs+IcInsphYDFwqrjr7398w==}
+    hasBin: true
+
+  pnpm@10.30.3:
+    resolution: {integrity: sha512-yWHR4KLY41TsqlFmuCJRZmi39Ey1vZUSLVkN2Bki9gb1RzttI+xKW+Bef80Y6EiNR9l4u+mBhy8RRdBumnQAFw==}
+    engines: {node: '>=18.12'}
     hasBin: true
 
   postcss-selector-parser@6.0.10:
@@ -5110,6 +5119,8 @@ snapshots:
       safe-stable-stringify: 2.5.0
       sonic-boom: 4.2.1
       thread-stream: 3.1.0
+
+  pnpm@10.30.3: {}
 
   postcss-selector-parser@6.0.10:
     dependencies:
